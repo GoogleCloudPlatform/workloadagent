@@ -33,6 +33,21 @@ jobs:
         export PATH=${PATH}:`go env GOPATH`/bin
         protoc --go_opt=paths=source_relative protos/**/*.proto --go_out=.
 
+    - name: Get the latest dependency versions
+      run: |
+        cp go.mod go.mod.orig
+        cp go.sum go.sum.orig
+        go clean -modcache
+        go mod tidy
+        echo "**************************** Latest go.mod dependencies ****************************"
+        cat go.mod
+        echo "**************************** Latest go.sum dependencies ****************************"
+        cat go.sum
+        echo "**************************** End of dependencies ****************************"
+        mv go.mod.orig go.mod
+        mv go.sum.orig go.sum
+        go clean -modcache
+
     - name: Install dependencies in vendor mode
       run: go mod vendor
 
