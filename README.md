@@ -1,6 +1,6 @@
 # Workload Agent
 
-[![Build](https://github.com/GoogleCloudPlatform/workloadagent/actions/workflows/go.yml/badge.svg)](https://github.com/GoogleCloudPlatform/workloadagent/actions)
+[![Build](https://github.com/GoogleCloudPlatform/workloadagent/actions/workflows/go-build-and-test.yml/badge.svg)](https://github.com/GoogleCloudPlatform/workloadagent/actions)
 
 This repository contains the Workload Agent (Linux and Windows). The agent is
 intended to run on Google Cloud compute instances with self managed workloads.
