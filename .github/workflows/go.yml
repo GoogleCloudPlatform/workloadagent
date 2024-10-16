@@ -25,11 +25,13 @@ jobs:
 
     - name: Install protoc-gen-go
       run: |
-        go get github.com/golang/protobuf/protoc-gen-go
-        go get google.golang.org/grpc/cmd/protoc-gen-go-grpc
+        go install github.com/golang/protobuf/protoc-gen-go@latest
+        go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
     - name: Compile protocol buffers
-      run: protoc --go_opt=paths=source_relative protos/**/*.proto --go_out=.
+      run: |
+        export PATH=${PATH}:`go env GOPATH`/bin
+        protoc --go_opt=paths=source_relative protos/**/*.proto --go_out=.
 
     - name: Install dependencies in vendor mode
       run: go mod vendor
