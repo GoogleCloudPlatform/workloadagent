@@ -1,0 +1,31 @@
+{
+  "displayName": "OracleInstanceAvailability",
+  "documentation": {
+    "content": "This alert triggers when the Oracle instance availability metric (workload.googleapis.com/oracle/instance/availability) is absent or not reporting data for 50% of the time over a 5-minute period. This could indicate that the Oracle instance is unavailable or there is an issue with metric reporting. Immediate investigation is required to ensure the instance is operational.",
+    "mimeType": "text/markdown"
+  },
+  "userLabels": {},
+  "conditions": [
+    {
+      "displayName": "OracleInstanceAvailabilityCheck",
+      "conditionAbsent": {
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_MEAN"
+          }
+        ],
+        "duration": "300s",
+        "filter": "resource.type = \"gce_instance\" AND metric.type = \"workload.googleapis.com/oracle/instance/availability\"",
+        "trigger": {
+          "percent": 50
+        }
+      }
+    }
+  ],
+  "alertStrategy": {},
+  "combiner": "OR",
+  "enabled": true,
+  "notificationChannels": [],
+  "severity": "CRITICAL"
+}

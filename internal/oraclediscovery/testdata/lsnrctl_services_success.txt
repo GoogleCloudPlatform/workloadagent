@@ -1,0 +1,34 @@
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=net)))
+LSNRCTL for Linux: Version 19.0.0.0.0 - Production on 18-APR-2024 17:10:43
+
+Copyright (c) 1991, 2023, Oracle.  All rights reserved.
+
+Connecting to (ADDRESS=(PROTOCOL=tcp)(HOST=)(PORT=1521))
+Services Summary...
+Service "+ASM" has 1 instance(s).
+  Instance "+ASM1", status READY, has 1 handler(s) for this service...
+    Handler(s):
+      "DEDICATED" established:0 refused:0 state:ready
+         LOCAL SERVER
+Service "+ASM_DATA" has 1 instance(s).
+  Instance "+ASM1", status READY, has 1 handler(s) for this service...
+    Handler(s):
+      "DEDICATED" established:0 refused:0 state:ready
+         LOCAL SERVER
+Service "+ASM_RECO" has 1 instance(s).
+  Instance "+ASM1", status READY, has 1 handler(s) for this service...
+    Handler(s):
+      "DEDICATED" established:0 refused:0 state:ready
+         LOCAL SERVER
+Service "orcl" has 1 instance(s).
+  Instance "orcl1", status READY, has 1 handler(s) for this service...
+    Handler(s):
+      "DEDICATED" established:2 refused:0 state:ready
+         LOCAL SERVER
+Service "orclXDB" has 1 instance(s).
+  Instance "orcl1", status READY, has 1 handler(s) for this service...
+    Handler(s):
+      "D000" established:0 refused:0 current:0 max:1022 state:ready
+         DISPATCHER <machine: g322234287-s001, pid: 2739062>
+         (ADDRESS=(PROTOCOL=tcp)(HOST=g322234287-s001)(PORT=21411))
+The command completed successfully

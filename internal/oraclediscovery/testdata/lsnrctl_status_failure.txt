@@ -1,0 +1,14 @@
+LSNRCTL for Linux: Version 19.0.0.0.0 - Production on 03-JUN-2024 11:42:54
+
+Copyright (c) 1991, 2023, Oracle.  All rights reserved.
+
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=IPC)(KEY=NET)))
+TNS-12541: TNS:no listener
+ TNS-12560: TNS:protocol adapter error
+  TNS-00511: No listener
+   Linux Error: 111: Connection refused
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=test.server.internal)(PORT=1234)))
+TNS-12541: TNS:no listener
+ TNS-12560: TNS:protocol adapter error
+  TNS-00511: No listener
+   Linux Error: 111: Connection refused

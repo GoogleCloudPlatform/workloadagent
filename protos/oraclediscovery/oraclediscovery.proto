@@ -1,0 +1,251 @@
+/*
+Copyright 2024 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+syntax = "proto3";
+
+package workloadagent.protos.oraclediscovery;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/GoogleCloudPlatform/workloadagent/protos/oraclediscovery";
+
+// The schema for Oracle discovery data.
+message Discovery {
+  message DatabaseRoot {
+    // Represents a Multitenant container database (CDB) which hosts multiple
+    // pluggable databases (PDBs)
+    message ContainerDatabase {
+      // The root database for the CDB
+      Database root = 1;
+      // The pluggable databases within the CDB
+      repeated Database pdbs = 2;
+    }
+
+    oneof tenancy_type {
+      Database db = 1;            // Represents a non-CDB
+      ContainerDatabase cdb = 2;  // Represents a CDB
+    }
+  }
+
+  // List of discovered databases; each can be a CDB or a non-CDB.
+  repeated DatabaseRoot databases = 1;
+
+  // The timestamp when the last modified.
+  google.protobuf.Timestamp last_updated = 2;
+
+  repeated Listener listeners = 3;
+
+  Host host = 4;
+
+  // A compute host where discovery runs.
+  message Host {
+    // Represents a GCP virtual machine
+    message GcpVirtualMachine {
+      string instance_id = 1;  // VM ID from metadata server
+    }
+    oneof host_type {
+      GcpVirtualMachine vm = 1;
+    }
+    // Hostname returned by the operating system
+    string hostname = 2;
+  }
+
+  message Database {
+    int64 dbid = 1;
+    string name = 2;
+    string db_unique_name = 3;
+    // guid is only set for pluggable databases.
+    string guid = 4;
+    int64 con_id = 5;
+    google.protobuf.Timestamp created = 7;
+    DatabaseRole database_role = 8;
+    enum DatabaseRole {
+      DATABASE_ROLE_UNKNOWN = 0;
+      DATABASE_ROLE_PRIMARY = 1;
+      DATABASE_ROLE_SNAPSHOT_STANDBY = 2;
+      DATABASE_ROLE_LOGICAL_STANDBY = 3;
+      DATABASE_ROLE_PHYSICAL_STANDBY = 4;
+      DATABASE_ROLE_FAR_SYNC = 5;
+    }
+
+    // db_unique_name of the parent database, from v$dataguard_config.
+    // The field is used to track parent-child relationship between primary and
+    // standby instances. Populated for the standby instances only.
+    string parent_db_unique_name = 9;
+
+    message Instance {
+      // instance_number from v$instance.
+      int64 instance_number = 1;
+      // instance_name from v$instance.
+      string name = 2;
+      // ORACLE_SID environment variable from discovery.
+      // This is typically the same as the instance name.
+      string oracle_sid = 3;
+      // ORACLE_HOME environment variable from discovery
+      string oracle_home = 4;
+      // Hostname as reported by v$instance.
+      string hostname = 5;
+      // The value comes from version_full in v$instance if accessible,
+      // otherwise from version
+      string version = 6;
+      enum DatabaseEdition {
+        DATABASE_EDITION_UNKNOWN = 0;
+        DATABASE_EDITION_CORE_EE = 1;
+        DATABASE_EDITION_EE = 2;
+        DATABASE_EDITION_PO = 3;
+        DATABASE_EDITION_SE = 4;
+        DATABASE_EDITION_SE2 = 5;
+        DATABASE_EDITION_XE = 6;
+      }
+      DatabaseEdition edition = 7;
+
+      DatabaseType type = 8;
+
+      // DATABASE_TYPE from V$INSTANCE
+      enum DatabaseType {
+        // Database type can't be determined.
+        DATABASE_TYPE_UNKNOWN = 0;
+        // Regular Oracle RAC database with possibly multiple instances.
+        DATABASE_TYPE_RAC = 1;
+        // Oracle RAC One Node mode, allows only one instance to run at a time.
+        DATABASE_TYPE_RAC_ONE_NODE = 2;
+        // Database is running as a single instance.
+        DATABASE_TYPE_SINGLE = 3;
+      }
+    }
+
+    // List of Oracle instances associated with the database
+    repeated Instance instances = 10;
+  }
+
+  // Oracle Net Listener configuration.
+  message Listener {
+    // id uniquely identifies the listener on the machine.
+    ListenerId id = 1;
+
+    message ListenerId {
+      string alias = 1;
+      string oracle_home = 2;
+    }
+
+    google.protobuf.Timestamp start_time = 3;
+    string security = 4;        // E.g., "OFF"
+    string trace_level = 5;     // E.g., "support"
+    string parameter_file = 6;  // E.g., "/oracle/admin/listener.ora"
+    string log_file = 7;        // E.g., "/oracle/network/log/listener.log"
+    string trace_file = 8;      // E.g., "/oracle/network/trace/listener.trc"
+    repeated Service services = 9;
+
+    // The registered service.
+    message Service {
+      // Full name of the service (e.g., "test.example.com").
+      string name = 1;
+
+      // Database instances that are registered with this network listener.
+      repeated DatabaseInstance instances = 2;
+
+      message DatabaseInstance {
+        // Name of the instance
+        string name = 1;
+
+        // Status of the instance (e.g., "READY").
+        // See the following doc for all possible values:
+        // https://docs.oracle.com/en/database/oracle/oracle-database/21/netag/configuring-and-administering-oracle-net-listener.html
+        string status = 2;
+
+        // Service handlers allocated to each instance
+        repeated Handler handlers = 3;
+
+        // Handlers are responsible for routing client requests to
+        // the appropriate server process.
+        message Handler {
+          // The name of the service handler.
+          // Dispatchers are named D000 through D999. Dedicated servers have the
+          // name of DEDICATED.
+          string name = 1;  // E.g., "DEDICATED" or "D000"
+          State state = 2;  // E.g., "ready"
+
+          // The state of the handler.
+          enum State {
+            STATE_UNKNOWN = 0;
+            // the service handler can accept new connections.
+            STATE_READY = 1;
+            // the service handler cannot accept new connections.
+            STATE_BLOCKED = 2;
+          }
+
+          // The type of the handler. Can either be Dedicated server or
+          // dispatcher
+          oneof type {
+            DedicatedServer dedicated_server = 3;
+            Dispatcher dispatcher = 4;
+          }
+
+          // Information specific to dedicated servers.
+          message DedicatedServer {}
+
+          // Information specific to dispatchers.
+          message Dispatcher {
+            string machine_name = 1;
+            uint32 pid = 2;
+            Address address = 3;
+
+            message Address {
+              string host = 1;
+              uint32 port = 2;
+              string protocol = 3;
+            }
+          }
+        }
+      }
+    }
+    repeated Endpoint endpoints = 10;
+
+    // The network endpoints (addresses and protocols) the listener is
+    // configured to listen on.
+    message Endpoint {
+      oneof protocol {
+        IPCProtocol ipc = 1;
+        NMPProtocol nmp = 2;
+        TCPProtocol tcp = 3;
+        TCPProtocol tcps = 4;
+      }
+    }
+
+    // Details specific to the IPC protocol.
+    message IPCProtocol {
+      // Unique name for the service.
+      // Oracle recommends using the service name or SID of the service.
+      string key = 1;
+    }
+
+    // Details specific to the NMP protocol.
+    message NMPProtocol {
+      // The name of the Oracle server.
+      string server = 1;
+
+      // The pipe name used to connect to the database server.
+      // This is the same PIPE keyword specified on server with Named Pipes.
+      string pipe = 2;
+    }
+
+    // Details for the TCP and TCPs protocols.
+    message TCPProtocol {
+      // Hostname or IP address of the endpoint
+      string host = 1;
+      int32 port = 2;
+    }
+  }
+}

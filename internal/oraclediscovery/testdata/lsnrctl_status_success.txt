@@ -1,0 +1,32 @@
+LSNRCTL for Linux: Version 19.0.0.0.0 - Production on 18-APR-2024 16:54:33
+
+Copyright (c) 1991, 2023, Oracle.  All rights reserved.
+
+Connecting to (ADDRESS=(PROTOCOL=tcp)(HOST=)(PORT=1521))
+STATUS of the LISTENER
+------------------------
+Alias                     LISTENER
+Version                   TNSLSNR for Linux: Version 19.0.0.0.0 - Production
+Start Date                10-FEB-2024 01:57:06
+Uptime                    68 days 14 hr. 57 min. 27 sec
+Trace Level               off
+Security                  ON: Local OS Authentication
+SNMP                      OFF
+Listener Parameter File   /u01/app/19.3.0/grid/network/admin/listener.ora
+Listener Log File         /u01/app/grid/diag/tnslsnr/g322234287-s001/listener/alert/log.xml
+Listening Endpoints Summary...
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=LISTENER)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=172.16.115.2)(PORT=1521)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=172.16.115.11)(PORT=1521)))
+Services Summary...
+Service "+ASM" has 1 instance(s).
+  Instance "+ASM1", status READY, has 1 handler(s) for this service...
+Service "+ASM_DATA" has 1 instance(s).
+  Instance "+ASM1", status READY, has 1 handler(s) for this service...
+Service "+ASM_RECO" has 1 instance(s).
+  Instance "+ASM1", status READY, has 1 handler(s) for this service...
+Service "orcl" has 1 instance(s).
+  Instance "orcl1", status READY, has 1 handler(s) for this service...
+Service "orclXDB" has 1 instance(s).
+  Instance "orcl1", status READY, has 1 handler(s) for this service...
+The command completed successfully

@@ -1,0 +1,291 @@
+{
+  "queries": [
+    {
+        "name": "pga_memory_queries",
+        "sql": "SELECT * FROM (SELECT name, value FROM V$PGASTAT) PIVOT (MAX(value) FOR name IN ('total PGA inuse' AS total_pga_inuse, 'total PGA allocated' AS total_pga_allocated))",
+        "columns": [
+            {
+                "name": "total_pga_inuse",
+                "name_override": "process/pga_memory/total_used_size",
+                "metric_type": "METRIC_GAUGE",
+                "value_type": "VALUE_INT64"
+            },
+            {
+                "name": "total_pga_allocated",
+                "name_override": "process/pga_memory/total_allocated_size",
+                "metric_type": "METRIC_GAUGE",
+                "value_type": "VALUE_INT64"
+            }
+        ],
+        "database_role": "BOTH"
+    },
+    {
+        "name": "sga_memory_queries",
+        "sql": "SELECT name as component_name, bytes as \"size\" FROM V$SGAINFO",
+        "columns": [
+            {
+                "name": "component_name",
+                "metric_type": "METRIC_LABEL",
+                "value_type": "VALUE_STRING"
+            },
+            {
+                "name": "size",
+                "name_override": "process/sga_memory/size",
+                "metric_type": "METRIC_GAUGE",
+                "value_type": "VALUE_INT64"
+            }
+        ],
+        "database_role": "BOTH"
+    },
+    {
+        "name": "sys_wait_queries",
+        "sql": "SELECT wait_class, total_waits, time_waited / 100 AS time_waited_seconds, total_waits_fg, time_waited_fg / 100 AS time_waited_fg_seconds FROM V$SYSTEM_WAIT_CLASS",
+        "columns": [
+            {
+                "name": "wait_class",
+                "metric_type": "METRIC_LABEL",
+                "value_type": "VALUE_STRING"
+            },
+            {
+                "name": "total_waits",
+                "name_override": "sys_wait/count",
+                "metric_type": "METRIC_CUMULATIVE",
+                "value_type": "VALUE_INT64"
+            },
+            {
+                "name": "time_waited_seconds",
+                "name_override": "sys_wait/time",
+                "metric_type": "METRIC_CUMULATIVE",
+                "value_type": "VALUE_DOUBLE"
+            },
+            {
+                "name": "total_waits_fg",
+                "name_override": "sys_wait/foreground/count",
+                "metric_type": "METRIC_CUMULATIVE",
+                "value_type": "VALUE_INT64"
+            },
+            {
+                "name": "time_waited_fg_seconds",
+                "name_override": "sys_wait/foreground/time",
+                "metric_type": "METRIC_CUMULATIVE",
+                "value_type": "VALUE_DOUBLE"
+            }
+        ],
+        "database_role": "BOTH"
+    },
+    {
+        "name": "sys_time_queries",
+        "sql": "SELECT db_time / 1000000 AS db_time_seconds, db_cpu / 1000000 AS db_cpu_seconds, sql_execute_elapsed_time / 1000000 AS sql_execute_elapsed_time_seconds, parse_time_elapsed / 1000000 AS parse_time_elapsed_seconds, pl_sql_execution_elapsed_time / 1000000 AS pl_sql_execution_elapsed_time_seconds, background_elapsed_time / 1000000 AS background_elapsed_time_seconds FROM (SELECT stat_name, value FROM V$SYS_TIME_MODEL) PIVOT (MAX(value) FOR stat_name IN ('DB time' AS db_time, 'DB CPU' AS db_cpu, 'sql execute elapsed time' AS sql_execute_elapsed_time, 'parse time elapsed' AS parse_time_elapsed, 'PL/SQL execution elapsed time' AS pl_sql_execution_elapsed_time, 'background elapsed time' AS background_elapsed_time))",
+        "columns": [
+            {
+                "name": "db_time_seconds",
+                "name_override": "sys_time/db_time",
+                "metric_type": "METRIC_CUMULATIVE",
+                "value_type": "VALUE_DOUBLE"
+            },
+            {
+                "name": "db_cpu_seconds",
+                "name_override": "sys_time/db_cpu",
+                "metric_type": "METRIC_CUMULATIVE",
+                "value_type": "VALUE_DOUBLE"
+            },
+            {
+                "name": "sql_execute_elapsed_time_seconds",
+                "name_override": "sys_time/sql_execute_elapsed_time",
+                "metric_type": "METRIC_CUMULATIVE",
+                "value_type": "VALUE_DOUBLE"
+            },
+            {
+                "name": "parse_time_elapsed_seconds",
+                "name_override": "sys_time/parse_time_elapsed",
+                "metric_type": "METRIC_CUMULATIVE",
+                "value_type": "VALUE_DOUBLE"
+            },
+            {
+                "name": "pl_sql_execution_elapsed_time_seconds",
+                "name_override": "sys_time/pl_sql_execution_elapsed_time",
+                "metric_type": "METRIC_CUMULATIVE",
+                "value_type": "VALUE_DOUBLE"
+            },
+            {
+                "name": "background_elapsed_time_seconds",
+                "name_override": "sys_time/background_elapsed_time",
+                "metric_type": "METRIC_CUMULATIVE",
+                "value_type": "VALUE_DOUBLE"
+            }
+        ],
+        "database_role": "BOTH"
+    },
+    {
+        "name": "iostat_function_queries",
+        "sql": "SELECT function_name,(small_read_reqs + large_read_reqs) AS read_ops_count,(small_write_reqs + large_write_reqs) AS write_ops_count, (small_read_megabytes + large_read_megabytes) * 1048576 AS read_bytes_count, (small_write_megabytes + large_write_megabytes) * 1048576 AS write_bytes_count, CASE WHEN number_of_waits > 0 THEN (wait_time / number_of_waits) / 1000 ELSE 0 END AS average_latency_seconds FROM V$IOSTAT_FUNCTION",
+        "columns": [
+            {
+                "name": "function_name",
+                "metric_type": "METRIC_LABEL",
+                "value_type": "VALUE_STRING"
+            },
+            {
+                "name": "read_ops_count",
+                "name_override": "iostat/read_ops_count",
+                "metric_type": "METRIC_CUMULATIVE",
+                "value_type": "VALUE_INT64"
+            },
+            {
+                "name": "write_ops_count",
+                "name_override": "iostat/write_ops_count",
+                "metric_type": "METRIC_CUMULATIVE",
+                "value_type": "VALUE_INT64"
+            },
+            {
+                "name": "read_bytes_count",
+                "name_override": "iostat/read_bytes_count",
+                "metric_type": "METRIC_CUMULATIVE",
+                "value_type": "VALUE_INT64"
+            },
+            {
+                "name": "write_bytes_count",
+                "name_override": "iostat/write_bytes_count",
+                "metric_type": "METRIC_CUMULATIVE",
+                "value_type": "VALUE_INT64"
+                },
+            {
+                "name": "average_latency_seconds",
+                "name_override": "iostat/average_latency_seconds",
+                "metric_type": "METRIC_CUMULATIVE",
+                "value_type": "VALUE_DOUBLE"
+            }
+        ],
+        "database_role": "BOTH"
+    },
+    {
+        "name": "data_files_queries",
+        "sql": "SELECT df.tablespace_name, df.file_name, df.autoextensible, df.bytes AS total_bytes, (df.bytes - NVL(fs.free_space, 0)) AS bytes_used, NVL(fs.free_space, 0) AS available_bytes, df.maxbytes as max_bytes, ROUND(((df.bytes - NVL(fs.free_space, 0)) / df.bytes) * 100, 2) AS percent_used FROM dba_data_files df LEFT JOIN (SELECT file_id, SUM(bytes) AS free_space FROM dba_free_space GROUP BY file_id) fs ON df.file_id = fs.file_id",
+        "columns": [
+            {
+                "name": "tablespace_name",
+                "metric_type": "METRIC_LABEL",
+                "value_type": "VALUE_STRING"
+            },
+            {
+                "name": "file_name",
+                "metric_type": "METRIC_LABEL",
+                "value_type": "VALUE_STRING"
+            },
+            {
+                "name": "autoextensible",
+                "metric_type": "METRIC_LABEL",
+                "value_type": "VALUE_STRING"
+            },
+            {
+                "name": "total_bytes",
+                "name_override": "data_files/total_bytes",
+                "metric_type": "METRIC_GAUGE",
+                "value_type": "VALUE_INT64"
+            },
+            {
+                "name": "bytes_used",
+                "name_override": "data_files/bytes_used",
+                "metric_type": "METRIC_GAUGE",
+                "value_type": "VALUE_INT64"
+            },
+            {
+                "name": "available_bytes",
+                "name_override": "data_files/available_bytes",
+                "metric_type": "METRIC_GAUGE",
+                "value_type": "VALUE_INT64"
+            },
+            {
+                "name": "max_bytes",
+                "name_override": "data_files/max_bytes",
+                "metric_type": "METRIC_GAUGE",
+                "value_type": "VALUE_INT64"
+            },
+            {
+                "name": "percent_used",
+                "name_override": "data_files/percent_used",
+                "metric_type": "METRIC_GAUGE",
+                "value_type": "VALUE_DOUBLE"
+            }
+        ],
+        "database_role": "PRIMARY"
+    },
+    {
+        "name": "instance_uptime_queries",
+        "sql": "SELECT instance_name AS name, ROUND((SYSDATE - startup_time) * 86400) AS uptime FROM v$instance",
+        "columns": [
+            {
+                "name": "name",
+                "metric_type": "METRIC_LABEL",
+                "value_type": "VALUE_STRING"
+            },
+            {
+                "name": "uptime",
+                "name_override": "instance/uptime",
+                "metric_type": "METRIC_CUMULATIVE",
+                "value_type": "VALUE_INT64"
+            }
+        ],
+        "database_role": "BOTH"
+    },
+    {
+        "name": "instance_status_queries",
+        "sql": "SELECT i.instance_name AS name, CASE WHEN i.status = 'STARTED' THEN 1 WHEN i.status = 'MOUNTED' THEN 2 WHEN i.status = 'OPEN' THEN 3 WHEN i.status = 'OPEN MIGRATE' THEN 4 ELSE 0 END AS status_int, CASE WHEN d.open_mode = 'MOUNTED' THEN 1 WHEN d.open_mode = 'READ WRITE' THEN 2 WHEN d.open_mode = 'READ ONLY' THEN 3 WHEN d.open_mode = 'READ ONLY WITH APPLY' THEN 4 ELSE 0 END AS open_mode_int, (SELECT 1 FROM dual) AS availability_check FROM v$instance i, v$database d",
+        "columns": [
+            {
+                "name": "name",
+                "metric_type": "METRIC_LABEL",
+                "value_type": "VALUE_STRING"
+            },
+            {
+                "name": "status_int",
+                "name_override": "instance/status",
+                "metric_type": "METRIC_GAUGE",
+                "value_type": "VALUE_INT64"
+            },
+            {
+                "name": "open_mode_int",
+                "name_override": "instance/db_open_mode",
+                "metric_type": "METRIC_GAUGE",
+                "value_type": "VALUE_INT64"
+            },
+            {
+                "name": "availability_check",
+                "name_override": "instance/availability",
+                "metric_type": "METRIC_GAUGE",
+                "value_type": "VALUE_INT64"
+            }
+        ],
+        "database_role": "BOTH"
+    },
+    {
+        "name": "data_guard_queries",
+        "sql": "SELECT source_dbid, source_db_unique_name, apply_lag_seconds, transport_lag_seconds FROM (SELECT source_dbid, source_db_unique_name, name, (EXTRACT(DAY FROM TO_DSINTERVAL(value)) * 24 * 60 * 60 + EXTRACT(HOUR FROM TO_DSINTERVAL(value)) * 60 * 60 + EXTRACT(MINUTE FROM TO_DSINTERVAL(value)) * 60 + EXTRACT(SECOND FROM TO_DSINTERVAL(value))) AS lag_seconds FROM v$dataguard_stats WHERE name IN ('apply lag', 'transport lag')) PIVOT (MAX(lag_seconds) FOR name IN ('apply lag' AS apply_lag_seconds, 'transport lag' AS transport_lag_seconds))",
+        "columns": [
+            {
+                "name": "source_dbid",
+                "metric_type": "METRIC_LABEL",
+                "value_type": "VALUE_STRING"
+            },
+            {
+                "name": "source_db_unique_name",
+                "metric_type": "METRIC_LABEL",
+                "value_type": "VALUE_STRING"
+            },
+            {
+                "name": "apply_lag_seconds",
+                "name_override": "dataguard/apply_lag",
+                "metric_type": "METRIC_GAUGE",
+                "value_type": "VALUE_INT64"
+            },
+            {
+                "name": "transport_lag_seconds",
+                "name_override": "dataguard/transport_lag",
+                "metric_type": "METRIC_GAUGE",
+                "value_type": "VALUE_INT64"
+            }
+        ],
+        "database_role": "STANDBY"
+    }
+  ]
+}
