@@ -1,0 +1,49 @@
+# This workflow will build a golang project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+
+name: Go
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: '1.23.2'
+    - name: Install protocol buffer compiler
+      run: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+
+    - name: Compile protocol buffers
+      run: protoc --go_opt=paths=source_relative protos/**/*.proto --go_out=.
+
+    - name: Install dependencies in vendor mode
+      run: go mod vendor
+
+    - name: Build linux binary
+      run: env GOOS=linux GOARCH=amd64 go build -mod=vendor -v -o ../google_cloud_workload_agent
+      working-directory: cmd
+
+    - name: Build windows binary
+      run: env GOOS=windows GOARCH=amd64 go build -mod=vendor -v -o ../google_cloud_workload_agent
+      working-directory: cmd
+
+    - name: Test
+      run: go test -v ./...
+
+    - name: Notify on failure
+      if: ${{ failure() }}
+      uses: cinotify/github-action@v1.1.0
+      with:
+        to: 'workload-agent-github-dev@google.com'
+        subject: '[Failure] GitHub Workload Agent build failure'
+        body: 'There was a failure for the GitHub Workload Agent workflow action.\n\n https://github.com/GoogleCloudPlatform/workloadagent/actions/runs/${{ github.run_id }}'
