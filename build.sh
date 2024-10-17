@@ -14,19 +14,21 @@
 # limitations under the License.
 
 #
-# Build script that will get the module dependencies and build a linux binary.
-# The google_cloud_workload_agent binary will be built into the buildoutput/ dir.
+# Build script that will get the module dependencies and build Linux and
+# Windows binaries. The google_cloud_workload_agent binary will be built into
+# the buildoutput/ dir.
 #
 
 #
-# Note: use the following to get the latest sapagent version for the shared libraries:
+# Note: use the following to get the latest sapagent version for the shared
+# libraries:
 #
 # go list -m -json github.com/GoogleCloudPlatform/sapagent@main
 #
 # Then update go.mod with the version from the output.
 #
-# If the build is failing because of dependencies then update the go.mod and go.sum with the
-# latest versions from the buildoutput/ directory.
+# If the build is failing because of dependencies then update the go.mod and
+# go.sum with the latest versions from the buildoutput/ directory.
 #
 
 set -exu
@@ -34,18 +36,35 @@ set -exu
 echo "Starting the build process for the Workload Agent..."
 
 echo "**************  Getting go 1.23.2"
-wget -q https://go.dev/dl/go1.23.2.linux-amd64.tar.gz
+curl -sLOS https://go.dev/dl/go1.23.2.linux-amd64.tar.gz
+chmod -fR u+rwx /tmp/workloadagent || :
 rm -fr /tmp/workloadagent
 mkdir -p /tmp/workloadagent
 tar -C /tmp/workloadagent -xzf go1.23.2.linux-amd64.tar.gz
 
 export GOROOT=/tmp/workloadagent/go
+export GOPATH=/tmp/workloadagent/gopath
+mkdir -p "${GOPATH}"
 mkdir -p $GOROOT/.cache
 mkdir -p $GOROOT/pkg/mod
 export GOMODCACHE=$GOROOT/pkg/mod
 export GOCACHE=$GOROOT/.cache
 export GOBIN=$GOROOT/bin
+
 PATH=${GOBIN}:${GOROOT}/packages/bin:$PATH
+
+echo "**************  Getting unzip 5.51"
+curl -sLOS https://oss.oracle.com/el4/unzip/unzip.tar
+tar -C /tmp/workloadagent -xf unzip.tar
+
+echo "**************  Getting protoc 28.2"
+pb_rel="https://github.com/protocolbuffers/protobuf/releases"
+pb_dest="/tmp/workloadagent/protobuf"
+curl -sLOS ${pb_rel}/download/v28.2/protoc-28.2-linux-x86_64.zip
+rm -fr "${pb_dest}"
+mkdir -p "${pb_dest}"
+/tmp/workloadagent/unzip -q protoc-28.2-linux-x86_64.zip -d "${pb_dest}"
+
 go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 
 echo "**************  Compiling protobufs"
