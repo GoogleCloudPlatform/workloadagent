@@ -64,7 +64,7 @@ jobs:
 
     - name: Notify on failure
       if: ${{ failure() }}
-      uses: cinotify/github-action@v1.1.0
+      uses: cinotify/github-action@main
       with:
         to: 'workload-agent-github-dev@google.com'
         subject: '[Failure] GitHub Workload Agent build failure'
