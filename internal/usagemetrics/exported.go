@@ -36,7 +36,7 @@ func SetAgentProperties(ap *cpb.AgentProperties) {
 			Name:            ap.GetName(),
 			Version:         ap.GetVersion(),
 			LogUsageMetrics: ap.GetLogUsageMetrics(),
-			LogUsagePrefix:  "workload-agent-eng",
+			LogUsagePrefix:  "google-cloud-workload-agent",
 		})
 }
 
