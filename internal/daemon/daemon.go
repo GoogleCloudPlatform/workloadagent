@@ -14,8 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package startdaemon implements startdaemon mode execution subcommand in Workload Agent.
-package startdaemon
+// Package daemon implements daemon mode execution subcommand in Workload Agent.
+package daemon
 
 import (
 	"context"
@@ -67,11 +67,16 @@ func NewDaemon(lp log.Parameters, cloudProps *cpb.CloudProperties) *cobra.Comman
 		Short: "Start daemon mode of the agent",
 		Long:  "startdaemon [--config <path-to-config-file>]",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return d.startdaemonHandler(cmd.Context())
+			return d.Execute(cmd.Context())
 		},
 	}
 	cmd.Flags().StringVar(&d.configFilePath, "config", "", "configuration path for startdaemon mode")
 	cmd.Flags().StringVar(&d.configFilePath, "c", "", "configuration path for startdaemon mode")
+	return cmd
+}
+
+// Execute runs the daemon command.
+func (d *Daemon) Execute(ctx context.Context) error {
 	// Configure daemon logging with default values until the config file is loaded.
 	d.lp.CloudLogName = `google-cloud-workload-agent`
 	d.lp.LogFileName = `/var/log/google-cloud-workload-agent.log`
@@ -82,10 +87,13 @@ func NewDaemon(lp log.Parameters, cloudProps *cpb.CloudProperties) *cobra.Comman
 		os.Chmod(logDir, 0777)
 	}
 	log.SetupLogging(d.lp)
-	return cmd
+	// Run the daemon handler that will start any services
+	ctx, cancel := context.WithCancel(ctx)
+	d.startdaemonHandler(ctx, cancel)
+	return nil
 }
 
-func (d *Daemon) startdaemonHandler(ctx context.Context) error {
+func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFunc) error {
 	var err error
 	d.config, err = configuration.Load(d.configFilePath, os.ReadFile, d.cloudProps)
 	if err != nil {
@@ -118,7 +126,6 @@ func (d *Daemon) startdaemonHandler(ctx context.Context) error {
 
 	shutdownch := make(chan os.Signal, 1)
 	signal.Notify(shutdownch, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
-	ctx, cancel := context.WithCancel(ctx)
 
 	// Add any additional services here.
 	d.services = []Service{

@@ -28,7 +28,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"github.com/GoogleCloudPlatform/sapagent/shared/gce/metadataserver"
 	"github.com/GoogleCloudPlatform/sapagent/shared/log"
-	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/startdaemon"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/logusage"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/version"
@@ -65,10 +65,10 @@ func main() {
 	}
 	rootCmd.AddCommand(version.NewCommand())
 	rootCmd.AddCommand(logusage.NewCommand(lp, cloudProps))
-	daemon := startdaemon.NewDaemon(lp, cloudProps)
-	rootCmd.AddCommand(daemon)
+	d := daemon.NewDaemon(lp, cloudProps)
+	rootCmd.AddCommand(d)
 	// Add any additional windows or linux specific subcommands.
-	rootCmd.AddCommand(additionalSubcommands(ctx, daemon, lp, cloudProps)...)
+	rootCmd.AddCommand(additionalSubcommands(ctx, d, lp, cloudProps)...)
 
 	for _, cmd := range rootCmd.Commands() {
 		if cmd.Name() != "startdaemon" {
