@@ -26,8 +26,10 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/GoogleCloudPlatform/sapagent/shared/commandlineexecutor"
 	"github.com/GoogleCloudPlatform/sapagent/shared/log"
 	"github.com/GoogleCloudPlatform/sapagent/shared/recovery"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/commondiscovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/mysql"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/oracle"
@@ -126,6 +128,19 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 
 	shutdownch := make(chan os.Signal, 1)
 	signal.Notify(shutdownch, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
+
+	log.Logger.Info("Starting common discovery")
+	commondiscovery := commondiscovery.DiscoveryService{
+		ExecuteCommand: commandlineexecutor.ExecuteCommand,
+		ReadFile:       os.ReadFile,
+		Hostname:       os.Hostname,
+	}
+	processes, isMySQLRunning, isOracleRunning, err := commondiscovery.InitialDiscovery(ctx)
+	if err != nil {
+		log.Logger.Errorw("Failed to perform initial common discovery", "error", err)
+		return err
+	}
+	log.Logger.Infow("Completed initial common discovery", "numProcesses", len(processes), "isMySQLRunning", isMySQLRunning, "isOracleRunning", isOracleRunning)
 
 	// Add any additional services here.
 	d.services = []Service{
