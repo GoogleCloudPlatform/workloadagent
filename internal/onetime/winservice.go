@@ -28,9 +28,8 @@ var winlogger winsvc.Logger
 
 // Winservice has args for winservice subcommands.
 type Winservice struct {
-	Service    winsvc.Service
-	Daemon     *cobra.Command
-	DaemonArgs []any
+	Service winsvc.Service
+	Daemon  *cobra.Command
 	// NOTE: Context is needed because kardianos/service for windows does not pass the context
 	// to the service.Start(), service.Stop(), and service .Run() methods.
 	ctx context.Context
@@ -56,11 +55,10 @@ func (w *Winservice) run() {
 }
 
 // NewWinServiceCommand returns a new winservice command.
-func NewWinServiceCommand(ctx context.Context, daemon *cobra.Command, daemonArgs []any) *cobra.Command {
+func NewWinServiceCommand(ctx context.Context, daemon *cobra.Command) *cobra.Command {
 	w := &Winservice{
-		Daemon:     daemon,
-		DaemonArgs: daemonArgs,
-		ctx:        ctx,
+		Daemon: daemon,
+		ctx:    ctx,
 	}
 	wsCmd := &cobra.Command{
 		Use:   "winservice",
@@ -81,21 +79,21 @@ func (w *Winservice) Execute(cmd *cobra.Command, args []string) error {
 	}
 	s, err := winsvc.New(w, config)
 	if err != nil {
-		return fmt.Errorf("error creating Windows service manager interface for the workload agent service: %s", err)
+		return fmt.Errorf("Winservice Execute - error creating Windows service manager interface for the workload agent service: %s", err)
 	}
 	w.Service = s
 
 	winlogger, err = s.Logger(nil)
 	if err != nil {
-		return fmt.Errorf("error creating Windows Event Logger for the workload agent service: %s", err)
+		return fmt.Errorf("Winservice Execute - error creating Windows Event Logger for the workload agent service: %s", err)
 	}
-	fmt.Println("Starting the workload agent service")
-	winlogger.Info("Starting the workload agent service")
+	fmt.Println("Winservice Execute - Starting the workload agent service")
+	winlogger.Info("Winservice Execute - Starting the workload agent service")
 
 	err = s.Run()
 	if err != nil {
 		winlogger.Error(err)
 	}
-	winlogger.Info("The workload agent service is shutting down")
+	winlogger.Info("Winservice Execute - The workload agent service is shutting down")
 	return nil
 }

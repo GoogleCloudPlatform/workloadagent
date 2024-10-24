@@ -22,6 +22,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func additionalSubcommands(ctx context.Context, d *cobra.Command, dargs ...any) []*cobra.Command {
+func additionalSubcommands(ctx context.Context, d *cobra.Command) []*cobra.Command {
 	return nil
 }

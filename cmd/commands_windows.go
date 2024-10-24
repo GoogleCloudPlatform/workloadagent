@@ -23,6 +23,6 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime"
 )
 
-func additionalSubcommands(ctx context.Context, d *cobra.Command, dargs ...any) []*cobra.Command {
-	return []*cobra.Command{onetime.NewWinServiceCommand(ctx, d, dargs)}
+func additionalSubcommands(ctx context.Context, d *cobra.Command) []*cobra.Command {
+	return []*cobra.Command{onetime.NewWinServiceCommand(ctx, d)}
 }

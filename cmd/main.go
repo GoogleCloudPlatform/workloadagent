@@ -66,9 +66,15 @@ func main() {
 	rootCmd.AddCommand(version.NewCommand())
 	rootCmd.AddCommand(logusage.NewCommand(lp, cloudProps))
 	d := daemon.NewDaemon(lp, cloudProps)
-	rootCmd.AddCommand(d)
+	// When running on windows, the daemon is started using the winservice subcommand.
+	// Having both the daemon command and the winservice command will cause an error when the
+	// winservice tries to start the daemon, cobra will start the parent which is the winservice
+	// causing a loop.
+	if lp.OSType == "windows" {
+		rootCmd.AddCommand(d)
+	}
 	// Add any additional windows or linux specific subcommands.
-	rootCmd.AddCommand(additionalSubcommands(ctx, d, lp, cloudProps)...)
+	rootCmd.AddCommand(additionalSubcommands(ctx, d)...)
 
 	for _, cmd := range rootCmd.Commands() {
 		if cmd.Name() != "startdaemon" {
