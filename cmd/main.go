@@ -70,7 +70,7 @@ func main() {
 	// Having both the daemon command and the winservice command will cause an error when the
 	// winservice tries to start the daemon, cobra will start the parent which is the winservice
 	// causing a loop.
-	if lp.OSType == "windows" {
+	if lp.OSType != "windows" {
 		rootCmd.AddCommand(d)
 	}
 	// Add any additional windows or linux specific subcommands.
