@@ -193,3 +193,19 @@ func LogLevelToZapcore(level cpb.Configuration_LogLevel) zapcore.Level {
 		return zapcore.InfoLevel
 	}
 }
+
+// ApplyDefaultMySQLConfiguration applies the default MySQL configuration based on the running state of MySQL.
+func ApplyDefaultMySQLConfiguration(cfg *cpb.Configuration, isMySQLRunning bool) *cpb.Configuration {
+	log.Logger.Infow("Applying default MySQL configuration", "isMySQLRunning", isMySQLRunning)
+	if !cfg.GetMysqlConfiguration().GetEnabled() {
+		cfg.MysqlConfiguration.Enabled = proto.Bool(isMySQLRunning)
+	}
+	return cfg
+}
+
+// ApplyDefaultOracleConfiguration applies the default Oracle configuration based on the running state of Oracle.
+func ApplyDefaultOracleConfiguration(cfg *cpb.Configuration, isOracleRunning bool) *cpb.Configuration {
+	log.Logger.Infow("Applying default Oracle configuration", "isOracleRunning", isOracleRunning)
+	// TODO: Add logic to apply default Oracle configuration based on the running state of Oracle.
+	return cfg
+}

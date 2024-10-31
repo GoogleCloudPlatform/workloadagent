@@ -28,6 +28,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/GoogleCloudPlatform/sapagent/shared/log"
 	"github.com/GoogleCloudPlatform/sapagent/shared/recovery"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/commondiscovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/mysql"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/oracle"
@@ -127,6 +128,26 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 	shutdownch := make(chan os.Signal, 1)
 	signal.Notify(shutdownch, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 
+	log.Logger.Info("Starting common discovery")
+	commondiscovery := commondiscovery.DiscoveryService{
+		ProcessLister: commondiscovery.DefaultProcessLister{},
+		ReadFile:      os.ReadFile,
+		Hostname:      os.Hostname,
+	}
+	initialDiscoveryResult, err := commondiscovery.CommonDiscovery(ctx)
+	if err != nil {
+		log.Logger.Errorw("Failed to perform initial common discovery", "error", err)
+		return err
+	}
+	isMySQLRunning := len(initialDiscoveryResult.MySQLProcesses) > 0
+	isOracleRunning := len(initialDiscoveryResult.OracleProcesses) > 0
+	log.Logger.Infow("Completed initial common discovery",
+		"isMySQLRunning", isMySQLRunning,
+		"isOracleRunning", isOracleRunning,
+	)
+	d.config = configuration.ApplyDefaultMySQLConfiguration(d.config, isMySQLRunning)
+	d.config = configuration.ApplyDefaultOracleConfiguration(d.config, isOracleRunning)
+
 	// Add any additional services here.
 	d.services = []Service{
 		&oracle.Service{Config: d.config, CloudProps: d.cloudProps},
@@ -142,6 +163,8 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 		}
 		recoverableStart.StartRoutine(ctx)
 	}
+
+	d.runCommonDiscovery(ctx)
 
 	// Log a RUNNING usage metric once a day.
 	go usagemetrics.LogRunningDaily()
@@ -168,4 +191,10 @@ func (d *Daemon) waitForShutdown(ch <-chan os.Signal, cancel context.CancelFunc)
 	usagemetrics.Stopped()
 	time.Sleep(3 * time.Second)
 	log.Logger.Info("Shutting down...")
+}
+
+// runCommonDiscovery runs common discovery on a timer and updates the configuration based on the results.
+func (d *Daemon) runCommonDiscovery(ctx context.Context) {
+	// TODO: Implement the recurring common discovery.
+	log.Logger.Info("Running common discovery - NOT YET IMPLEMENTED")
 }
