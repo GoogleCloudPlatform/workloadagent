@@ -90,8 +90,7 @@ func (d *Daemon) Execute(ctx context.Context) error {
 	log.SetupLogging(d.lp)
 	// Run the daemon handler that will start any services
 	ctx, cancel := context.WithCancel(ctx)
-	d.startdaemonHandler(ctx, cancel)
-	return nil
+	return d.startdaemonHandler(ctx, cancel)
 }
 
 func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFunc) error {
