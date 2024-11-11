@@ -198,6 +198,9 @@ func LogLevelToZapcore(level cpb.Configuration_LogLevel) zapcore.Level {
 func ApplyDefaultMySQLConfiguration(cfg *cpb.Configuration, isMySQLRunning bool) *cpb.Configuration {
 	log.Logger.Infow("Applying default MySQL configuration", "isMySQLRunning", isMySQLRunning)
 	if !cfg.GetMysqlConfiguration().GetEnabled() {
+		if cfg.GetMysqlConfiguration() == nil {
+			cfg.MysqlConfiguration = &cpb.MySQLConfiguration{}
+		}
 		cfg.MysqlConfiguration.Enabled = proto.Bool(isMySQLRunning)
 	}
 	return cfg

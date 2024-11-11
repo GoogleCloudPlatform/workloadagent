@@ -420,6 +420,16 @@ func TestApplyDefaultMySQLConfiguration(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:           "No MySQL configuration",
+			cfg:            &cpb.Configuration{},
+			isMySQLRunning: true,
+			want: &cpb.Configuration{
+				MysqlConfiguration: &cpb.MySQLConfiguration{
+					Enabled: proto.Bool(true),
+				},
+			},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -467,6 +477,12 @@ func TestApplyDefaultOracleConfiguration(t *testing.T) {
 					Enabled: proto.Bool(false),
 				},
 			},
+		},
+		{
+			name:            "No Oracle configuration",
+			cfg:             &cpb.Configuration{},
+			isOracleRunning: true,
+			want:            &cpb.Configuration{},
 		},
 	}
 	for _, tc := range tests {
