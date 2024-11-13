@@ -51,7 +51,7 @@ const (
 	metricURL        = "workload.googleapis.com/oracle"
 	maxQueryFailures = 3
 	maxLoginFailures = 9 // by default FAILED_LOGIN_ATTEMPTS for the DEFAULT profile is set to 10
-	dbViewQuery      = `SELECT dbid, db_unique_name, database_role FROM v$database`
+	dbViewQuery      = `SELECT d.dbid, d.db_unique_name, d.database_role, p.name AS pdb_name FROM v$database d LEFT JOIN v$pdbs p ON 1=1`
 )
 
 type (
@@ -127,6 +127,7 @@ type (
 		dbID         string
 		dbUniqueName string
 		databaseRole string
+		pdbName      string
 	}
 )
 
@@ -329,7 +330,7 @@ func (c *MetricCollector) CollectDBMetricsOnce(ctx context.Context) {
 					collector:     c,
 					runningSum:    make(map[timeSeriesKey]prevVal),
 					serviceName:   serviceName,
-					defaultLabels: map[string]string{"dbid": dbInfo.dbID, "db_unique_name": dbInfo.dbUniqueName},
+					defaultLabels: map[string]string{"dbid": dbInfo.dbID, "db_unique_name": dbInfo.dbUniqueName, "pdb_name": dbInfo.pdbName},
 				})
 			})
 		}
@@ -460,7 +461,8 @@ func createMetricsForRow(ctx context.Context, opts queryOptions, cols []any, def
 // fetchDatabaseInfo executes the dbViewQuery query to fetch database info.
 func fetchDatabaseInfo(ctx context.Context, db *sql.DB) (*databaseInfo, error) {
 	var dbid, dbUniqueName, databaseRole string
-	err := db.QueryRowContext(ctx, dbViewQuery).Scan(&dbid, &dbUniqueName, &databaseRole)
+	var pdbName sql.NullString
+	err := db.QueryRowContext(ctx, dbViewQuery).Scan(&dbid, &dbUniqueName, &databaseRole, &pdbName)
 	if err != nil {
 		log.CtxLogger(ctx).Errorw("Failed to parse query results", "query", dbViewQuery, "error", err)
 		return nil, fmt.Errorf("parsing query results: %w", err)
@@ -469,6 +471,7 @@ func fetchDatabaseInfo(ctx context.Context, db *sql.DB) (*databaseInfo, error) {
 		dbID:         dbid,
 		dbUniqueName: dbUniqueName,
 		databaseRole: databaseRole,
+		pdbName:      pdbName.String,
 	}, nil
 }
 
