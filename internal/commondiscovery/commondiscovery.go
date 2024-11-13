@@ -20,11 +20,12 @@ package commondiscovery
 import (
 	"context"
 	"errors"
-	"strings"
+	"time"
 
 	"github.com/shirou/gopsutil/v3/process"
 	"github.com/GoogleCloudPlatform/sapagent/shared/commandlineexecutor"
 	"github.com/GoogleCloudPlatform/sapagent/shared/log"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 )
 
 const (
@@ -80,15 +81,7 @@ type ProcessWrapper interface {
 
 // Result holds the results of a common discovery operation.
 type Result struct {
-	Processes       []ProcessWrapper
-	MySQLProcesses  []ProcessWrapper
-	OracleProcesses []ProcessWrapper
-}
-
-// InitialDiscoveryResult holds the results of an initial discovery operation.
-type InitialDiscoveryResult struct {
-	IsMySQLRunning  bool
-	IsOracleRunning bool
+	Processes []ProcessWrapper
 }
 
 // gopsProcess implements the processWrapper for abstracting process.Process.
@@ -116,10 +109,7 @@ func (p gopsProcess) CmdlineSlice() ([]string, error) {
 	return p.process.CmdlineSlice()
 }
 
-// CommonDiscovery returns a CommonDiscoveryResult and any errors encountered during the discovery process.
-func (d DiscoveryService) CommonDiscovery(ctx context.Context) (Result, error) {
-	mySQLProcesses := []ProcessWrapper{}
-	oracleProcesses := []ProcessWrapper{}
+func (d DiscoveryService) commonDiscoveryLoop(ctx context.Context) (Result, error) {
 	processes, err := d.ProcessLister.listAllProcesses()
 	if err != nil {
 		log.CtxLogger(ctx).Errorw("Failed to ListAllProcesses", "error", err)
@@ -129,22 +119,46 @@ func (d DiscoveryService) CommonDiscovery(ctx context.Context) (Result, error) {
 		log.CtxLogger(ctx).Error("No processes found")
 		return Result{}, errors.New("no processes found")
 	}
-	for _, p := range processes {
-		name, err := p.Name()
+	return Result{Processes: processes}, nil
+}
+
+// CommonDiscovery returns a CommonDiscoveryResult and any errors encountered during the discovery process.
+func (d DiscoveryService) CommonDiscovery(ctx context.Context, a any) {
+	var ch chan Result
+	var ok bool
+	if ch, ok = a.(chan Result); !ok {
+		log.CtxLogger(ctx).Warn("args is not of type chan Result")
+		return
+	}
+
+	ticker := time.NewTicker(3 * time.Hour)
+	defer ticker.Stop()
+	for {
+		discoveryResult, err := d.commonDiscoveryLoop(ctx)
 		if err != nil {
-			log.CtxLogger(ctx).Debugw("Failed to get process name", "error", err, "process", p)
+			log.CtxLogger(ctx).Errorw("Failed to perform common discovery", "error", err)
+			return
+		}
+		ch <- discoveryResult
+		select {
+		case <-ctx.Done():
+			log.CtxLogger(ctx).Info("CommonDiscovery cancellation requested")
+			return
+		case <-ticker.C:
+			log.CtxLogger(ctx).Debug("CommonDiscovery ticker fired")
 			continue
 		}
-		if name == mySQLProcess {
-			mySQLProcesses = append(mySQLProcesses, p)
-		} else if strings.HasPrefix(name, oracleProcess) || strings.HasPrefix(name, oracleListener) {
-			oracleProcesses = append(oracleProcesses, p)
-		}
 	}
-	discoveryResult := Result{
-		Processes:       processes,
-		MySQLProcesses:  mySQLProcesses,
-		OracleProcesses: oracleProcesses,
-	}
-	return discoveryResult, nil
+}
+
+// ErrorCode returns the error code for CommonDiscovery.
+func (d DiscoveryService) ErrorCode() int {
+	return usagemetrics.CommonDiscoveryFailure
+}
+
+// ExpectedMinDuration returns the expected minimum duration for CommonDiscovery.
+// Used by the recovery handler to determine if the service ran long enough to be considered
+// successful.
+func (d DiscoveryService) ExpectedMinDuration() time.Duration {
+	return 0
 }

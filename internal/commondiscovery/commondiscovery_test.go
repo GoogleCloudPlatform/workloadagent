@@ -243,8 +243,6 @@ func TestCommonDiscovery(t *testing.T) {
 				Processes: []ProcessWrapper{
 					processStub{username: "user1", pid: 123, name: "test"},
 				},
-				MySQLProcesses:  []ProcessWrapper{},
-				OracleProcesses: []ProcessWrapper{},
 			},
 		},
 		{
@@ -258,10 +256,6 @@ func TestCommonDiscovery(t *testing.T) {
 				Processes: []ProcessWrapper{
 					processStub{username: "user1", pid: 123, name: "mysqld"},
 				},
-				MySQLProcesses: []ProcessWrapper{
-					processStub{username: "user1", pid: 123, name: "mysqld"},
-				},
-				OracleProcesses: []ProcessWrapper{},
 			},
 		},
 		{
@@ -276,11 +270,6 @@ func TestCommonDiscovery(t *testing.T) {
 			want: Result{
 				Processes: []ProcessWrapper{
 					processStub{username: "user1", pid: 123, name: "test"},
-					processStub{username: "user2", pid: 456, name: "tnslsnr", args: []string{"tnslsnr", "LISTENER"}},
-					processStub{username: "user2", pid: 789, name: "ora_pmon_orcl"},
-				},
-				MySQLProcesses: []ProcessWrapper{},
-				OracleProcesses: []ProcessWrapper{
 					processStub{username: "user2", pid: 456, name: "tnslsnr", args: []string{"tnslsnr", "LISTENER"}},
 					processStub{username: "user2", pid: 789, name: "ora_pmon_orcl"},
 				},
@@ -303,13 +292,6 @@ func TestCommonDiscovery(t *testing.T) {
 					processStub{username: "user2", pid: 456, name: "tnslsnr", args: []string{"tnslsnr", "LISTENER"}},
 					processStub{username: "user2", pid: 789, name: "ora_pmon_orcl"},
 				},
-				MySQLProcesses: []ProcessWrapper{
-					processStub{username: "user1", pid: 234, name: "mysqld"},
-				},
-				OracleProcesses: []ProcessWrapper{
-					processStub{username: "user2", pid: 456, name: "tnslsnr", args: []string{"tnslsnr", "LISTENER"}},
-					processStub{username: "user2", pid: 789, name: "ora_pmon_orcl"},
-				},
 			},
 		},
 		{
@@ -318,9 +300,7 @@ func TestCommonDiscovery(t *testing.T) {
 				ProcessLister: fakeProcessLister{processes: []processStub{}},
 			},
 			want: Result{
-				Processes:       []ProcessWrapper{},
-				MySQLProcesses:  []ProcessWrapper{},
-				OracleProcesses: []ProcessWrapper{},
+				Processes: []ProcessWrapper{},
 			},
 			wantErr: errors.New("no processes found"),
 		},
@@ -330,9 +310,7 @@ func TestCommonDiscovery(t *testing.T) {
 				ProcessLister: errorProneProcessLister{processes: []processStub{}},
 			},
 			want: Result{
-				Processes:       []ProcessWrapper{},
-				MySQLProcesses:  []ProcessWrapper{},
-				OracleProcesses: []ProcessWrapper{},
+				Processes: []ProcessWrapper{},
 			},
 			wantErr: errors.New("test error"),
 		},
@@ -340,7 +318,7 @@ func TestCommonDiscovery(t *testing.T) {
 
 	ctx := context.Background()
 	for _, tc := range tests {
-		result, gotErr := tc.d.CommonDiscovery(ctx)
+		result, gotErr := tc.d.commonDiscoveryLoop(ctx)
 		if gotErr != nil {
 			if tc.wantErr == nil {
 				t.Errorf("TestCommonDiscovery() with name %s  got error: %v, want: nil", tc.name, gotErr)
@@ -349,7 +327,5 @@ func TestCommonDiscovery(t *testing.T) {
 			}
 		}
 		ValidateResult(result.Processes, tc.want.Processes, tc.name, t)
-		ValidateResult(result.MySQLProcesses, tc.want.MySQLProcesses, tc.name, t)
-		ValidateResult(result.OracleProcesses, tc.want.OracleProcesses, tc.name, t)
 	}
 }

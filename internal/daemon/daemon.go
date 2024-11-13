@@ -128,29 +128,25 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 	signal.Notify(shutdownch, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 
 	log.Logger.Info("Starting common discovery")
+	cdCh := make(chan commondiscovery.Result)
 	commondiscovery := commondiscovery.DiscoveryService{
 		ProcessLister: commondiscovery.DefaultProcessLister{},
 		ReadFile:      os.ReadFile,
 		Hostname:      os.Hostname,
 	}
-	initialDiscoveryResult, err := commondiscovery.CommonDiscovery(ctx)
-	if err != nil {
-		log.Logger.Errorw("Failed to perform initial common discovery", "error", err)
-		return err
+	recoverableStart := &recovery.RecoverableRoutine{
+		Routine:             commondiscovery.CommonDiscovery,
+		RoutineArg:          cdCh,
+		ErrorCode:           commondiscovery.ErrorCode(),
+		ExpectedMinDuration: commondiscovery.ExpectedMinDuration(),
+		UsageLogger:         *usagemetrics.UsageLogger,
 	}
-	isMySQLRunning := len(initialDiscoveryResult.MySQLProcesses) > 0
-	isOracleRunning := len(initialDiscoveryResult.OracleProcesses) > 0
-	log.Logger.Infow("Completed initial common discovery",
-		"isMySQLRunning", isMySQLRunning,
-		"isOracleRunning", isOracleRunning,
-	)
-	d.config = configuration.ApplyDefaultMySQLConfiguration(d.config, isMySQLRunning)
-	d.config = configuration.ApplyDefaultOracleConfiguration(d.config, isOracleRunning)
+	recoverableStart.StartRoutine(ctx)
 
 	// Add any additional services here.
 	d.services = []Service{
-		&oracle.Service{Config: d.config, CloudProps: d.cloudProps},
-		&mysql.Service{Config: d.config, CloudProps: d.cloudProps},
+		&oracle.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: cdCh},
+		&mysql.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: cdCh},
 	}
 	for _, service := range d.services {
 		log.Logger.Infof("Starting %s", service.String())

@@ -48,6 +48,7 @@ const (
 	MySQLServiceError                    = 10
 	MySQLMetricCollectionFailure         = 11
 	MySQLDiscoveryFailure                = 12
+	CommonDiscoveryFailure               = 13
 )
 
 // Agent wide action mappings.

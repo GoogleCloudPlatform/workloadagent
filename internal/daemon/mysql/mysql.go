@@ -23,6 +23,7 @@ import (
 
 	"github.com/GoogleCloudPlatform/sapagent/shared/log"
 	"github.com/GoogleCloudPlatform/sapagent/shared/recovery"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/commondiscovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/mysqldiscovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/mysqlmetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
@@ -33,6 +34,7 @@ import (
 type Service struct {
 	Config     *cpb.Configuration
 	CloudProps *cpb.CloudProperties
+	CommonCh   chan commondiscovery.Result
 	// ... MySQL-specific attributes ...
 }
 
@@ -72,6 +74,11 @@ func (s *Service) Start(ctx context.Context, a any) {
 		ExpectedMinDuration: 0,
 	}
 	metricCollectionRoutine.StartRoutine(mcCtx)
+	select {
+	case <-ctx.Done():
+		log.CtxLogger(ctx).Info("MySQL workload agent service cancellation requested")
+		return
+	}
 }
 
 func runDiscovery(ctx context.Context, a any) {

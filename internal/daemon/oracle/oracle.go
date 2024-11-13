@@ -26,6 +26,7 @@ import (
 
 	"github.com/GoogleCloudPlatform/sapagent/shared/log"
 	"github.com/GoogleCloudPlatform/sapagent/shared/recovery"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/commondiscovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/oraclediscovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/oraclemetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
@@ -41,6 +42,7 @@ type Service struct {
 	discoveryRoutine        *recovery.RecoverableRoutine
 	ch                      chan *odpb.Discovery
 	currentSIDs             []string
+	CommonCh                chan commondiscovery.Result
 }
 
 type runDiscoveryArgs struct {
@@ -91,6 +93,11 @@ func (s *Service) Start(ctx context.Context, a any) {
 		ExpectedMinDuration: 0,
 	}
 	s.metricCollectionRoutine.StartRoutine(mcCtx)
+	select {
+	case <-ctx.Done():
+		log.CtxLogger(ctx).Info("Oracle workload agent service cancellation requested")
+		return
+	}
 }
 
 func runDiscovery(ctx context.Context, a any) {
