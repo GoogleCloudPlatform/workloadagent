@@ -491,6 +491,11 @@
       "filterType": "METRIC_LABEL",
       "labelKey": "db_unique_name",
       "valueType": "STRING_ARRAY"
+    },
+    {
+      "filterType": "METRIC_LABEL",
+      "labelKey": "pdb_name",
+      "valueType": "STRING_ARRAY"
     }
   ],
   "labels": {}
