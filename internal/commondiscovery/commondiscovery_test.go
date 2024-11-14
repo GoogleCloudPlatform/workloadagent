@@ -20,9 +20,11 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/shirou/gopsutil/v3/process"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 )
 
 type errorProneProcessLister struct {
@@ -51,6 +53,7 @@ type processStub struct {
 	pid      int32
 	name     string
 	args     []string
+	environ  []string
 }
 
 // Username returns the username of the process.
@@ -70,6 +73,10 @@ func (p processStub) Name() (string, error) {
 
 func (p processStub) CmdlineSlice() ([]string, error) {
 	return p.args, nil
+}
+
+func (p processStub) Environ() ([]string, error) {
+	return p.environ, nil
 }
 
 func TestUsername(t *testing.T) {
@@ -140,6 +147,46 @@ func TestCmdlineSlice(t *testing.T) {
 		_, err := tc.p.CmdlineSlice()
 		if err == nil {
 			t.Errorf("TestCmdlineSlice() with name %s got nil error but expected an error", tc.name)
+		}
+	}
+}
+
+func TestErrorCode(t *testing.T) {
+	tests := []struct {
+		name string
+		d    DiscoveryService
+		want int
+	}{
+		{
+			name: "ErrorCode",
+			d:    DiscoveryService{},
+			want: usagemetrics.CommonDiscoveryFailure,
+		},
+	}
+	for _, tc := range tests {
+		code := tc.d.ErrorCode()
+		if code != tc.want {
+			t.Errorf("TestErrorCode() with name %s got %d but expected %d", tc.name, code, tc.want)
+		}
+	}
+}
+
+func TestExpectedMinDuration(t *testing.T) {
+	tests := []struct {
+		name string
+		d    DiscoveryService
+		want time.Duration
+	}{
+		{
+			name: "ExpectedMinDuration",
+			d:    DiscoveryService{},
+			want: 0,
+		},
+	}
+	for _, tc := range tests {
+		duration := tc.d.ExpectedMinDuration()
+		if duration != tc.want {
+			t.Errorf("TestExpectedMinDuration() with name %s got %d but expected %d", tc.name, duration, tc.want)
 		}
 	}
 }
@@ -313,6 +360,19 @@ func TestCommonDiscovery(t *testing.T) {
 				Processes: []ProcessWrapper{},
 			},
 			wantErr: errors.New("test error"),
+		},
+		{
+			name: "EnvVars",
+			d: &DiscoveryService{
+				ProcessLister: fakeProcessLister{processes: []processStub{
+					{username: "user2", pid: 456, name: "testprocess", args: []string{"testprocess", "flag"}, environ: []string{"VAR1=val1", "VAR2=val2"}},
+				}},
+			},
+			want: Result{
+				Processes: []ProcessWrapper{
+					processStub{username: "user2", pid: 456, name: "testprocess", args: []string{"testprocess", "flag"}, environ: []string{"VAR1=val1", "VAR2=val2"}},
+				},
+			},
 		},
 	}
 

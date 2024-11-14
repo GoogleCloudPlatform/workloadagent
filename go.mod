@@ -13,7 +13,7 @@ require (
   github.com/google/go-cmp v0.6.0
   github.com/jonboulle/clockwork v0.3.0
   github.com/kardianos/service v1.2.2
-  github.com/shirou/gopsutil/v3 v3.22.12
+  github.com/shirou/gopsutil/v3 v3.24.5
   github.com/sijms/go-ora v1.3.2
   github.com/spf13/cobra v1.8.1
   github.com/spf13/pflag v1.0.5
@@ -49,9 +49,10 @@ require (
   github.com/natefinch/lumberjack v0.0.0-20230119042236-215739b3bcdc // indirect
   github.com/pkg/errors v0.9.1 // indirect
   github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
-  github.com/tklauser/go-sysconf v0.3.11 // indirect
-  github.com/tklauser/numcpus v0.6.0 // indirect
-  github.com/yusufpapurcu/wmi v1.2.2 // indirect
+  github.com/shoenig/go-m1cpu v0.1.6 // indirect
+  github.com/tklauser/go-sysconf v0.3.12 // indirect
+  github.com/tklauser/numcpus v0.6.1 // indirect
+  github.com/yusufpapurcu/wmi v1.2.4 // indirect
   go.opencensus.io v0.24.0 // indirect
   go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0 // indirect
   go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.49.0 // indirect
@@ -64,7 +65,7 @@ require (
   golang.org/x/net v0.23.0 // indirect
   golang.org/x/oauth2 v0.17.0 // indirect
   golang.org/x/sync v0.6.0 // indirect
-  golang.org/x/sys v0.18.0 // indirect
+  golang.org/x/sys v0.20.0 // indirect
   golang.org/x/text v0.14.0 // indirect
   golang.org/x/time v0.5.0 // indirect
   google.golang.org/api v0.168.0 // indirect

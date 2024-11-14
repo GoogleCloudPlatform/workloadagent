@@ -77,6 +77,7 @@ type ProcessWrapper interface {
 	Pid() int32
 	Name() (string, error)
 	CmdlineSlice() ([]string, error)
+	Environ() ([]string, error)
 }
 
 // Result holds the results of a common discovery operation.
@@ -107,6 +108,12 @@ func (p gopsProcess) Name() (string, error) {
 // CmdlineSlice returns the command line arguments of the process.
 func (p gopsProcess) CmdlineSlice() ([]string, error) {
 	return p.process.CmdlineSlice()
+}
+
+// Environ returns the environment variables of the process.
+// The format of each env var string is "key=value".
+func (p gopsProcess) Environ() ([]string, error) {
+	return p.process.Environ()
 }
 
 func (d DiscoveryService) commonDiscoveryLoop(ctx context.Context) (Result, error) {
