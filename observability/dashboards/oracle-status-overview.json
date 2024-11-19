@@ -478,6 +478,40 @@
           "title": "Average Active Sessions by Wait Class",
           "id": ""
         }
+      },
+      {
+        "widget": {
+          "title": "workload/oracle/instance/availability [MEAN]",
+          "xyChart": {
+            "chartOptions": {
+              "mode": "COLOR"
+            },
+            "dataSets": [
+              {
+                "minAlignmentPeriod": "60s",
+                "plotType": "LINE",
+                "targetAxis": "Y1",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_MEAN"
+                    },
+                    "filter": "metric.type=\"workload.googleapis.com/oracle/instance/availability\" resource.type=\"gce_instance\""
+                  }
+                }
+              }
+            ],
+            "thresholds": [],
+            "yAxis": {
+              "label": "",
+              "scale": "LINEAR"
+            }
+          }
+        },
+        "height": 16,
+        "width": 24,
+        "yPos": 48
       }
     ]
   },
