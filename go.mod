@@ -17,7 +17,7 @@ require (
   github.com/sijms/go-ora v1.3.2
   github.com/spf13/cobra v1.8.1
   github.com/spf13/pflag v1.0.5
-  go.uber.org/zap v1.24.0
+  go.uber.org/zap v1.27.0
   golang.org/x/exp v0.0.0-20230321023759-10a507213a29
   google.golang.org/genproto v0.0.0-20240205150955-31a09d347014
   google.golang.org/genproto/googleapis/api v0.0.0-20240205150955-31a09d347014
@@ -59,8 +59,7 @@ require (
   go.opentelemetry.io/otel v1.24.0 // indirect
   go.opentelemetry.io/otel/metric v1.24.0 // indirect
   go.opentelemetry.io/otel/trace v1.24.0 // indirect
-  go.uber.org/atomic v1.7.0 // indirect
-  go.uber.org/multierr v1.6.0 // indirect
+  go.uber.org/multierr v1.10.0 // indirect
   golang.org/x/crypto v0.21.0 // indirect
   golang.org/x/net v0.23.0 // indirect
   golang.org/x/oauth2 v0.17.0 // indirect

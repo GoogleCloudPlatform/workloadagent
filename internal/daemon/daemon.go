@@ -159,8 +159,6 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 		recoverableStart.StartRoutine(ctx)
 	}
 
-	d.runCommonDiscovery(ctx)
-
 	// Log a RUNNING usage metric once a day.
 	go usagemetrics.LogRunningDaily()
 	d.waitForShutdown(shutdownch, cancel)
@@ -186,10 +184,4 @@ func (d *Daemon) waitForShutdown(ch <-chan os.Signal, cancel context.CancelFunc)
 	usagemetrics.Stopped()
 	time.Sleep(3 * time.Second)
 	log.Logger.Info("Shutting down...")
-}
-
-// runCommonDiscovery runs common discovery on a timer and updates the configuration based on the results.
-func (d *Daemon) runCommonDiscovery(ctx context.Context) {
-	// TODO: Implement the recurring common discovery.
-	log.Logger.Info("Running common discovery - NOT YET IMPLEMENTED")
 }

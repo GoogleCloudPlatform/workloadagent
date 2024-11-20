@@ -21,6 +21,7 @@ import (
 	"context"
 	"time"
 
+	"go.uber.org/zap/zapcore"
 	"github.com/GoogleCloudPlatform/sapagent/shared/log"
 	"github.com/GoogleCloudPlatform/sapagent/shared/recovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/commondiscovery"
@@ -32,9 +33,11 @@ import (
 
 // Service implements the interfaces for MySQL workload agent service.
 type Service struct {
-	Config     *cpb.Configuration
-	CloudProps *cpb.CloudProperties
-	CommonCh   chan commondiscovery.Result
+	Config         *cpb.Configuration
+	CloudProps     *cpb.CloudProperties
+	CommonCh       chan commondiscovery.Result
+	processes      commondiscovery.Result
+	mySQLProcesses []commondiscovery.ProcessWrapper
 	// ... MySQL-specific attributes ...
 }
 
@@ -48,8 +51,16 @@ type runMetricCollectionArgs struct {
 
 // Start initiates the MySQL workload agent service
 func (s *Service) Start(ctx context.Context, a any) {
-	if !s.Config.GetMysqlConfiguration().GetEnabled() {
-		log.CtxLogger(ctx).Info("MySQL workload agent service is disabled")
+	if s.Config.GetMysqlConfiguration() == nil || s.Config.GetMysqlConfiguration().Enabled == nil {
+		// If MySQL workload agent service is not explicitly enabled in the configuration,
+		// then check if the workload is present on the host.
+		log.CtxLogger(ctx).Info("MySQL workload agent service is not explicitly enabled in the configuration")
+		if !s.checkCommonDiscovery(ctx) {
+			return
+		}
+	} else if !s.Config.GetMysqlConfiguration().GetEnabled() {
+		// If MySQL workload agent service is explicitly disabled in the configuration, then return.
+		log.CtxLogger(ctx).Info("MySQL workload agent service is disabled in the configuration")
 		return
 	}
 
@@ -77,6 +88,10 @@ func (s *Service) Start(ctx context.Context, a any) {
 	select {
 	case <-ctx.Done():
 		log.CtxLogger(ctx).Info("MySQL workload agent service cancellation requested")
+		return
+	case s.processes = <-s.CommonCh:
+		log.CtxLogger(ctx).Debugw("MySQL workload agent service received common discovery result", "result", s.processes)
+		s.identifyMySQLProcesses(ctx)
 		return
 	}
 }
@@ -123,6 +138,52 @@ func runMetricCollection(ctx context.Context, a any) {
 		case <-ticker.C:
 			continue
 		}
+	}
+}
+
+// checkCommonDiscovery checks for common discovery results.
+// Returns true if MySQL workload is present on the host.
+// Otherwise, returns false to indicate that the context is done.
+func (s *Service) checkCommonDiscovery(ctx context.Context) bool {
+	for {
+		select {
+		case <-ctx.Done():
+			log.CtxLogger(ctx).Info("MySQL workload agent service cancellation requested")
+			return false
+		case s.processes = <-s.CommonCh:
+			log.CtxLogger(ctx).Debugw("MySQL workload agent service received common discovery result", "NumProcesses", len(s.processes.Processes))
+			s.identifyMySQLProcesses(ctx)
+			if s.isWorkloadPresent() {
+				log.CtxLogger(ctx).Info("MySQL workload is present, starting discovery and metric collection")
+				return true
+			}
+			log.CtxLogger(ctx).Debug("MySQL workload is not present")
+		}
+	}
+}
+
+func (s *Service) identifyMySQLProcesses(ctx context.Context) {
+	for _, process := range s.processes.Processes {
+		name, err := process.Name()
+		if err == nil && name == "mysqld" {
+			s.mySQLProcesses = append(s.mySQLProcesses, process)
+		}
+	}
+	s.logMySQLProcesses(ctx, zapcore.DebugLevel)
+}
+
+func (s *Service) isWorkloadPresent() bool {
+	return len(s.mySQLProcesses) > 0
+}
+
+func (s *Service) logMySQLProcesses(ctx context.Context, loglevel zapcore.Level) {
+	log.CtxLogger(ctx).Logf(loglevel, "Number of MySQL processes found: %v", len(s.mySQLProcesses))
+	for _, process := range s.mySQLProcesses {
+		name, _ := process.Name()
+		username, _ := process.Username()
+		cmdline, _ := process.CmdlineSlice()
+		env, _ := process.Environ()
+		log.CtxLogger(ctx).Logw(loglevel, "MySQL process", "name", name, "username", username, "cmdline", cmdline, "env", env, "pid", process.Pid())
 	}
 }
 
