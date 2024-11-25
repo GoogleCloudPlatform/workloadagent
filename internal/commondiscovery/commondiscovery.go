@@ -26,6 +26,8 @@ import (
 	"github.com/GoogleCloudPlatform/sapagent/shared/commandlineexecutor"
 	"github.com/GoogleCloudPlatform/sapagent/shared/log"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
+
+	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
 
 const (
@@ -69,6 +71,7 @@ type DiscoveryService struct {
 	ProcessLister processLister
 	ReadFile      readFile
 	Hostname      hostname
+	Config        *cpb.Configuration
 }
 
 // ProcessWrapper is a wrapper around process.Process to support testing.
@@ -131,14 +134,18 @@ func (d DiscoveryService) commonDiscoveryLoop(ctx context.Context) (Result, erro
 
 // CommonDiscovery returns a CommonDiscoveryResult and any errors encountered during the discovery process.
 func (d DiscoveryService) CommonDiscovery(ctx context.Context, a any) {
-	var ch chan Result
+	log.CtxLogger(ctx).Info("CommonDiscovery started")
+	var chs []chan Result
 	var ok bool
-	if ch, ok = a.(chan Result); !ok {
+	if chs, ok = a.([]chan Result); !ok {
 		log.CtxLogger(ctx).Warn("args is not of type chan Result")
 		return
 	}
-
-	ticker := time.NewTicker(3 * time.Hour)
+	frequency := 3 * time.Hour
+	if d.Config.GetCommonDiscovery().GetCollectionFrequency() != nil {
+		frequency = d.Config.GetCommonDiscovery().GetCollectionFrequency().AsDuration()
+	}
+	ticker := time.NewTicker(frequency)
 	defer ticker.Stop()
 	for {
 		discoveryResult, err := d.commonDiscoveryLoop(ctx)
@@ -146,7 +153,18 @@ func (d DiscoveryService) CommonDiscovery(ctx context.Context, a any) {
 			log.CtxLogger(ctx).Errorw("Failed to perform common discovery", "error", err)
 			return
 		}
-		ch <- discoveryResult
+		log.CtxLogger(ctx).Infof("CommonDiscovery found %d processes.", len(discoveryResult.Processes))
+		fullChs := 0
+		for _, ch := range chs {
+			select {
+			case ch <- discoveryResult:
+			default:
+				fullChs++
+			}
+		}
+		if fullChs > 0 {
+			log.CtxLogger(ctx).Infof("CommonDiscovery found %d full channels that it was unable to write to.", fullChs)
+		}
 		select {
 		case <-ctx.Done():
 			log.CtxLogger(ctx).Info("CommonDiscovery cancellation requested")

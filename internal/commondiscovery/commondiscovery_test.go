@@ -22,9 +22,11 @@ import (
 	"testing"
 	"time"
 
+	dpb "google.golang.org/protobuf/types/known/durationpb"
 	"github.com/google/go-cmp/cmp"
 	"github.com/shirou/gopsutil/v3/process"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
+	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
 
 type errorProneProcessLister struct {
@@ -272,7 +274,7 @@ func ValidateResult(gotProcesses []ProcessWrapper, wantProcesses []ProcessWrappe
 	}
 }
 
-func TestCommonDiscovery(t *testing.T) {
+func TestCommonDiscoveryLoop(t *testing.T) {
 	tests := []struct {
 		name    string
 		d       *DiscoveryService
@@ -387,5 +389,134 @@ func TestCommonDiscovery(t *testing.T) {
 			}
 		}
 		ValidateResult(result.Processes, tc.want.Processes, tc.name, t)
+	}
+}
+
+func TestCommonDiscoveryUnbufferedChannels(t *testing.T) {
+	tests := []struct {
+		name string
+		d    *DiscoveryService
+		chs  []chan Result
+		want Result
+	}{
+		{
+			name: "UnbufferedChannelsDoNotHang",
+			d: &DiscoveryService{
+				ProcessLister: fakeProcessLister{processes: []processStub{
+					{username: "user1", pid: 123, name: "test"},
+				}},
+			},
+			chs:  []chan Result{make(chan Result), make(chan Result), make(chan Result)},
+			want: Result{},
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, tc := range tests {
+		// This test is just checking that the common discovery loop does not hang when the channels are unbuffered.
+		tc.d.CommonDiscovery(ctx, tc.chs)
+	}
+}
+
+func TestCommonDiscoveryFullChannel(t *testing.T) {
+	tests := []struct {
+		name string
+		d    *DiscoveryService
+		chs  []chan Result
+		want Result
+	}{
+		{
+			name: "OneChannelFullOneChannelNotBlocked",
+			d: &DiscoveryService{
+				Config: &cpb.Configuration{
+					CommonDiscovery: &cpb.CommonDiscovery{
+						// every 0.1 seconds
+						CollectionFrequency: &dpb.Duration{Nanos: 1000000000 * 0.1},
+					},
+				},
+				ProcessLister: fakeProcessLister{processes: []processStub{
+					{username: "user1", pid: 123, name: "test"},
+				}},
+			},
+			chs: []chan Result{make(chan Result, 1), make(chan Result, 1)},
+			want: Result{
+				Processes: []ProcessWrapper{
+					processStub{username: "user1", pid: 123, name: "test"},
+				},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for range 10 {
+		for _, tc := range tests {
+			tc.d.CommonDiscovery(ctx, tc.chs)
+			// Ignore the second channel to make sure will not block the first channel.
+			result := <-tc.chs[0]
+			ValidateResult(result.Processes, tc.want.Processes, tc.name, t)
+		}
+	}
+}
+
+func TestCommonDiscovery(t *testing.T) {
+	tests := []struct {
+		name string
+		d    *DiscoveryService
+		chs  []chan Result
+		want Result
+	}{
+		{
+			name: "MultipleChannels",
+			d: &DiscoveryService{
+				ProcessLister: fakeProcessLister{processes: []processStub{
+					{username: "user1", pid: 123, name: "test"},
+				}},
+			},
+			chs: []chan Result{make(chan Result, 1), make(chan Result, 1)},
+			want: Result{
+				Processes: []ProcessWrapper{
+					processStub{username: "user1", pid: 123, name: "test"},
+				},
+			},
+		},
+		{
+			name: "SingleChannel",
+			d: &DiscoveryService{
+				ProcessLister: fakeProcessLister{processes: []processStub{
+					{username: "user1", pid: 123, name: "test"},
+				}},
+			},
+			chs: []chan Result{make(chan Result, 1)},
+			want: Result{
+				Processes: []ProcessWrapper{
+					processStub{username: "user1", pid: 123, name: "test"},
+				},
+			},
+		},
+		{
+			name: "ZeroChannelsDoesNotHang",
+			d: &DiscoveryService{
+				ProcessLister: fakeProcessLister{processes: []processStub{
+					{username: "user1", pid: 123, name: "test"},
+				}},
+			},
+			chs: []chan Result{},
+			want: Result{
+				Processes: []ProcessWrapper{
+					processStub{username: "user1", pid: 123, name: "test"},
+				},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, tc := range tests {
+		tc.d.CommonDiscovery(ctx, tc.chs)
+		for _, ch := range tc.chs {
+			result := <-ch
+			ValidateResult(result.Processes, tc.want.Processes, tc.name, t)
+		}
 	}
 }

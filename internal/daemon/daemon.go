@@ -128,15 +128,18 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 	signal.Notify(shutdownch, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 
 	log.Logger.Info("Starting common discovery")
-	cdCh := make(chan commondiscovery.Result)
+	oracleCh := make(chan commondiscovery.Result,1)
+	mySQLCh := make(chan commondiscovery.Result, 1)
+	cdChs := []chan commondiscovery.Result{mySQLCh, oracleCh}
 	commondiscovery := commondiscovery.DiscoveryService{
 		ProcessLister: commondiscovery.DefaultProcessLister{},
 		ReadFile:      os.ReadFile,
 		Hostname:      os.Hostname,
+		Config:        d.config,
 	}
 	recoverableStart := &recovery.RecoverableRoutine{
 		Routine:             commondiscovery.CommonDiscovery,
-		RoutineArg:          cdCh,
+		RoutineArg:          cdChs,
 		ErrorCode:           commondiscovery.ErrorCode(),
 		ExpectedMinDuration: commondiscovery.ExpectedMinDuration(),
 		UsageLogger:         *usagemetrics.UsageLogger,
@@ -145,8 +148,8 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 
 	// Add any additional services here.
 	d.services = []Service{
-		&oracle.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: cdCh},
-		&mysql.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: cdCh},
+		&oracle.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: oracleCh},
+		&mysql.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: mySQLCh},
 	}
 	for _, service := range d.services {
 		log.Logger.Infof("Starting %s", service.String())

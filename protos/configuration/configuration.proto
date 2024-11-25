@@ -37,6 +37,7 @@ message Configuration {
   AgentProperties agent_properties = 5;
   OracleConfiguration oracle_configuration = 6;
   MySQLConfiguration mysql_configuration = 7;
+  CommonDiscovery common_discovery = 8;
 }
 
 message CloudProperties {
@@ -78,6 +79,10 @@ message OracleMetrics {
 
 message MySQLConfiguration {
   optional bool enabled = 1;
+}
+
+message CommonDiscovery {
+  google.protobuf.Duration collection_frequency = 1;
 }
 
 message ConnectionParameters {
