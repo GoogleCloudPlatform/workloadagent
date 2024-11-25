@@ -49,6 +49,9 @@ const (
 	MySQLMetricCollectionFailure         = 11
 	MySQLDiscoveryFailure                = 12
 	CommonDiscoveryFailure               = 13
+	RedisServiceError                    = 14
+	RedisMetricCollectionFailure         = 15
+	RedisDiscoveryFailure                = 16
 )
 
 // Agent wide action mappings.

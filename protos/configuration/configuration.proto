@@ -38,6 +38,7 @@ message Configuration {
   OracleConfiguration oracle_configuration = 6;
   MySQLConfiguration mysql_configuration = 7;
   CommonDiscovery common_discovery = 8;
+  RedisConfiguration redis_configuration = 9;
 }
 
 message CloudProperties {
@@ -86,6 +87,10 @@ message MySQLConfiguration {
 
 message CommonDiscovery {
   google.protobuf.Duration collection_frequency = 1;
+}
+
+message RedisConfiguration {
+  optional bool enabled = 1;
 }
 
 message ConnectionParameters {
