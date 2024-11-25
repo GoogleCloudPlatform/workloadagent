@@ -28,13 +28,13 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/mysqldiscovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/mysqlmetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
-	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
+	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
 
 // Service implements the interfaces for MySQL workload agent service.
 type Service struct {
-	Config         *cpb.Configuration
-	CloudProps     *cpb.CloudProperties
+	Config         *configpb.Configuration
+	CloudProps     *configpb.CloudProperties
 	CommonCh       chan commondiscovery.Result
 	processes      commondiscovery.Result
 	mySQLProcesses []commondiscovery.ProcessWrapper
@@ -129,8 +129,13 @@ func runMetricCollection(ctx context.Context, a any) {
 	log.CtxLogger(ctx).Debugw("MySQL metric collection args", "args", args)
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
+	m, err := mysqlmetrics.New(ctx, args.s.Config)
+	if err != nil {
+		log.CtxLogger(ctx).Errorf("failed to create MySQL metrics: %v", err)
+		return
+	}
 	for {
-		mysqlmetrics.CollectMetricsOnce(ctx)
+		m.CollectMetricsOnce(ctx)
 		select {
 		case <-ctx.Done():
 			log.CtxLogger(ctx).Info("MySQL metric collection cancellation requested")

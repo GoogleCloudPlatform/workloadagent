@@ -79,6 +79,9 @@ message OracleMetrics {
 
 message MySQLConfiguration {
   optional bool enabled = 1;
+  string user = 2;
+  SecretRef secret = 3;
+  string password = 4;
 }
 
 message CommonDiscovery {

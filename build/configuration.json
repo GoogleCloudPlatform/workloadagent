@@ -1,8 +1,6 @@
 {
   "log_level": "INFO",
   "common_discovery": {
-    "collection_frequency": {
-      "seconds": 10800
-    }
+    "collection_frequency": "10800s"
   }
 }
