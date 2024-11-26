@@ -52,6 +52,9 @@ const (
 	RedisServiceError                    = 14
 	RedisMetricCollectionFailure         = 15
 	RedisDiscoveryFailure                = 16
+	SQLServerServiceError                = 17
+	SQLServerMetricCollectionFailure     = 18
+	SQLServerDiscoveryFailure            = 19
 )
 
 // Agent wide action mappings.

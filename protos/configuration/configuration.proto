@@ -39,6 +39,7 @@ message Configuration {
   MySQLConfiguration mysql_configuration = 7;
   CommonDiscovery common_discovery = 8;
   RedisConfiguration redis_configuration = 9;
+  SQLServerConfiguration sqlserver_configuration = 10;
 }
 
 message CloudProperties {
@@ -90,6 +91,10 @@ message CommonDiscovery {
 }
 
 message RedisConfiguration {
+  optional bool enabled = 1;
+}
+
+message SQLServerConfiguration {
   optional bool enabled = 1;
 }
 
