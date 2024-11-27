@@ -146,7 +146,8 @@ func runMetricCollection(ctx context.Context, a any) {
 			log.CtxLogger(ctx).Info("Metric Collection cancellation requested")
 			return
 		case <-ticker.C:
-			metricCollector.CollectDBMetricsOnce(ctx)
+			metricCollector.SendHealthMetricsToCloudMonitoring(ctx)
+			metricCollector.SendDefaultMetricsToCloudMonitoring(ctx)
 		}
 	}
 }
