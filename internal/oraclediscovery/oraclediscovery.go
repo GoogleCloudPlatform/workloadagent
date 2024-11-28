@@ -33,10 +33,10 @@ import (
 
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	"github.com/shirou/gopsutil/v3/process"
-	"github.com/GoogleCloudPlatform/sapagent/shared/commandlineexecutor"
-	"github.com/GoogleCloudPlatform/sapagent/shared/log"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	odpb "github.com/GoogleCloudPlatform/workloadagent/protos/oraclediscovery"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/commandlineexecutor"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 )
 
 const (

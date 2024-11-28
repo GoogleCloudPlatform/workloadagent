@@ -22,13 +22,13 @@ import (
 	"time"
 
 	"go.uber.org/zap/zapcore"
-	"github.com/GoogleCloudPlatform/sapagent/shared/log"
-	"github.com/GoogleCloudPlatform/sapagent/shared/recovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/commondiscovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/redisdiscovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/redismetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/recovery"
 )
 
 // Service implements the interfaces for Redis workload agent service.

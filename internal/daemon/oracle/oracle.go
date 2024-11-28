@@ -24,14 +24,14 @@ import (
 	"slices"
 	"time"
 
-	"github.com/GoogleCloudPlatform/sapagent/shared/log"
-	"github.com/GoogleCloudPlatform/sapagent/shared/recovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/commondiscovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/oraclediscovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/oraclemetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	odpb "github.com/GoogleCloudPlatform/workloadagent/protos/oraclediscovery"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/recovery"
 )
 
 // Service implements the interfaces for Oracle workload agent service.

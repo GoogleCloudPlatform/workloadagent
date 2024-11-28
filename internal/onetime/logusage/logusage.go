@@ -21,10 +21,10 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/GoogleCloudPlatform/sapagent/shared/log"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )

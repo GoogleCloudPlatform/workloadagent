@@ -28,8 +28,8 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"go.uber.org/zap/zapcore"
-	"github.com/GoogleCloudPlatform/sapagent/shared/log"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 
 	dpb "google.golang.org/protobuf/types/known/durationpb"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"

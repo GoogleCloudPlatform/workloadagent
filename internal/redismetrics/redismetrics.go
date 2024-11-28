@@ -20,7 +20,7 @@ package redismetrics
 import (
 	"context"
 
-	"github.com/GoogleCloudPlatform/sapagent/shared/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 )
 
 // CollectMetricsOnce collects metrics for Redis databases running on the host.

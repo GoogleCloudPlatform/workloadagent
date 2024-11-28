@@ -26,8 +26,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/GoogleCloudPlatform/sapagent/shared/log"
-	"github.com/GoogleCloudPlatform/sapagent/shared/recovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/commondiscovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/mysql"
@@ -35,6 +33,8 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/redis"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/sqlserver"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/recovery"
 
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )

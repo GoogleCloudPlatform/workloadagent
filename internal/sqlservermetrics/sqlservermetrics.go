@@ -20,7 +20,7 @@ package sqlservermetrics
 import (
 	"context"
 
-	"github.com/GoogleCloudPlatform/sapagent/shared/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 )
 
 // CollectMetricsOnce collects metrics for SQL Server databases running on the host.

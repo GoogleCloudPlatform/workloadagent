@@ -28,9 +28,9 @@ import (
 	tpb "google.golang.org/protobuf/types/known/timestamppb"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/testing/protocmp"
-	"github.com/GoogleCloudPlatform/sapagent/shared/commandlineexecutor"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	odpb "github.com/GoogleCloudPlatform/workloadagent/protos/oraclediscovery"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/commandlineexecutor"
 )
 
 //go:embed testdata/*

@@ -21,10 +21,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/GoogleCloudPlatform/sapagent/shared/commandlineexecutor"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/commandlineexecutor"
 
-	gcefake "github.com/GoogleCloudPlatform/sapagent/shared/gce/fake"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
+	gcefake "github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce/fake"
 )
 
 func TestInitPassword(t *testing.T) {
