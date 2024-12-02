@@ -110,6 +110,7 @@ func TestLoad(t *testing.T) {
 					"oracle_configuration": {
 						"enabled": true,
 						"oracle_discovery": {
+							"enabled": true,
 							"update_frequency": "240s"
 						},
 						"oracle_metrics": {
@@ -153,6 +154,7 @@ func TestLoad(t *testing.T) {
 				OracleConfiguration: &cpb.OracleConfiguration{
 					Enabled: proto.Bool(true),
 					OracleDiscovery: &cpb.OracleDiscovery{
+						Enabled:         proto.Bool(true),
 						UpdateFrequency: &dpb.Duration{Seconds: 240},
 					},
 					OracleMetrics: &cpb.OracleMetrics{

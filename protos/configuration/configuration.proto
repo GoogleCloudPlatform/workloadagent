@@ -68,6 +68,7 @@ message OracleConfiguration {
 
 message OracleDiscovery {
   google.protobuf.Duration update_frequency = 1;
+  optional bool enabled = 2;
 }
 
 message OracleMetrics {

@@ -20,16 +20,20 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
 
+	// database/sql driver for sqlite
+	_ "github.com/mattn/go-sqlite3"
+
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/secret"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/cloudmonitoring"
+	cmfake "github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/cloudmonitoring/fake"
 	gcefake "github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce/fake"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/timeseries"
@@ -38,9 +42,9 @@ import (
 	mrespb "google.golang.org/genproto/googleapis/api/monitoredres"
 	cpb "google.golang.org/genproto/googleapis/monitoring/v3"
 	mrpb "google.golang.org/genproto/googleapis/monitoring/v3"
+	dpb "google.golang.org/protobuf/types/known/durationpb"
 	tspb "google.golang.org/protobuf/types/known/timestamppb"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
-	odpb "github.com/GoogleCloudPlatform/workloadagent/protos/oraclediscovery"
 )
 
 var (
@@ -541,169 +545,6 @@ func TestPrepareTimeSeriesKey(t *testing.T) {
 	}
 }
 
-func TestExtractSIDs(t *testing.T) {
-	tests := []struct {
-		name      string
-		discovery *odpb.Discovery
-		want      []string
-	}{
-		{
-			name: "One database, one instance",
-			discovery: &odpb.Discovery{
-				Databases: []*odpb.Discovery_DatabaseRoot{
-					{
-						TenancyType: &odpb.Discovery_DatabaseRoot_Db{
-							Db: &odpb.Discovery_Database{
-								Instances: []*odpb.Discovery_Database_Instance{
-									{
-										OracleSid: "ORCL",
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			want: []string{"ORCL"},
-		},
-		{
-			name: "One database, two instances",
-			discovery: &odpb.Discovery{
-				Databases: []*odpb.Discovery_DatabaseRoot{
-					{
-						TenancyType: &odpb.Discovery_DatabaseRoot_Db{
-							Db: &odpb.Discovery_Database{
-								Instances: []*odpb.Discovery_Database_Instance{
-									{
-										OracleSid: "ORCL",
-									},
-									{
-										OracleSid: "ORCL2",
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			want: []string{"ORCL", "ORCL2"},
-		},
-		{
-			name: "Two databases, one instance each",
-			discovery: &odpb.Discovery{
-				Databases: []*odpb.Discovery_DatabaseRoot{
-					{
-						TenancyType: &odpb.Discovery_DatabaseRoot_Db{
-							Db: &odpb.Discovery_Database{
-								Instances: []*odpb.Discovery_Database_Instance{
-									{
-										OracleSid: "ORCL",
-									},
-								},
-							},
-						},
-					},
-					{
-						TenancyType: &odpb.Discovery_DatabaseRoot_Db{
-							Db: &odpb.Discovery_Database{
-								Instances: []*odpb.Discovery_Database_Instance{
-									{
-										OracleSid: "ORCL2",
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			want: []string{"ORCL", "ORCL2"},
-		},
-		{
-			name: "CDB and non-CDB",
-			discovery: &odpb.Discovery{
-				Databases: []*odpb.Discovery_DatabaseRoot{
-					{
-						TenancyType: &odpb.Discovery_DatabaseRoot_Cdb{
-							Cdb: &odpb.Discovery_DatabaseRoot_ContainerDatabase{
-								Root: &odpb.Discovery_Database{
-									Instances: []*odpb.Discovery_Database_Instance{
-										{
-											OracleSid: "ORCL1",
-										},
-									},
-								},
-								Pdbs: []*odpb.Discovery_Database{
-									{
-										Instances: []*odpb.Discovery_Database_Instance{
-											{
-												OracleSid: "ORCL1",
-											},
-											{
-												OracleSid: "ORCL1",
-											},
-										},
-									},
-									{
-										Instances: []*odpb.Discovery_Database_Instance{
-											{
-												OracleSid: "ORCL1",
-											},
-											{
-												OracleSid: "ORCL1",
-											},
-											{
-												OracleSid: "ORCL1",
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-					{
-						TenancyType: &odpb.Discovery_DatabaseRoot_Db{
-							Db: &odpb.Discovery_Database{
-								Instances: []*odpb.Discovery_Database_Instance{
-									{
-										OracleSid: "ORCL2",
-									},
-									{
-										OracleSid: "ORCL3",
-									},
-								},
-							},
-						},
-					},
-					{
-						TenancyType: &odpb.Discovery_DatabaseRoot_Db{
-							Db: &odpb.Discovery_Database{
-								Instances: []*odpb.Discovery_Database_Instance{
-									{
-										OracleSid: "ORCL4",
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			want: []string{"ORCL1", "ORCL2", "ORCL3", "ORCL4"},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got, err := ExtractSIDs(test.discovery)
-			if err != nil {
-				t.Errorf("ExtractSIDs(%v) returned an unexpected error: %v", test.discovery, err)
-			}
-			if diff := cmp.Diff(test.want, got); diff != "" {
-				t.Errorf("extractSIDs(%v) returned diff (-want +got):\n%s", test.discovery, diff)
-			}
-		})
-	}
-}
-
 func TestConvertCloudProperties(t *testing.T) {
 	cp := &configpb.CloudProperties{
 		ProjectId:        "project-id",
@@ -731,326 +572,7 @@ func TestConvertCloudProperties(t *testing.T) {
 	}
 }
 
-func TestIncrementFailCount(t *testing.T) {
-	d := &dbManager{
-		failCounts: make(map[string]map[string]int),
-	}
-
-	d.incrementFailCount("SID1", "QUERY1")
-	d.incrementFailCount("SID1", "QUERY2")
-	d.incrementFailCount("SID2", "QUERY1")
-
-	want := map[string]map[string]int{
-		"SID1": {
-			"QUERY1": 1,
-			"QUERY2": 1,
-		},
-		"SID2": {
-			"QUERY1": 1,
-		},
-	}
-
-	if diff := cmp.Diff(want, d.failCounts); diff != "" {
-		t.Errorf("failCounts returned diff (-want +got):\n%s", diff)
-	}
-}
-
-func TestResetFailCount(t *testing.T) {
-	tests := []struct {
-		desc       string
-		sid        string
-		queryName  string
-		failCounts map[string]map[string]int
-		want       map[string]map[string]int
-	}{
-		{
-			desc:       "Reset fail count for existing query",
-			sid:        "SID1",
-			queryName:  "QUERY1",
-			failCounts: map[string]map[string]int{"SID1": {"QUERY1": 1, "QUERY2": 2}},
-			want:       map[string]map[string]int{"SID1": {"QUERY1": 0, "QUERY2": 2}},
-		},
-		{
-			desc:       "Reset fail count for non-existing query",
-			sid:        "SID1",
-			queryName:  "QUERY3",
-			failCounts: map[string]map[string]int{"SID1": {"QUERY1": 1, "QUERY2": 2}},
-			want:       map[string]map[string]int{"SID1": {"QUERY1": 1, "QUERY2": 2}},
-		},
-		{
-			desc:       "Reset fail count for non-existing SID",
-			sid:        "SID2",
-			queryName:  "QUERY1",
-			failCounts: map[string]map[string]int{"SID1": {"QUERY1": 1, "QUERY2": 2}},
-			want:       map[string]map[string]int{"SID1": {"QUERY1": 1, "QUERY2": 2}},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.desc, func(t *testing.T) {
-			d := &dbManager{
-				failCounts: tc.failCounts,
-			}
-			d.resetFailCount(tc.sid, tc.queryName)
-			if diff := cmp.Diff(tc.want, d.failCounts); diff != "" {
-				t.Errorf("resetFailCount(%s, %s) returned unexpected diff (-want +got):\n%s", tc.sid, tc.queryName, diff)
-			}
-		})
-	}
-}
-
-func TestFailCountFor(t *testing.T) {
-	d := &dbManager{
-		failCounts: map[string]map[string]int{
-			"sid1": {
-				"query1": 1,
-				"query2": 2,
-			},
-			"sid2": {
-				"query1": 3,
-				"query2": 4,
-			},
-		},
-	}
-
-	tests := []struct {
-		sid       string
-		queryName string
-		want      int
-	}{
-		{
-			sid:       "sid1",
-			queryName: "query1",
-			want:      1,
-		},
-		{
-			sid:       "sid1",
-			queryName: "query2",
-			want:      2,
-		},
-		{
-			sid:       "sid2",
-			queryName: "query1",
-			want:      3,
-		},
-		{
-			sid:       "sid2",
-			queryName: "query2",
-			want:      4,
-		},
-		{
-			sid:       "sid3",
-			queryName: "query1",
-			want:      0,
-		},
-	}
-
-	for _, test := range tests {
-		if got := d.failCountFor(test.sid, test.queryName); got != test.want {
-			t.Errorf("failCountFor(%q, %q) = %d, want %d", test.sid, test.queryName, got, test.want)
-		}
-	}
-}
-
-func TestRefreshDBConnections(t *testing.T) {
-	discovery := &odpb.Discovery{
-		Databases: []*odpb.Discovery_DatabaseRoot{
-			{
-				TenancyType: &odpb.Discovery_DatabaseRoot_Db{
-					Db: &odpb.Discovery_Database{
-						Instances: []*odpb.Discovery_Database_Instance{
-							{
-								OracleSid: "SID1",
-							},
-						},
-					},
-				},
-			},
-			{
-				TenancyType: &odpb.Discovery_DatabaseRoot_Db{
-					Db: &odpb.Discovery_Database{
-						Instances: []*odpb.Discovery_Database_Instance{
-							{
-								OracleSid: "SID2",
-							},
-						},
-					},
-				},
-			},
-		},
-		Listeners: []*odpb.Discovery_Listener{
-			{
-				Id: &odpb.Discovery_Listener_ListenerId{
-					Alias:      "listener1",
-					OracleHome: "ORACLE_HOME1",
-				},
-				Endpoints: []*odpb.Discovery_Listener_Endpoint{
-					{
-						Protocol: &odpb.Discovery_Listener_Endpoint_Tcp{
-							Tcp: &odpb.Discovery_Listener_TCPProtocol{
-								Host: "host1",
-								Port: 1234,
-							},
-						},
-					},
-				},
-				Services: []*odpb.Discovery_Listener_Service{
-					{
-						Name: "service1",
-						Instances: []*odpb.Discovery_Listener_Service_DatabaseInstance{
-							{
-								Name: "SID1",
-							},
-						},
-					},
-				},
-			},
-			{
-				Id: &odpb.Discovery_Listener_ListenerId{
-					Alias:      "listener2",
-					OracleHome: "ORACLE_HOME2",
-				},
-				Endpoints: []*odpb.Discovery_Listener_Endpoint{
-					{
-						Protocol: &odpb.Discovery_Listener_Endpoint_Tcp{
-							Tcp: &odpb.Discovery_Listener_TCPProtocol{
-								Host: "host2",
-								Port: 2345,
-							},
-						},
-					},
-				},
-				Services: []*odpb.Discovery_Listener_Service{
-					{
-						Name: "service2",
-						Instances: []*odpb.Discovery_Listener_Service_DatabaseInstance{
-							{
-								Name: "SID2",
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	ctx := context.Background()
-	c := &MetricCollector{
-		dbManager: &dbManager{
-			connectionParameters: []connectionParameters{
-				{ServiceName: "service1"},
-				{ServiceName: "service2"},
-			},
-			connections: make(map[string]*sql.DB),
-		},
-	}
-
-	c.RefreshDBConnections(ctx, discovery)
-	want := []connectionParameters{
-		{ServiceName: "service1", Host: "host1", Port: 1234},
-		{ServiceName: "service2", Host: "host2", Port: 2345},
-	}
-	if diff := cmp.Diff(want, c.dbManager.connectionParameters); diff != "" {
-		t.Errorf("RefreshDBConnections(%v) returned diff (-want +got):\n%s", discovery, diff)
-	}
-}
-
-func TestPopulateConnectionParameters(t *testing.T) {
-	ctx := context.Background()
-	tests := []struct {
-		name                 string
-		discovery            *odpb.Discovery
-		connectionParameters []connectionParameters
-		want                 []connectionParameters
-	}{
-		{
-			name: "populate host and port",
-			discovery: &odpb.Discovery{
-				Listeners: []*odpb.Discovery_Listener{
-					{
-						Services: []*odpb.Discovery_Listener_Service{
-							{
-								Name: "oracle",
-							},
-						},
-						Endpoints: []*odpb.Discovery_Listener_Endpoint{
-							{
-								Protocol: &odpb.Discovery_Listener_Endpoint_Tcp{
-									Tcp: &odpb.Discovery_Listener_TCPProtocol{
-										Host: "127.0.0.1",
-										Port: 1521,
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			connectionParameters: []connectionParameters{
-				{
-					ServiceName: "oracle",
-				},
-			},
-			want: []connectionParameters{
-				{
-					ServiceName: "oracle",
-					Host:        "127.0.0.1",
-					Port:        1521,
-				},
-			},
-		},
-		{
-			name: "do not populate host and port",
-			discovery: &odpb.Discovery{
-				Listeners: []*odpb.Discovery_Listener{
-					{
-						Services: []*odpb.Discovery_Listener_Service{
-							{
-								Name: "oracle",
-							},
-						},
-						Endpoints: []*odpb.Discovery_Listener_Endpoint{
-							{
-								Protocol: &odpb.Discovery_Listener_Endpoint_Tcp{
-									Tcp: &odpb.Discovery_Listener_TCPProtocol{
-										Host: "127.0.0.1",
-										Port: 1521,
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			connectionParameters: []connectionParameters{
-				{
-					ServiceName: "oracle",
-					Host:        "localhost",
-					Port:        1522,
-				},
-			},
-			want: []connectionParameters{
-				{
-					ServiceName: "oracle",
-					Host:        "localhost",
-					Port:        1522,
-				},
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			m := &dbManager{connectionParameters: tc.connectionParameters}
-			m.populateConnectionParameters(ctx, tc.discovery)
-			if diff := cmp.Diff(tc.want, m.connectionParameters); diff != "" {
-				t.Errorf("populateConnectionParameters() returned unexpected diff (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestShouldRunQuery(t *testing.T) {
+func TestIsQueryAllowedForRole(t *testing.T) {
 	testCases := []struct {
 		name      string
 		queryRole configpb.Query_DatabaseRole
@@ -1116,219 +638,409 @@ func TestShouldRunQuery(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			query := &configpb.Query{DatabaseRole: tc.queryRole}
-			if got := shouldRunQuery(query, tc.role); got != tc.want {
-				t.Errorf("shouldRunQuery(%v, %v) = %v, want %v", query, tc.role, got, tc.want)
+			if got := isQueryAllowedForRole(query, tc.role); got != tc.want {
+				t.Errorf("isQueryAllowedForRole(%v, %v) = %v, want %v", query, tc.role, got, tc.want)
 			}
 		})
 	}
 }
 
-func TestShouldRunQueryDisabled(t *testing.T) {
+func TestDisabledQuery(t *testing.T) {
 	query := &configpb.Query{
 		DatabaseRole: configpb.Query_BOTH,
 		Disabled:     proto.Bool(true),
 	}
 	role := "PHYSICAL STANDBY"
 	want := false
-	if got := shouldRunQuery(query, role); got != want {
-		t.Errorf("shouldRunQuery(%v, %v) = %v, want %v", query, role, got, want)
+	if got := isQueryAllowedForRole(query, role); got != want {
+		t.Errorf("isQueryAllowedForRole(%v, %v) = %v, want %v", query, role, got, want)
 	}
 }
 
-type fakeDB struct {
-	err error
-}
-
-func (f *fakeDB) PingContext(ctx context.Context) error {
-	if f.err != nil {
-		return f.err
+// setupSQLiteDB creates an in-memory database suitable for testing oraclemetrics functionality
+func setupSQLiteDB(t *testing.T) (*sql.DB, error) {
+	t.Helper()
+	seedSQLStatements := []string{
+		`CREATE TABLE "v$database" (
+				dbid TEXT PRIMARY KEY,
+				db_unique_name TEXT,
+				database_role TEXT
+			)`,
+		`CREATE TABLE "v$pdbs" (
+				id TEXT PRIMARY KEY,
+				name TEXT
+			)`,
+		`INSERT INTO "v$database" (dbid, db_unique_name, database_role) VALUES ('1', 'test_db_unique_name', 'PRIMARY')`,
+		`INSERT INTO "v$pdbs" (id, name) VALUES ('1', 'test_pdb_name')`,
 	}
-	return nil
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		return nil, fmt.Errorf("cannot create a sqlite testing database")
+	}
+	for _, s := range seedSQLStatements {
+		if _, err := db.Exec(s); err != nil {
+			return nil, fmt.Errorf("error executing sql statement: %v\nSQL: %s", err, s)
+		}
+	}
+	return db, nil
 }
 
-func TestShouldSkip(t *testing.T) {
-	now := time.Now()
-	ctx := context.Background()
-	baseDelaySeconds := int64(1)
+func TestFetchDatabaseInfo(t *testing.T) {
+	want := &databaseInfo{
+		DBID:         "1",
+		DBUniqueName: "test_db_unique_name",
+		DatabaseRole: "PRIMARY",
+		PdbName:      "test_pdb_name",
+	}
+	db, err := setupSQLiteDB(t)
+	if err != nil {
+		t.Fatalf("Failed to setup testing SQLite DB: %v", err)
+	}
+	defer db.Close()
+
+	got, err := fetchDatabaseInfo(context.Background(), db)
+	if err != nil {
+		t.Errorf("fetchDatabaseInfo() returned an unexpected error: %v", err)
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("fetchDatabaseInfo() returned an unexpected diff (-want +got): %v", diff)
+	}
+}
+
+func TestCollectDBMetricsOnce(t *testing.T) {
+	db, err := setupSQLiteDB(t)
+	if err != nil {
+		t.Fatalf("Failed to setup testing SQLite DB: %v", err)
+	}
+	defer db.Close()
 
 	tests := []struct {
-		name              string
-		serviceName       string
-		db                dbPinger
-		dbManager         *dbManager
-		want              bool
-		wantFailCount     map[string]map[string]int
-		wantNextRetry     map[string]time.Time
-		wantSkipMsgLogged map[string]map[string]bool
+		name                string
+		OracleConfiguration *configpb.OracleConfiguration
+		connections         map[string]*sql.DB
+		failCount           map[string]int
+		want                []*mrpb.TimeSeries
 	}{
 		{
-			name:        "should not skip if no errors",
-			serviceName: "service1",
-			db:          &fakeDB{},
-			dbManager: &dbManager{
-				nextRetry:        map[string]time.Time{},
-				skipMsgLogged:    map[string]map[string]bool{},
-				baseDelaySeconds: baseDelaySeconds,
+			name: "Success",
+			connections: map[string]*sql.DB{
+				"test_service_name": db,
 			},
-			want: false,
-			wantSkipMsgLogged: map[string]map[string]bool{
-				"service1": map[string]bool{"max_login_failures": false, "other_failures": false},
-			},
-		},
-		{
-			name:        "should skip if login failed",
-			serviceName: "service1",
-			db:          &fakeDB{err: errors.New("ORA-01017: invalid username/password")},
-			dbManager: &dbManager{
-				failCounts:       map[string]map[string]int{},
-				nextRetry:        map[string]time.Time{},
-				skipMsgLogged:    map[string]map[string]bool{},
-				baseDelaySeconds: baseDelaySeconds,
-			},
-			want: true,
-			wantFailCount: map[string]map[string]int{
-				"service1": map[string]int{"login": 1},
-			},
-			wantNextRetry: map[string]time.Time{
-				"service1": now.Add(1 * time.Second),
-			},
-		},
-		{
-			name:        "should skip if it's not time to retry yet",
-			serviceName: "service1",
-			db:          &fakeDB{err: errors.New("ORA-01017: invalid username/password")},
-			dbManager: &dbManager{
-				failCounts: map[string]map[string]int{},
-				nextRetry: map[string]time.Time{
-					"service1": now.Add(2 * time.Second),
+			failCount: map[string]int{},
+			OracleConfiguration: &configpb.OracleConfiguration{
+				OracleMetrics: &configpb.OracleMetrics{
+					Queries: []*configpb.Query{
+						&configpb.Query{
+							Name: "testQuery",
+							Columns: []*configpb.Column{
+								&configpb.Column{
+									ValueType:    configpb.ValueType_VALUE_INT64,
+									Name:         "testCol",
+									MetricType:   configpb.MetricType_METRIC_GAUGE,
+									NameOverride: "test_col",
+								},
+							},
+							Sql:          "SELECT 1",
+							DatabaseRole: configpb.Query_PRIMARY,
+							Disabled:     proto.Bool(false),
+						},
+					},
+					Enabled:             proto.Bool(true),
+					MaxExecutionThreads: 1,
+					QueryTimeout:        &dpb.Duration{Seconds: 10},
 				},
-				skipMsgLogged:    map[string]map[string]bool{},
-				baseDelaySeconds: baseDelaySeconds,
 			},
-			want: true,
-			wantNextRetry: map[string]time.Time{
-				"service1": now.Add(2 * time.Second),
+			want: []*mrpb.TimeSeries{
+				&mrpb.TimeSeries{
+					Metric: &mpb.Metric{
+						Type:   "workload.googleapis.com/oracle/test_col",
+						Labels: map[string]string{"dbid": "1", "db_unique_name": "test_db_unique_name", "pdb_name": "test_pdb_name"},
+					},
+					Resource: &mrespb.MonitoredResource{
+						Type: "gce_instance",
+						Labels: map[string]string{
+							"project_id":  "test_project_id",
+							"instance_id": "test_instance_id",
+							"zone":        "test_zone",
+						},
+					},
+					Points: []*mrpb.Point{
+						&mrpb.Point{
+							Interval: &cpb.TimeInterval{
+								StartTime: &tspb.Timestamp{Seconds: 1724194800},
+								EndTime:   &tspb.Timestamp{Seconds: 1724194800},
+							},
+							Value: &cpb.TypedValue{Value: &cpb.TypedValue_Int64Value{Int64Value: 1}},
+						},
+					},
+					MetricKind: mpb.MetricDescriptor_GAUGE,
+				},
 			},
 		},
 		{
-			name:        "should skip if reached maximum allowed login failures",
-			serviceName: "service1",
-			db:          &fakeDB{},
-			dbManager: &dbManager{
-				failCounts: map[string]map[string]int{
-					"service1": map[string]int{"login": 9},
+			name: "Non-primary database",
+			connections: map[string]*sql.DB{
+				"test_service_name": db,
+			},
+			failCount: map[string]int{},
+			OracleConfiguration: &configpb.OracleConfiguration{
+				OracleMetrics: &configpb.OracleMetrics{
+					Queries: []*configpb.Query{
+						&configpb.Query{
+							Name:         "testQuery",
+							DatabaseRole: configpb.Query_STANDBY,
+							Disabled:     proto.Bool(false),
+						},
+					},
+					Enabled: proto.Bool(true),
 				},
-				nextRetry: map[string]time.Time{
-					"service1": now,
-				},
-				skipMsgLogged:    map[string]map[string]bool{},
-				baseDelaySeconds: baseDelaySeconds,
 			},
-			want: true,
-			wantFailCount: map[string]map[string]int{
-				"service1": map[string]int{"login": maxLoginFailures},
-			},
-			wantNextRetry: map[string]time.Time{
-				"service1": now,
-			},
-			wantSkipMsgLogged: map[string]map[string]bool{
-				"service1": map[string]bool{"max_login_failures": true},
-			},
+			want: []*mrpb.TimeSeries{},
 		},
 		{
-			name:        "skip for all other errors",
-			serviceName: "service1",
-			db:          &fakeDB{err: errors.New("unknown error")},
-			dbManager: &dbManager{
-				nextRetry:        map[string]time.Time{},
-				skipMsgLogged:    map[string]map[string]bool{},
-				baseDelaySeconds: baseDelaySeconds,
+			name: "Query disabled",
+			connections: map[string]*sql.DB{
+				"test_service_name": db,
 			},
-			want: true,
-			wantSkipMsgLogged: map[string]map[string]bool{
-				"service1": map[string]bool{"other_failures": true},
+			OracleConfiguration: &configpb.OracleConfiguration{
+				OracleMetrics: &configpb.OracleMetrics{
+					Queries: []*configpb.Query{
+						&configpb.Query{
+							Name:     "testQuery",
+							Disabled: proto.Bool(true),
+						},
+					},
+					Enabled: proto.Bool(true),
+				},
 			},
+			want: []*mrpb.TimeSeries{},
+		},
+		{
+			name: "Invalid query",
+			connections: map[string]*sql.DB{
+				"test_service_name": db,
+			},
+			failCount: map[string]int{},
+			OracleConfiguration: &configpb.OracleConfiguration{
+				OracleMetrics: &configpb.OracleMetrics{
+					Queries: []*configpb.Query{
+						&configpb.Query{
+							Name:     "testQuery",
+							Sql:      "invalid query",
+							Disabled: proto.Bool(false),
+						},
+					},
+					Enabled:             proto.Bool(true),
+					MaxExecutionThreads: 1,
+					QueryTimeout:        &dpb.Duration{Seconds: 10},
+				},
+			},
+			want: []*mrpb.TimeSeries{},
+		},
+		{
+			name: "3 consecutive failures",
+			connections: map[string]*sql.DB{
+				"test_service_name": db,
+			},
+			failCount: map[string]int{"test_service_name:testQuery": 3},
+			OracleConfiguration: &configpb.OracleConfiguration{
+				OracleMetrics: &configpb.OracleMetrics{
+					Queries: []*configpb.Query{
+						&configpb.Query{
+							Name:     "testQuery",
+							Disabled: proto.Bool(false),
+						},
+					},
+					Enabled: proto.Bool(true),
+				},
+			},
+			want: []*mrpb.TimeSeries{},
 		},
 	}
-
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := tc.dbManager.shouldSkip(ctx, tc.serviceName, tc.db, now)
-			if got != tc.want {
-				t.Errorf("shouldSkip(%q, %v) = %t, want %t", tc.serviceName, tc.db, got, tc.want)
+			collector := &MetricCollector{
+				Config: &configpb.Configuration{
+					CloudProperties: &configpb.CloudProperties{
+						ProjectId:        "test_project_id",
+						InstanceId:       "test_instance_id",
+						Zone:             "test_zone",
+						InstanceName:     "test_instance_name",
+						Image:            "test_image",
+						NumericProjectId: "1234567890",
+						Region:           "test_region",
+					},
+					OracleConfiguration: tc.OracleConfiguration,
+				},
+				TimeSeriesCreator: &cmfake.TimeSeriesCreator{},
+				failCount:         tc.failCount,
+				skipMsgLogged:     map[string]bool{},
+				connections:       tc.connections,
 			}
-			if diff := cmp.Diff(tc.wantFailCount, tc.dbManager.failCounts, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("shouldSkip(%q, %v) resulted in unexpected fail count diff (-want +got):\n%s", tc.serviceName, tc.db, diff)
-			}
-			if diff := cmp.Diff(tc.wantNextRetry, tc.dbManager.nextRetry, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("shouldSkip(%q, %v) resulted in unexpected next retry time diff (-want +got):\n%s", tc.serviceName, tc.db, diff)
-			}
-			if diff := cmp.Diff(tc.wantSkipMsgLogged, tc.dbManager.skipMsgLogged, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("shouldSkip(%q, %v) resulted in unexpected skip message logged diff (-want +got):\n%s", tc.serviceName, tc.db, diff)
+
+			got := collector.CollectDBMetricsOnce(context.Background())
+
+			if diff := cmp.Diff(tc.want, got, protocmp.Transform(), protocmp.IgnoreFields(&mrpb.Point{}, "interval")); diff != "" {
+				t.Errorf("CollectDBMetricsOnce() returned an unexpected diff (-want +got): %v", diff)
 			}
 		})
 	}
 }
 
-func TestDelay(t *testing.T) {
+func TestShouldSkipQuery(t *testing.T) {
 	tests := []struct {
 		name          string
-		loginFailures int
-		want          time.Duration
+		serviceName   string
+		queryName     string
+		failCount     int
+		skipMsgLogged map[string]bool
+		want          bool
 	}{
 		{
-			name:          "No login failures",
-			loginFailures: 0,
-			want:          0,
+			name:          "Skip query",
+			serviceName:   "test",
+			queryName:     "query1",
+			failCount:     maxQueryFailures,
+			skipMsgLogged: map[string]bool{},
+			want:          true,
 		},
 		{
-			name:          "One login failure",
-			loginFailures: 1,
-			want:          30 * time.Second,
-		},
-		{
-			name:          "Two login failures",
-			loginFailures: 2,
-			want:          8 * time.Minute,
-		},
-		{
-			name:          "Three login failures",
-			loginFailures: 3,
-			want:          40*time.Minute + 30*time.Second,
-		},
-		{
-			name:          "Four login failures",
-			loginFailures: 4,
-			want:          2*time.Hour + 8*time.Minute,
-		},
-		{
-			name:          "Five login failures",
-			loginFailures: 5,
-			want:          5*time.Hour + 12*time.Minute + 30*time.Second,
-		},
-		{
-			name:          "Six login failures",
-			loginFailures: 6,
-			want:          10*time.Hour + 48*time.Minute,
-		},
-		{
-			name:          "Seven login failures",
-			loginFailures: 7,
-			want:          20*time.Hour + 30*time.Second,
-		},
-		{
-			name:          "Eight login failures",
-			loginFailures: 8,
-			want:          34*time.Hour + 8*time.Minute,
+			name:          "Do not skip query",
+			serviceName:   "test",
+			queryName:     "query1",
+			failCount:     maxQueryFailures - 1,
+			skipMsgLogged: map[string]bool{},
+			want:          false,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			dbManager := &dbManager{baseDelaySeconds: 30}
-			got := dbManager.delay(tc.loginFailures)
+			ctx := context.Background()
+			c := &MetricCollector{
+				failCount:     map[string]int{"test:query1": tc.failCount},
+				skipMsgLogged: tc.skipMsgLogged,
+			}
+
+			got := c.shouldSkipQuery(ctx, tc.serviceName, tc.queryName)
+
 			if got != tc.want {
-				t.Errorf("delay(%d) = %s, want %s", tc.loginFailures, got, tc.want)
+				t.Errorf("skipQuery(%q, %q) = %v, want %v", tc.serviceName, tc.queryName, got, tc.want)
+			}
+
+			if got && !tc.skipMsgLogged["test:query1"] {
+				t.Errorf("skipQuery(%q, %q) did not log skip message", tc.serviceName, tc.queryName)
+			}
+		})
+	}
+}
+
+func TestExecuteQueryAndSendMetrics(t *testing.T) {
+	tests := []struct {
+		name  string
+		want  []*mrpb.TimeSeries
+		query *configpb.Query
+	}{
+		{
+			name: "Success",
+			query: &configpb.Query{
+				Name: "testQuery",
+				Columns: []*configpb.Column{
+					&configpb.Column{
+						ValueType:    configpb.ValueType_VALUE_INT64,
+						Name:         "testCol",
+						MetricType:   configpb.MetricType_METRIC_GAUGE,
+						NameOverride: "test_col",
+					},
+				},
+				Sql:          "SELECT 1",
+				DatabaseRole: configpb.Query_PRIMARY,
+				Disabled:     proto.Bool(false),
+			},
+			want: []*mrpb.TimeSeries{
+				&mrpb.TimeSeries{
+					Metric: &mpb.Metric{
+						Type:   "workload.googleapis.com/oracle/test_col",
+						Labels: map[string]string{"dbid": "1", "db_unique_name": "test_db_unique_name", "pdb_name": "test_pdb_name"},
+					},
+					Resource: &mrespb.MonitoredResource{
+						Type: "gce_instance",
+						Labels: map[string]string{
+							"project_id":  "test_project_id",
+							"instance_id": "test_instance_id",
+							"zone":        "test_zone",
+						},
+					},
+					Points: []*mrpb.Point{
+						&mrpb.Point{
+							Interval: &cpb.TimeInterval{
+								StartTime: &tspb.Timestamp{Seconds: 1724194800},
+								EndTime:   &tspb.Timestamp{Seconds: 1724194800},
+							},
+							Value: &cpb.TypedValue{Value: &cpb.TypedValue_Int64Value{Int64Value: 1}},
+						},
+					},
+					MetricKind: mpb.MetricDescriptor_GAUGE,
+				},
+			},
+		},
+		{
+			name: "Invalid query",
+			query: &configpb.Query{
+				Name: "testQuery",
+				Columns: []*configpb.Column{
+					&configpb.Column{
+						ValueType:    configpb.ValueType_VALUE_INT64,
+						Name:         "testCol",
+						MetricType:   configpb.MetricType_METRIC_GAUGE,
+						NameOverride: "test_col",
+					},
+				},
+				Sql:          "invalid query",
+				DatabaseRole: configpb.Query_PRIMARY,
+				Disabled:     proto.Bool(false),
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db, err := setupSQLiteDB(t)
+			if err != nil {
+				t.Fatalf("Failed to setup testing SQLite DB: %v", err)
+			}
+			defer db.Close()
+
+			collector := &MetricCollector{
+				failCount:     map[string]int{},
+				skipMsgLogged: map[string]bool{},
+				Config: &configpb.Configuration{
+					CloudProperties: &configpb.CloudProperties{
+						ProjectId:        "test_project_id",
+						InstanceId:       "test_instance_id",
+						Zone:             "test_zone",
+						InstanceName:     "test_instance_name",
+						Image:            "test_image",
+						NumericProjectId: "1234567890",
+						Region:           "test_region",
+					},
+				},
+				TimeSeriesCreator: &cmfake.TimeSeriesCreator{},
+			}
+
+			opts := queryOptions{
+				db:            db,
+				query:         tc.query,
+				timeout:       10,
+				collector:     collector,
+				runningSum:    make(map[timeSeriesKey]prevVal),
+				serviceName:   "test_service_name",
+				defaultLabels: map[string]string{"dbid": "1", "db_unique_name": "test_db_unique_name", "pdb_name": "test_pdb_name"},
+			}
+
+			got := executeQueryAndSendMetrics(context.Background(), opts)
+
+			if diff := cmp.Diff(tc.want, got, protocmp.Transform(), protocmp.IgnoreFields(&mrpb.Point{}, "interval")); diff != "" {
+				t.Errorf("executeQueryAndSendMetrics() returned an unexpected diff (-want +got): %v", diff)
 			}
 		})
 	}

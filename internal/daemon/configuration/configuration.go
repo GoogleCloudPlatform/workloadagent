@@ -155,6 +155,7 @@ func defaultConfig(cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) 
 		OracleConfiguration: &cpb.OracleConfiguration{
 			Enabled: proto.Bool(false),
 			OracleDiscovery: &cpb.OracleDiscovery{
+				Enabled:         proto.Bool(true),
 				UpdateFrequency: dpb.New(time.Duration(3 * 60 * 60 * time.Second)),
 			},
 			OracleMetrics: &cpb.OracleMetrics{

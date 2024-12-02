@@ -19,9 +19,7 @@ package oracle
 
 import (
 	"context"
-	"fmt"
 	"runtime"
-	"slices"
 	"time"
 
 	"github.com/GoogleCloudPlatform/workloadagent/internal/commondiscovery"
@@ -29,7 +27,6 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/oraclemetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
-	odpb "github.com/GoogleCloudPlatform/workloadagent/protos/oraclediscovery"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/recovery"
 )
@@ -40,7 +37,6 @@ type Service struct {
 	CloudProps              *cpb.CloudProperties
 	metricCollectionRoutine *recovery.RecoverableRoutine
 	discoveryRoutine        *recovery.RecoverableRoutine
-	ch                      chan *odpb.Discovery
 	currentSIDs             []string
 	CommonCh                chan commondiscovery.Result
 }
@@ -64,35 +60,29 @@ func (s *Service) Start(ctx context.Context, a any) {
 		return
 	}
 
-	// Create a channel to pass discovery data to the metric collection routine.
-	s.ch = make(chan *odpb.Discovery)
-
-	// Start Oracle Discovery
-	dCtx := log.SetCtx(ctx, "context", "OracleDiscovery")
-	s.discoveryRoutine = &recovery.RecoverableRoutine{
-		Routine:             runDiscovery,
-		RoutineArg:          runDiscoveryArgs{s},
-		ErrorCode:           usagemetrics.OracleDiscoverDatabaseFailure,
-		UsageLogger:         *usagemetrics.UsageLogger,
-		ExpectedMinDuration: 0,
-	}
-	s.discoveryRoutine.StartRoutine(dCtx)
-
-	if !s.Config.GetOracleConfiguration().GetOracleMetrics().GetEnabled() {
-		log.CtxLogger(ctx).Info("Oracle Metric Collection is disabled")
-		return
+	if s.Config.GetOracleConfiguration().GetOracleDiscovery().GetEnabled() {
+		dCtx := log.SetCtx(ctx, "context", "OracleDiscovery")
+		s.discoveryRoutine = &recovery.RecoverableRoutine{
+			Routine:             runDiscovery,
+			RoutineArg:          runDiscoveryArgs{s},
+			ErrorCode:           usagemetrics.OracleDiscoverDatabaseFailure,
+			UsageLogger:         *usagemetrics.UsageLogger,
+			ExpectedMinDuration: 0,
+		}
+		s.discoveryRoutine.StartRoutine(dCtx)
 	}
 
-	// Start Metric Collection
-	mcCtx := log.SetCtx(ctx, "context", "OracleMetricCollection")
-	s.metricCollectionRoutine = &recovery.RecoverableRoutine{
-		Routine:             runMetricCollection,
-		RoutineArg:          runMetricCollectionArgs{s},
-		ErrorCode:           usagemetrics.OracleMetricCollectionFailure,
-		UsageLogger:         *usagemetrics.UsageLogger,
-		ExpectedMinDuration: 0,
+	if s.Config.GetOracleConfiguration().GetOracleMetrics().GetEnabled() {
+		mcCtx := log.SetCtx(ctx, "context", "OracleMetricCollection")
+		s.metricCollectionRoutine = &recovery.RecoverableRoutine{
+			Routine:             runMetricCollection,
+			RoutineArg:          runMetricCollectionArgs{s},
+			ErrorCode:           usagemetrics.OracleMetricCollectionFailure,
+			UsageLogger:         *usagemetrics.UsageLogger,
+			ExpectedMinDuration: 0,
+		}
+		s.metricCollectionRoutine.StartRoutine(mcCtx)
 	}
-	s.metricCollectionRoutine.StartRoutine(mcCtx)
 	select {
 	case <-ctx.Done():
 		log.CtxLogger(ctx).Info("Oracle workload agent service cancellation requested")
@@ -101,7 +91,7 @@ func (s *Service) Start(ctx context.Context, a any) {
 }
 
 func runDiscovery(ctx context.Context, a any) {
-	log.CtxLogger(ctx).Info("Starting Oracle Discovery")
+	log.CtxLogger(ctx).Info("Running Oracle Discovery")
 	var args runDiscoveryArgs
 	var ok bool
 	if args, ok = a.(runDiscoveryArgs); !ok {
@@ -115,8 +105,11 @@ func runDiscovery(ctx context.Context, a any) {
 	ds := oraclediscovery.New()
 
 	for {
-		if err := args.s.sendDiscovery(ctx, ds); err != nil {
-			log.CtxLogger(ctx).Errorw("Failed to send discovery data to the metric collection routine", "error", err)
+		// Discovery data is not used yet.
+		_, err := ds.Discover(ctx, args.s.CloudProps)
+		if err != nil {
+			log.CtxLogger(ctx).Errorw("Failed to discover databases", "error", err)
+			return
 		}
 
 		select {
@@ -129,32 +122,8 @@ func runDiscovery(ctx context.Context, a any) {
 	}
 }
 
-// sendDiscovery sends the discovery proto to the metric collection routine if the SIDs have changed.
-func (s *Service) sendDiscovery(ctx context.Context, ds *oraclediscovery.DiscoveryService) error {
-	discovery, err := ds.Discover(ctx, s.CloudProps)
-	if err != nil {
-		return err
-	}
-
-	newSIDs, err := oraclemetrics.ExtractSIDs(discovery)
-	if err != nil {
-		return fmt.Errorf("extracting SIDs from the discovery data: %w", err)
-	}
-	if !slices.Equal(s.currentSIDs, newSIDs) {
-		log.CtxLogger(ctx).Infow("New databases discovered or existing ones removed; refreshing database connections", "SIDs", newSIDs)
-		s.currentSIDs = newSIDs
-		select {
-		case <-ctx.Done():
-			log.CtxLogger(ctx).Info("Oracle Discovery cancellation requested")
-			return nil
-		case s.ch <- discovery:
-		}
-	}
-	return nil
-}
-
 func runMetricCollection(ctx context.Context, a any) {
-	log.CtxLogger(ctx).Info("Starting Oracle Metric Collection")
+	log.CtxLogger(ctx).Info("Running Oracle metric collection")
 	var args runMetricCollectionArgs
 	var ok bool
 	if args, ok = a.(runMetricCollectionArgs); !ok {
@@ -171,20 +140,13 @@ func runMetricCollection(ctx context.Context, a any) {
 		return
 	}
 
-	metricCollector.RefreshDBConnections(ctx, <-args.s.ch)
-
 	for {
-		metricCollector.CollectDBMetricsOnce(ctx)
-
 		select {
 		case <-ctx.Done():
 			log.CtxLogger(ctx).Info("Metric Collection cancellation requested")
-			metricCollector.Stop(ctx)
 			return
-		case discovery := <-args.s.ch:
-			metricCollector.RefreshDBConnections(ctx, discovery)
 		case <-ticker.C:
-			continue
+			metricCollector.CollectDBMetricsOnce(ctx)
 		}
 	}
 }

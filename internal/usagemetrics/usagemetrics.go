@@ -55,6 +55,8 @@ const (
 	SQLServerServiceError                = 17
 	SQLServerMetricCollectionFailure     = 18
 	SQLServerDiscoveryFailure            = 19
+	OracleConnectionFailure              = 20
+	OraclePingFailure                    = 21
 )
 
 // Agent wide action mappings.

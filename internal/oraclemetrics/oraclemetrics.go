@@ -21,7 +21,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -44,13 +43,11 @@ import (
 	mrpb "google.golang.org/genproto/googleapis/monitoring/v3"
 	tspb "google.golang.org/protobuf/types/known/timestamppb"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
-	odpb "github.com/GoogleCloudPlatform/workloadagent/protos/oraclediscovery"
 )
 
 const (
 	metricURL        = "workload.googleapis.com/oracle"
 	maxQueryFailures = 3
-	maxLoginFailures = 9 // by default FAILED_LOGIN_ATTEMPTS for the DEFAULT profile is set to 10
 	dbViewQuery      = `SELECT d.dbid, d.db_unique_name, d.database_role, p.name AS pdb_name FROM v$database d LEFT JOIN v$pdbs p ON 1=1`
 )
 
@@ -70,21 +67,11 @@ type (
 		BackOffs                *cloudmonitoring.BackOffIntervals
 		GCEService              gceInterface
 		createWorkerPoolRoutine *recovery.RecoverableRoutine
-		wp                      *workerpool.WorkerPool
-		dbManager               *dbManager
 		startTime               *tspb.Timestamp
-	}
-
-	// manages database connections, allowing for opening and closing connections dynamically.
-	dbManager struct {
-		connections          map[string]*sql.DB
-		connectionParameters []connectionParameters
-		mu                   sync.RWMutex
-		failCounts           map[string]map[string]int
-		skipMsgLogged        map[string]map[string]bool
-		nextRetry            map[string]time.Time
-		baseDelaySeconds     int64
-		pingContext          func(context.Context, *sql.DB)
+		mu                      sync.Mutex
+		connections             map[string]*sql.DB
+		failCount               map[string]int
+		skipMsgLogged           map[string]bool
 	}
 
 	// connectionParameters holds connection parameters for the database.
@@ -124,98 +111,35 @@ type (
 
 	// databaseInfo holds the result of the dbViewQuery query.
 	databaseInfo struct {
-		dbID         string
-		dbUniqueName string
-		databaseRole string
-		pdbName      string
+		DBID         string
+		DBUniqueName string
+		DatabaseRole string
+		PdbName      string
 	}
 )
 
 // openConnections connects to all the databases specified in the connection parameters.
-func (m *dbManager) openConnections(ctx context.Context) {
-	for _, params := range m.connectionParameters {
+func openConnections(ctx context.Context, conParams []connectionParameters) map[string]*sql.DB {
+	connections := make(map[string]*sql.DB)
+	for _, params := range conParams {
 		urlOptions := map[string]string{
 			"dba privilege": "sysdg", // sysdg system privilege is required to connect to a closed standby.
 		}
 		connStr := go_ora.BuildUrl(params.Host, params.Port, params.ServiceName, params.Username, params.Password.SecretValue(), urlOptions)
-		connection, err := sql.Open("oracle", connStr)
+		conn, err := sql.Open("oracle", connStr)
 		if err != nil {
-			log.CtxLogger(ctx).Errorw("Failed to connect to the database", "error", err, "connection_parameters", params)
+			log.CtxLogger(ctx).Errorw("Failed to open database connection", "error", err, "connection_parameters", params)
+			usagemetrics.Error(usagemetrics.OracleConnectionFailure)
 			continue
 		}
-		m.connections[params.ServiceName] = connection
-	}
-}
-
-// closeConnections closes all database connections.
-func (m *dbManager) closeConnections(ctx context.Context) {
-	for serviceName, db := range m.connections {
-		if err := db.Close(); err != nil {
-			log.CtxLogger(ctx).Errorw("Failed to close database connection", "error", err, "service_name", serviceName)
+		if err := conn.PingContext(ctx); err != nil {
+			log.CtxLogger(ctx).Errorw("Failed to ping the database", "error", err, "connection_parameters", params)
+			usagemetrics.Error(usagemetrics.OraclePingFailure)
+			continue
 		}
-		delete(m.connections, serviceName)
+		connections[params.ServiceName] = conn
 	}
-}
-
-// populateConnectionParameters populates connection parameters based on the discovery proto
-// if they are not already set in the configuration.json file.
-func (m *dbManager) populateConnectionParameters(ctx context.Context, discovery *odpb.Discovery) {
-	// Map to easily find host and port by the service name
-	discoveredEndpoints := make(map[string]*odpb.Discovery_Listener_Endpoint)
-	for _, listener := range discovery.GetListeners() {
-		for _, service := range listener.GetServices() {
-			for _, endpoint := range listener.GetEndpoints() {
-				// connect to TCP endpoints only
-				if _, ok := endpoint.GetProtocol().(*odpb.Discovery_Listener_Endpoint_Tcp); ok {
-					discoveredEndpoints[service.GetName()] = endpoint
-				}
-			}
-		}
-	}
-
-	// Populate host and port from the discovery data if they are not already set in the configuration.json file.
-	for i, params := range m.connectionParameters {
-		if endpoint, ok := discoveredEndpoints[params.ServiceName]; ok {
-			if m.connectionParameters[i].Host == "" {
-				m.connectionParameters[i].Host = endpoint.GetTcp().GetHost()
-			}
-			if m.connectionParameters[i].Port == 0 {
-				m.connectionParameters[i].Port = int(endpoint.GetTcp().GetPort())
-			}
-		} else {
-			log.CtxLogger(ctx).Warnw("Service name not found in discovery", "service_name", params.ServiceName, "discovery", discovery)
-		}
-	}
-}
-
-func (m *dbManager) failCountFor(serviceName, queryName string) int {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if queryNameMap, exists := m.failCounts[serviceName]; exists {
-		if failCount, fcExists := queryNameMap[queryName]; fcExists {
-			return failCount
-		}
-	}
-	return 0
-}
-
-func (m *dbManager) incrementFailCount(serviceName, queryName string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, exists := m.failCounts[serviceName]; !exists {
-		m.failCounts[serviceName] = make(map[string]int)
-	}
-	m.failCounts[serviceName][queryName]++
-}
-
-func (m *dbManager) resetFailCount(serviceName, queryName string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if queryNameMap, exists := m.failCounts[serviceName]; exists {
-		if _, fcExists := queryNameMap[queryName]; fcExists {
-			m.failCounts[serviceName][queryName] = 0
-		}
-	}
+	return connections
 }
 
 // New initializes and returns the MetricCollector struct.
@@ -239,66 +163,45 @@ func New(ctx context.Context, config *configpb.Configuration) (*MetricCollector,
 	}
 	log.CtxLogger(ctx).Debugw("Successfully read connection parameters", "connection_parameters", conParams)
 
-	dbManager := &dbManager{
-		connectionParameters: conParams,
-		connections:          make(map[string]*sql.DB),
-		failCounts:           make(map[string]map[string]int),
-		skipMsgLogged:        make(map[string]map[string]bool),
-		nextRetry:            make(map[string]time.Time),
-		baseDelaySeconds:     config.GetOracleConfiguration().GetOracleMetrics().GetCollectionFrequency().GetSeconds(),
-	}
-
-	wp := workerpool.New(int(config.GetOracleConfiguration().GetOracleMetrics().GetMaxExecutionThreads()))
-
 	return &MetricCollector{
+		connections:       openConnections(ctx, conParams),
 		Config:            config,
 		TimeSeriesCreator: metricClient,
 		BackOffs:          cloudmonitoring.NewDefaultBackOffIntervals(),
 		GCEService:        gceService,
-		dbManager:         dbManager,
-		wp:                wp,
 		startTime:         tspb.Now(),
+		failCount:         make(map[string]int),
+		skipMsgLogged:     make(map[string]bool),
 	}, nil
 }
 
-// RefreshDBConnections refreshes the database connections based on the given discovery proto.
-func (c *MetricCollector) RefreshDBConnections(ctx context.Context, discovery *odpb.Discovery) {
-	discoveredSIDs, err := ExtractSIDs(discovery)
-	if err != nil {
-		log.CtxLogger(ctx).Errorw("Failed to extract SIDs from the discovery data", "error", err, "discovery", discovery)
-		return
+func (c *MetricCollector) shouldSkipQuery(ctx context.Context, serviceName, qn string) bool {
+	key := fmt.Sprintf("%s:%s", serviceName, qn)
+	if c.failCount[key] >= maxQueryFailures {
+		if !c.skipMsgLogged[key] {
+			c.skipMsgLogged[key] = true
+			log.CtxLogger(ctx).Warnw("Skipping query due to 3 consecutive failures", "service_name", serviceName, "query_name", qn)
+		}
+		return true
 	}
-
-	if len(discoveredSIDs) == 0 {
-		log.CtxLogger(ctx).Warn("Cannot refresh database connections, no SIDs found")
-		return
-	}
-
-	c.dbManager.populateConnectionParameters(ctx, discovery)
-	c.dbManager.closeConnections(ctx)
-	c.dbManager.openConnections(ctx)
+	return false
 }
 
 // CollectDBMetricsOnce submits a task for each database connection to the worker pool.
 // Each task executes a query from default_queries.json and sends the results as metrics to Cloud Monitoring.
-func (c *MetricCollector) CollectDBMetricsOnce(ctx context.Context) {
-	if len(c.dbManager.connections) == 0 {
-		// No connections, return and wait for the next collection cycle.
-		return
-	}
-
-	cfg := c.Config.GetOracleConfiguration().GetOracleMetrics()
-
-	queryNamesMap := queryMap(cfg.GetQueries())
+func (c *MetricCollector) CollectDBMetricsOnce(ctx context.Context) []*mrpb.TimeSeries {
+	queryNamesMap := queryMap(c.Config.GetOracleConfiguration().GetOracleMetrics().GetQueries())
 	var queryNames []string
 	for qn := range queryNamesMap {
 		queryNames = append(queryNames, qn)
 	}
 
-	for serviceName, db := range c.dbManager.connections {
-		if c.dbManager.shouldSkip(ctx, serviceName, db, time.Now()) {
-			continue
-		}
+	timeseries := []*mrpb.TimeSeries{}
+
+	maxExecutionThreads := int(c.Config.GetOracleConfiguration().GetOracleMetrics().GetMaxExecutionThreads())
+	wp := workerpool.New(maxExecutionThreads)
+
+	for serviceName, db := range c.connections {
 		dbInfo, err := fetchDatabaseInfo(ctx, db)
 		if err != nil {
 			log.CtxLogger(ctx).Errorw("Failed to fetch database information from v$database view", "error", err, "service_name", serviceName)
@@ -312,85 +215,35 @@ func (c *MetricCollector) CollectDBMetricsOnce(ctx context.Context) {
 				log.CtxLogger(ctx).Warnw("Query not found", "query_name", qn)
 				continue
 			}
-			if c.dbManager.failCountFor(serviceName, qn) >= maxQueryFailures {
-				if !c.dbManager.skipMsgLogged[serviceName][qn] {
-					log.CtxLogger(ctx).Warnw("Skipping query due to 3 consecutive failures", "query_name", qn)
-					c.dbManager.skipMsgLogged[serviceName] = map[string]bool{qn: true}
-				}
+			if c.shouldSkipQuery(ctx, serviceName, qn) {
 				continue
 			}
-			if !shouldRunQuery(query, dbInfo.databaseRole) {
+			if !isQueryAllowedForRole(query, dbInfo.DatabaseRole) {
 				continue
 			}
-			c.wp.Submit(func() {
-				executeQueryAndSendMetrics(ctx, queryOptions{
+			wp.Submit(func() {
+				ts := executeQueryAndSendMetrics(ctx, queryOptions{
 					db:            db,
 					query:         query,
-					timeout:       cfg.GetQueryTimeout().GetSeconds(),
+					timeout:       c.Config.GetOracleConfiguration().GetOracleMetrics().GetQueryTimeout().GetSeconds(),
 					collector:     c,
 					runningSum:    make(map[timeSeriesKey]prevVal),
 					serviceName:   serviceName,
-					defaultLabels: map[string]string{"dbid": dbInfo.dbID, "db_unique_name": dbInfo.dbUniqueName, "pdb_name": dbInfo.pdbName},
+					defaultLabels: map[string]string{"dbid": dbInfo.DBID, "db_unique_name": dbInfo.DBUniqueName, "pdb_name": dbInfo.PdbName},
 				})
+				c.mu.Lock()
+				timeseries = append(timeseries, ts...)
+				c.mu.Unlock()
 			})
 		}
 	}
-}
-
-// Stop gracefully stops the metric collection process.
-func (c *MetricCollector) Stop(ctx context.Context) {
-	c.wp.Stop() // Ensure all current tasks are completed
-	c.dbManager.closeConnections(ctx)
-}
-
-// shouldSkip determines if query execution should be skipped for the given service name.
-func (m *dbManager) shouldSkip(ctx context.Context, serviceName string, db dbPinger, now time.Time) bool {
-	// Skip if we've reached the maximum allowed login failures in the default profile.
-	loginFailures := m.failCountFor(serviceName, "login")
-	if loginFailures >= maxLoginFailures {
-		if !m.skipMsgLogged[serviceName]["max_login_failures"] {
-			log.CtxLogger(ctx).Warnw("Reached maximum allowed login failures in the default profile. No further attempts to avoid lockout", "service_name", serviceName, "failed_login_attempts", loginFailures)
-			m.skipMsgLogged[serviceName] = map[string]bool{"max_login_failures": true}
-		}
-		return true
-	}
-	// Skip if it's not time to retry yet
-	if now.Before(m.nextRetry[serviceName]) {
-		return true
-	}
-	if err := db.PingContext(ctx); err != nil {
-		// for invalid username/password failures, retry with an exponential backoff
-		// ORA-01017 is the error code for invalid username/password.
-		if strings.Contains(err.Error(), "ORA-01017") {
-			m.incrementFailCount(serviceName, "login")
-			loginFailures := m.failCountFor(serviceName, "login")
-			m.nextRetry[serviceName] = now.Add(m.delay(loginFailures))
-			log.CtxLogger(ctx).Warnw("Invalid username/password detected; will retry to connect later", "service_name", serviceName, "failed_login_attempts", loginFailures, "next_retry_after", m.nextRetry[serviceName].Format("2006-01-02T15:04:05"))
-		} else {
-			// for all other errors, log them once per service name
-			if !m.skipMsgLogged[serviceName]["other_failures"] {
-				log.CtxLogger(ctx).Warnw("Failed to connect to the database", "error", err, "service_name", serviceName)
-				m.skipMsgLogged[serviceName] = map[string]bool{"other_failures": true}
-			}
-		}
-		return true
-	}
-	// Reset all failure counts if ping was successful
-	m.resetFailCount(serviceName, "login")
-	m.skipMsgLogged[serviceName] = map[string]bool{"other_failures": false, "max_login_failures": false}
-	return false
-}
-
-// delay returns the delay duration based on the number of login failures.
-// This code calculates a login delay that increases exponentially with the number of failed attempts.
-// It starts with a baseDelaySeconds and multiplies it by the number of login failures raised to the power of 4.
-func (m *dbManager) delay(loginFailures int) time.Duration {
-	return time.Duration(float64(m.baseDelaySeconds)*math.Pow(float64(loginFailures), 4)) * time.Second
+	wp.StopWait()
+	return timeseries
 }
 
 // executeQueryAndSendMetrics() executes the SQL query, packages the results into time series,
 // and sends them as metrics to Cloud Monitoring.
-func executeQueryAndSendMetrics(ctx context.Context, opts queryOptions) {
+func executeQueryAndSendMetrics(ctx context.Context, opts queryOptions) []*mrpb.TimeSeries {
 	queryName := opts.query.GetName()
 	ctxTimeout, cancel := context.WithTimeout(ctx, time.Second*time.Duration(opts.timeout))
 	defer cancel()
@@ -398,37 +251,39 @@ func executeQueryAndSendMetrics(ctx context.Context, opts queryOptions) {
 	cols := createColumns(opts.query.GetColumns())
 	if cols == nil {
 		log.CtxLogger(ctx).Errorw("No columns specified for query", "query_name", queryName)
-		opts.collector.dbManager.incrementFailCount(opts.serviceName, queryName)
-		return
+		opts.collector.failCount[fmt.Sprintf("%s:%s", opts.serviceName, queryName)]++
+		return nil
 	}
 
 	// TODO:  Evaluate adding a backoff mechanism for retrying database queries.
 	rows, err := opts.db.QueryContext(ctxTimeout, opts.query.GetSql())
 	if err != nil {
 		log.CtxLogger(ctx).Errorw("Failed to execute query", "query_name", queryName, "error", err)
-		opts.collector.dbManager.incrementFailCount(opts.serviceName, queryName)
-		return
+		opts.collector.failCount[fmt.Sprintf("%s:%s", opts.serviceName, queryName)]++
+		return nil
 	}
 
-	var metrics []*mrpb.TimeSeries
+	var ts []*mrpb.TimeSeries
 	for rows.Next() {
 		if err := rows.Scan(cols...); err != nil {
 			log.CtxLogger(ctx).Errorw("Failed to scan row", "query_name", queryName, "error", err)
-			opts.collector.dbManager.incrementFailCount(opts.serviceName, queryName)
-			return
+			opts.collector.failCount[fmt.Sprintf("%s:%s", opts.serviceName, queryName)]++
+			return nil
 		}
-		metrics = append(metrics, createMetricsForRow(ctx, opts, cols, opts.defaultLabels)...)
+		ts = append(ts, createMetricsForRow(ctx, opts, cols, opts.defaultLabels)...)
 	}
-	sent, batchCount, err := cloudmonitoring.SendTimeSeries(ctxTimeout, metrics, opts.collector.TimeSeriesCreator, opts.collector.BackOffs, opts.collector.Config.GetCloudProperties().GetProjectId())
+	sent, batchCount, err := cloudmonitoring.SendTimeSeries(ctxTimeout, ts, opts.collector.TimeSeriesCreator, opts.collector.BackOffs, opts.collector.Config.GetCloudProperties().GetProjectId())
 
 	if err != nil {
-		opts.collector.dbManager.incrementFailCount(opts.serviceName, queryName)
-		log.CtxLogger(ctx).Errorw("Failed to query database and send metrics to Cloud Monitoring", "query_name", queryName, "service_name", opts.serviceName, "fail_count", opts.collector.dbManager.failCountFor(opts.serviceName, queryName), "error", err)
+		opts.collector.failCount[fmt.Sprintf("%s:%s", opts.serviceName, queryName)]++
+		failCount := opts.collector.failCount[fmt.Sprintf("%s:%s", opts.serviceName, queryName)]
+		log.CtxLogger(ctx).Errorw("Failed to query database and send metrics to Cloud Monitoring", "query_name", queryName, "service_name", opts.serviceName, "fail_count", failCount, "error", err)
 		usagemetrics.Error(usagemetrics.OracleMetricCollectionFailure)
-		return
+		return nil
 	}
-	opts.collector.dbManager.resetFailCount(opts.serviceName, queryName)
+	delete(opts.collector.failCount, fmt.Sprintf("%s:%s", opts.serviceName, queryName))
 	log.CtxLogger(ctx).Debugw("Successfully queried database and sent metrics to Cloud Monitoring", "query_name", queryName, "service_name", opts.serviceName, "sent", sent, "batches", batchCount)
+	return ts
 }
 
 // createMetricsForRow creates metrics for each row returned by the query.
@@ -460,18 +315,25 @@ func createMetricsForRow(ctx context.Context, opts queryOptions, cols []any, def
 
 // fetchDatabaseInfo executes the dbViewQuery query to fetch database info.
 func fetchDatabaseInfo(ctx context.Context, db *sql.DB) (*databaseInfo, error) {
+	rows, err := db.QueryContext(ctx, dbViewQuery)
+	if err != nil {
+		return nil, fmt.Errorf("executing %s query: %w", dbViewQuery, err)
+	}
+	defer rows.Close()
+
 	var dbid, dbUniqueName, databaseRole string
 	var pdbName sql.NullString
-	err := db.QueryRowContext(ctx, dbViewQuery).Scan(&dbid, &dbUniqueName, &databaseRole, &pdbName)
-	if err != nil {
-		log.CtxLogger(ctx).Errorw("Failed to parse query results", "query", dbViewQuery, "error", err)
-		return nil, fmt.Errorf("parsing query results: %w", err)
+
+	for rows.Next() {
+		if err := rows.Scan(&dbid, &dbUniqueName, &databaseRole, &pdbName); err != nil {
+			return nil, fmt.Errorf("scanning row from v$database and v$pdb views: %w", err)
+		}
 	}
 	return &databaseInfo{
-		dbID:         dbid,
-		dbUniqueName: dbUniqueName,
-		databaseRole: databaseRole,
-		pdbName:      pdbName.String,
+		DBID:         dbid,
+		DBUniqueName: dbUniqueName,
+		DatabaseRole: databaseRole,
+		PdbName:      pdbName.String,
 	}, nil
 }
 
@@ -660,31 +522,8 @@ func convertCloudProperties(cp *configpb.CloudProperties) *timeseries.CloudPrope
 	}
 }
 
-// ExtractSIDs extracts the SIDs from the given discovery proto.
-func ExtractSIDs(discovery *odpb.Discovery) ([]string, error) {
-	var sids []string
-	for _, db := range discovery.GetDatabases() {
-		switch v := db.TenancyType.(type) {
-		case *odpb.Discovery_DatabaseRoot_Db:
-			for _, instance := range v.Db.GetInstances() {
-				sids = append(sids, instance.GetOracleSid())
-			}
-		case *odpb.Discovery_DatabaseRoot_Cdb:
-			for _, instance := range v.Cdb.Root.GetInstances() {
-				// In a multitenant environment, all PDBs share the SID of the CDB$ROOT.
-				// PDBs are identified by their unique service names rather than SIDs, so we don't need to
-				// extract their SIDs.
-				sids = append(sids, instance.GetOracleSid())
-			}
-		default:
-			return nil, fmt.Errorf("unknown database tenancy type: %T for database %v", v, db)
-		}
-	}
-	return sids, nil
-}
-
-// shouldRunQuery determines whether the query should run on a given database role.
-func shouldRunQuery(query *configpb.Query, role string) bool {
+// isQueryAllowedForRole determines if the query is allowed to run for a given database role.
+func isQueryAllowedForRole(query *configpb.Query, role string) bool {
 	if query.GetDisabled() {
 		return false
 	}
