@@ -16,6 +16,11 @@
 # copy the service file to /lib/systemd/system/
 cp /usr/share/google-cloud-workload-agent/service/google-cloud-workload-agent.service /lib/systemd/system/ &> /dev/null || true
 
+# if the agent has an old configuration file then move it back into place
+if [ -f /etc/google-cloud-workload-agent/configuration.json.bak ]; then
+  mv /etc/google-cloud-workload-agent/configuration.json.bak /etc/google-cloud-workload-agent/configuration.json
+fi
+
 # enable the agent service and start it
 systemctl enable google-cloud-workload-agent
 systemctl start google-cloud-workload-agent

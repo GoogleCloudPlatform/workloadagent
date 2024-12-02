@@ -17,3 +17,8 @@
 if `systemctl is-active --quiet google-cloud-workload-agent > /dev/null 2>&1`; then
   systemctl stop google-cloud-workload-agent
 fi
+
+# if the agent has a configuration file - keep it
+if [ -f /etc/google-cloud-workload-agent/configuration.json ]; then
+  cp /etc/google-cloud-workload-agent/configuration.json /etc/google-cloud-workload-agent/configuration.json.bak
+fi
