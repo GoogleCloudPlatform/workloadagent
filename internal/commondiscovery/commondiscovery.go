@@ -34,6 +34,7 @@ const (
 	mySQLProcess   = "mysqld"
 	oracleProcess  = "ora_pmon_"
 	oracleListener = "tnslsnr"
+	testProcess    = "test"
 )
 
 // executeCommand abstracts the commandlineexecutor.ExecuteCommand for testability.
