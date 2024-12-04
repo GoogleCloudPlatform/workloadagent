@@ -18,19 +18,101 @@ package mysqlmetrics
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 
-	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/commandlineexecutor"
-
+	"github.com/google/go-cmp/cmp"
+	"google.golang.org/protobuf/testing/protocmp"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/commandlineexecutor"
 	gcefake "github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce/fake"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 )
+
+type testGCE struct {
+	secret string
+	err    error
+}
+
+func (t *testGCE) GetSecret(ctx context.Context, projectID, secretName string) (string, error) {
+	return t.secret, t.err
+}
+
+type testDB struct {
+	rows rowsInterface
+	err  error
+}
+
+func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (rowsInterface, error) {
+	return t.rows, t.err
+}
+
+func (t *testDB) Ping() error {
+	return t.err
+}
+
+var emptyDB = &testDB{
+	err: nil,
+}
+
+type bufferPoolRows struct {
+	count     int
+	size      int
+	data      int64
+	shouldErr bool
+}
+
+func (f *bufferPoolRows) Scan(dest ...any) error {
+	log.CtxLogger(context.Background()).Infow("fakeRows.Scan", "dest", dest, "dest[0]", dest[0], "data", f.data)
+	if f.shouldErr {
+		return errors.New("test-error")
+	}
+	*dest[0].(*int64) = f.data
+	return nil
+}
+
+func (f *bufferPoolRows) Next() bool {
+	f.count++
+	return f.count <= f.size
+}
+
+func (f *bufferPoolRows) Close() error {
+	return nil
+}
+
+type isInnoDBRows struct {
+	count     int
+	size      int
+	data      []sql.NullString
+	shouldErr bool
+}
+
+func (f *isInnoDBRows) Scan(dest ...any) error {
+	log.CtxLogger(context.Background()).Infow("fakeRows.Scan", "dest", dest, "dest[0]", dest[0], "data", f.data)
+	if f.shouldErr {
+		return errors.New("test-error")
+	}
+	for i := range f.data {
+		*dest[i].(*sql.NullString) = f.data[i]
+	}
+	return nil
+}
+
+func (f *isInnoDBRows) Next() bool {
+	f.count++
+	return f.count <= f.size
+}
+
+func (f *isInnoDBRows) Close() error {
+	return nil
+}
 
 func TestInitPassword(t *testing.T) {
 	tests := []struct {
 		name    string
 		m       MySQLMetrics
+		gce     *gcefake.TestGCE
 		want    string
 		wantErr bool
 	}{
@@ -43,15 +125,15 @@ func TestInitPassword(t *testing.T) {
 		{
 			name: "GCEErr",
 			m: MySQLMetrics{
-				GCEService: &gcefake.TestGCE{
-					GetSecretResp: []string{""},
-					GetSecretErr:  []error{errors.New("fake-error")},
-				},
 				Config: &configpb.Configuration{
 					MysqlConfiguration: &configpb.MySQLConfiguration{
 						Secret: &configpb.SecretRef{ProjectId: "fake-project-id", SecretName: "fake-secret-name"},
 					},
 				},
+			},
+			gce: &gcefake.TestGCE{
+				GetSecretResp: []string{""},
+				GetSecretErr:  []error{errors.New("fake-error")},
 			},
 			want:    "",
 			wantErr: true,
@@ -59,15 +141,15 @@ func TestInitPassword(t *testing.T) {
 		{
 			name: "GCESecret",
 			m: MySQLMetrics{
-				GCEService: &gcefake.TestGCE{
-					GetSecretResp: []string{"fake-password"},
-					GetSecretErr:  []error{nil},
-				},
 				Config: &configpb.Configuration{
 					MysqlConfiguration: &configpb.MySQLConfiguration{
 						Secret: &configpb.SecretRef{ProjectId: "fake-project-id", SecretName: "fake-secret-name"},
 					},
 				},
+			},
+			gce: &gcefake.TestGCE{
+				GetSecretResp: []string{"fake-password"},
+				GetSecretErr:  []error{nil},
 			},
 			want:    "fake-password",
 			wantErr: false,
@@ -75,15 +157,15 @@ func TestInitPassword(t *testing.T) {
 		{
 			name: "MissingProjectId",
 			m: MySQLMetrics{
-				GCEService: &gcefake.TestGCE{
-					GetSecretResp: []string{"fake-password"},
-					GetSecretErr:  []error{nil},
-				},
 				Config: &configpb.Configuration{
 					MysqlConfiguration: &configpb.MySQLConfiguration{
 						Secret: &configpb.SecretRef{SecretName: "fake-secret-name"},
 					},
 				},
+			},
+			gce: &gcefake.TestGCE{
+				GetSecretResp: []string{"fake-password"},
+				GetSecretErr:  []error{nil},
 			},
 			want:    "",
 			wantErr: false,
@@ -91,15 +173,15 @@ func TestInitPassword(t *testing.T) {
 		{
 			name: "MissingSecretName",
 			m: MySQLMetrics{
-				GCEService: &gcefake.TestGCE{
-					GetSecretResp: []string{"fake-password"},
-					GetSecretErr:  []error{nil},
-				},
 				Config: &configpb.Configuration{
 					MysqlConfiguration: &configpb.MySQLConfiguration{
 						Secret: &configpb.SecretRef{ProjectId: "fake-project-id"},
 					},
 				},
+			},
+			gce: &gcefake.TestGCE{
+				GetSecretResp: []string{"fake-password"},
+				GetSecretErr:  []error{nil},
 			},
 			want:    "",
 			wantErr: false,
@@ -118,13 +200,13 @@ func TestInitPassword(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		err := tc.m.initPassword(context.Background())
-		if (err == nil && tc.wantErr) || (err != nil && !tc.wantErr) {
-			t.Errorf("initPassword() = %v, wantErr %v", err, tc.wantErr)
+		got, err := tc.m.password(context.Background(), tc.gce)
+		gotErr := err != nil
+		if gotErr != tc.wantErr {
+			t.Errorf("password() = %v, wantErr %v", err, tc.wantErr)
 		}
-		got := tc.m.password.SecretValue()
-		if got != tc.want {
-			t.Errorf("initPassword() = %v, want %v", got, tc.want)
+		if got.SecretValue() != tc.want {
+			t.Errorf("password() = %v, want %v", got, tc.want)
 		}
 	}
 }
@@ -133,64 +215,47 @@ func TestBufferPoolSize(t *testing.T) {
 	tests := []struct {
 		name    string
 		m       MySQLMetrics
-		want    int
+		want    int64
 		wantErr bool
 	}{
 		{
 			name: "HappyPath",
 			m: MySQLMetrics{
-				Execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
-					return commandlineexecutor.Result{
-						StdOut: "@@innodb_buffer_pool_size\n134217728\n",
-					}
+				db: &testDB{
+					rows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
+					err:  nil,
 				},
 			},
 			want:    134217728,
 			wantErr: false,
 		},
 		{
-			name: "TooManyLines",
+			name: "EmptyResult",
 			m: MySQLMetrics{
-				Execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
-					return commandlineexecutor.Result{
-						StdOut: "@@innodb_buffer_pool_size\n134217728\ntesttext\ntesttext\n",
-					}
+				db: &testDB{
+					rows: &bufferPoolRows{count: 0, size: 0, data: 0, shouldErr: false},
+					err:  nil,
 				},
 			},
 			want:    0,
 			wantErr: true,
 		},
 		{
-			name: "TooFewLines",
+			name: "QueryError",
 			m: MySQLMetrics{
-				Execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
-					return commandlineexecutor.Result{
-						StdOut: "testtext",
-					}
+				db: &testDB{
+					err: errors.New("test-error"),
 				},
 			},
 			want:    0,
 			wantErr: true,
 		},
 		{
-			name: "TooManyFields",
+			name: "ScanError",
 			m: MySQLMetrics{
-				Execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
-					return commandlineexecutor.Result{
-						StdOut: "@@innodb_buffer_pool_size\n134217728 testtext testtext\n",
-					}
-				},
-			},
-			want:    0,
-			wantErr: true,
-		},
-		{
-			name: "NonInt",
-			m: MySQLMetrics{
-				Execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
-					return commandlineexecutor.Result{
-						StdOut: "@@innodb_buffer_pool_size\ntesttext\n",
-					}
+				db: &testDB{
+					rows: &bufferPoolRows{count: 0, size: 1, data: 0, shouldErr: true},
+					err:  nil,
 				},
 			},
 			want:    0,
@@ -199,11 +264,143 @@ func TestBufferPoolSize(t *testing.T) {
 	}
 	for _, tc := range tests {
 		got, err := tc.m.bufferPoolSize(context.Background())
-		if (err == nil && tc.wantErr) || (err != nil && !tc.wantErr) {
+		gotErr := err != nil
+		if gotErr != tc.wantErr {
 			t.Errorf("bufferPoolSize() = %v, wantErr %v", err, tc.wantErr)
 		}
 		if got != tc.want {
 			t.Errorf("bufferPoolSize() = %v, want %v", got, tc.want)
+		}
+	}
+}
+
+func TestIsInnoDBStorageEngine(t *testing.T) {
+	tests := []struct {
+		name    string
+		m       MySQLMetrics
+		want    bool
+		wantErr bool
+	}{
+		{
+			name: "HappyPath",
+			m: MySQLMetrics{
+				db: &testDB{
+					rows: &isInnoDBRows{
+						count: 0,
+						size:  1,
+						data: []sql.NullString{
+							sql.NullString{String: "InnoDB"},
+							sql.NullString{String: "DEFAULT"},
+							sql.NullString{String: "teststring3"},
+							sql.NullString{String: "teststring4"},
+							sql.NullString{String: "teststring5"},
+							sql.NullString{String: "teststring6"},
+						},
+						shouldErr: false,
+					},
+					err: nil,
+				},
+			},
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name: "NotDefault",
+			m: MySQLMetrics{
+				db: &testDB{
+					rows: &isInnoDBRows{
+						count: 0,
+						size:  1,
+						data: []sql.NullString{
+							sql.NullString{String: "InnoDB"},
+							sql.NullString{String: "YES"},
+							sql.NullString{String: "teststring3"},
+							sql.NullString{String: "teststring4"},
+							sql.NullString{String: "teststring5"},
+							sql.NullString{String: "teststring6"},
+						},
+						shouldErr: false,
+					},
+					err: nil,
+				},
+			},
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name: "OtherStorageEngineAsDefault",
+			m: MySQLMetrics{
+				db: &testDB{
+					rows: &isInnoDBRows{
+						count: 0,
+						size:  1,
+						data: []sql.NullString{
+							sql.NullString{String: "OtherStorageEngine"},
+							sql.NullString{String: "DEFAULT"},
+							sql.NullString{String: "teststring3"},
+							sql.NullString{String: "teststring4"},
+							sql.NullString{String: "teststring5"},
+							sql.NullString{String: "teststring6"},
+						},
+						shouldErr: false,
+					},
+					err: nil,
+				},
+			},
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name: "EmptyResult",
+			m: MySQLMetrics{
+				db: &testDB{
+					rows: &isInnoDBRows{
+						count:     0,
+						size:      0,
+						data:      []sql.NullString{},
+						shouldErr: false,
+					},
+					err: nil,
+				},
+			},
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name: "QueryError",
+			m: MySQLMetrics{
+				db: &testDB{
+					err: errors.New("test-error"),
+				},
+			},
+			want:    false,
+			wantErr: true,
+		},
+		{
+			name: "ScanError",
+			m: MySQLMetrics{
+				db: &testDB{
+					rows: &isInnoDBRows{
+						count:     0,
+						size:      1,
+						data:      []sql.NullString{},
+						shouldErr: true,
+					},
+					err: nil,
+				},
+			},
+			want:    false,
+			wantErr: false,
+		},
+	}
+	for _, tc := range tests {
+		got, err := tc.m.isInnoDBStorageEngine(context.Background())
+		gotErr := err != nil
+		if gotErr != tc.wantErr {
+			t.Errorf("isInnoDBStorageEngine() test %v = %v, wantErr %v", tc.name, err, tc.wantErr)
+		}
+		if got != tc.want {
+			t.Errorf("isInnoDBStorageEngine() test %v = %v, want %v", tc.name, got, tc.want)
 		}
 	}
 }
@@ -218,7 +415,7 @@ func TestTotalRAM(t *testing.T) {
 		{
 			name: "HappyPath",
 			m: MySQLMetrics{
-				Execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
 						StdOut: "MemTotal:        4025040 kB\n",
 					}
@@ -230,7 +427,7 @@ func TestTotalRAM(t *testing.T) {
 		{
 			name: "TooManyLines",
 			m: MySQLMetrics{
-				Execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
 						StdOut: "MemTotal:        4025040 kB\ntesttext\ntesttext\n",
 					}
@@ -242,7 +439,7 @@ func TestTotalRAM(t *testing.T) {
 		{
 			name: "TooManyFields",
 			m: MySQLMetrics{
-				Execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
 						StdOut: "MemTotal:        4025040 kB testtext testtext\n",
 					}
@@ -254,7 +451,7 @@ func TestTotalRAM(t *testing.T) {
 		{
 			name: "NonInt",
 			m: MySQLMetrics{
-				Execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
 						StdOut: "MemTotal:        testtext kB\n",
 					}
@@ -266,11 +463,201 @@ func TestTotalRAM(t *testing.T) {
 	}
 	for _, tc := range tests {
 		got, err := tc.m.totalRAM(context.Background())
-		if (err == nil && tc.wantErr) || (err != nil && !tc.wantErr) {
+		gotErr := err != nil
+		if gotErr != tc.wantErr {
 			t.Errorf("totalRAM() = %v, wantErr %v", err, tc.wantErr)
 		}
 		if got != tc.want {
 			t.Errorf("totalRAM() = %v, want %v", got, tc.want)
+		}
+	}
+}
+
+func TestNew(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *configpb.Configuration
+		want *configpb.Configuration
+	}{
+		{
+			name: "HappyPath",
+			cfg: &configpb.Configuration{
+				MysqlConfiguration: &configpb.MySQLConfiguration{
+					User:   "test-user",
+					Secret: &configpb.SecretRef{ProjectId: "test-project-id", SecretName: "test-secret-name"},
+				},
+			},
+			want: &configpb.Configuration{
+				MysqlConfiguration: &configpb.MySQLConfiguration{
+					User:   "test-user",
+					Secret: &configpb.SecretRef{ProjectId: "test-project-id", SecretName: "test-secret-name"},
+				},
+			},
+		},
+	}
+	for _, tc := range tests {
+		got := New(context.Background(), tc.cfg)
+		if diff := cmp.Diff(tc.want, got.Config, protocmp.Transform()); diff != "" {
+			t.Errorf("New() test %v returned diff (-want +got):\n%s", tc.name, diff)
+		}
+	}
+}
+
+func TestDbDSN(t *testing.T) {
+	tests := []struct {
+		name       string
+		m          MySQLMetrics
+		gceService gceInterface
+		want       string
+		wantErr    bool
+	}{
+		{
+			name: "HappyPath",
+			m: MySQLMetrics{
+				Config: &configpb.Configuration{
+					MysqlConfiguration: &configpb.MySQLConfiguration{
+						User:   "test-user",
+						Secret: &configpb.SecretRef{ProjectId: "fake-project-id", SecretName: "fake-secret-name"},
+					},
+				},
+			},
+			gceService: &gcefake.TestGCE{
+				GetSecretResp: []string{"fake-password"},
+				GetSecretErr:  []error{nil},
+			},
+			want:    "test-user:fake-password@/mysql?allowNativePasswords=false&checkConnLiveness=false&maxAllowedPacket=0",
+			wantErr: false,
+		},
+		{
+			name: "ConfigPassword",
+			m: MySQLMetrics{
+				Config: &configpb.Configuration{
+					MysqlConfiguration: &configpb.MySQLConfiguration{
+						User:     "test-user",
+						Password: "fake-password",
+					},
+				},
+			},
+			gceService: &gcefake.TestGCE{},
+			want:       "test-user:fake-password@/mysql?allowNativePasswords=false&checkConnLiveness=false&maxAllowedPacket=0",
+			wantErr:    false,
+		},
+		{
+			name: "PasswordError",
+			m: MySQLMetrics{
+				Config: &configpb.Configuration{
+					MysqlConfiguration: &configpb.MySQLConfiguration{
+						User:   "test-user",
+						Secret: &configpb.SecretRef{ProjectId: "fake-project-id", SecretName: "fake-secret-name"},
+					},
+				},
+			},
+			gceService: &gcefake.TestGCE{
+				GetSecretResp: []string{""},
+				GetSecretErr:  []error{errors.New("fake-error")},
+			},
+			want:    "",
+			wantErr: true,
+		},
+	}
+
+	ctx := context.Background()
+
+	for _, tc := range tests {
+		got, err := tc.m.dbDSN(ctx, tc.gceService)
+		gotErr := err != nil
+		if gotErr != tc.wantErr {
+			t.Errorf("dbDSN(%v) = %v, wantErr %v", tc.name, err, tc.wantErr)
+		}
+		if got != tc.want {
+			t.Errorf("dbDSN(%v) = %q, want: %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestInitDB(t *testing.T) {
+	tests := []struct {
+		name       string
+		m          MySQLMetrics
+		gceService gceInterface
+		wantErr    bool
+	}{
+		{
+			name: "HappyPath",
+			m: MySQLMetrics{
+				Config: &configpb.Configuration{
+					MysqlConfiguration: &configpb.MySQLConfiguration{
+						User:   "test-user",
+						Secret: &configpb.SecretRef{ProjectId: "fake-project-id", SecretName: "fake-secret-name"},
+					},
+				},
+				connect: func(ctx context.Context, dataSource string) (dbInterface, error) { return emptyDB, nil },
+			},
+			gceService: &gcefake.TestGCE{
+				GetSecretResp: []string{"fake-password"},
+				GetSecretErr:  []error{nil},
+			},
+			wantErr: false,
+		},
+		{
+			name: "ConfigPassword",
+			m: MySQLMetrics{
+				Config: &configpb.Configuration{
+					MysqlConfiguration: &configpb.MySQLConfiguration{
+						User:     "test-user",
+						Password: "fake-password",
+					},
+				},
+				connect: func(ctx context.Context, dataSource string) (dbInterface, error) { return emptyDB, nil },
+			},
+			gceService: &gcefake.TestGCE{},
+			wantErr:    false,
+		},
+		{
+			name: "PasswordError",
+			m: MySQLMetrics{
+				Config: &configpb.Configuration{
+					MysqlConfiguration: &configpb.MySQLConfiguration{
+						User:   "test-user",
+						Secret: &configpb.SecretRef{ProjectId: "fake-project-id", SecretName: "fake-secret-name"},
+					},
+				},
+				connect: func(ctx context.Context, dataSource string) (dbInterface, error) { return emptyDB, nil },
+			},
+			gceService: &gcefake.TestGCE{
+				GetSecretResp: []string{""},
+				GetSecretErr:  []error{errors.New("fake-error")},
+			},
+			wantErr: true,
+		},
+		{
+			name: "ConnectError",
+			m: MySQLMetrics{
+				Config: &configpb.Configuration{
+					MysqlConfiguration: &configpb.MySQLConfiguration{
+						User:   "test-user",
+						Secret: &configpb.SecretRef{ProjectId: "fake-project-id", SecretName: "fake-secret-name"},
+					},
+				},
+				connect: func(ctx context.Context, dataSource string) (dbInterface, error) {
+					return nil, errors.New("fake-error")
+				},
+			},
+			gceService: &gcefake.TestGCE{
+				GetSecretResp: []string{"fake-password"},
+				GetSecretErr:  []error{nil},
+			},
+			wantErr: true,
+		},
+	}
+
+	ctx := context.Background()
+
+	for _, tc := range tests {
+		err := tc.m.InitDB(ctx, tc.gceService)
+		gotErr := err != nil
+		if gotErr != tc.wantErr {
+			t.Errorf("InitDB(%v) = %v, wantErr %v", tc.name, err, tc.wantErr)
 		}
 	}
 }

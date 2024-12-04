@@ -27,6 +27,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/mysqlmetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/recovery"
 )
@@ -129,9 +130,16 @@ func runMetricCollection(ctx context.Context, a any) {
 	log.CtxLogger(ctx).Debugw("MySQL metric collection args", "args", args)
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
-	m, err := mysqlmetrics.New(ctx, args.s.Config)
+	gceService, err := gce.NewGCEClient(ctx)
 	if err != nil {
-		log.CtxLogger(ctx).Errorf("failed to create MySQL metrics: %v", err)
+		usagemetrics.Error(usagemetrics.GCEServiceCreationFailure)
+		log.CtxLogger(ctx).Errorf("initializing GCE services: %w", err)
+		return
+	}
+	m := mysqlmetrics.New(ctx, args.s.Config)
+	err = m.InitDB(ctx, gceService)
+	if err != nil {
+		log.CtxLogger(ctx).Errorf("failed to initialize MySQL DB: %v", err)
 		return
 	}
 	for {

@@ -8,18 +8,19 @@ replace github.com/GoogleCloudPlatform/workloadagent/protos => ./protos
 
 require (
   cloud.google.com/go/monitoring v1.17.1
-  github.com/GoogleCloudPlatform/sapagent v1.5.2-0.20241015171556-8aee46464472
+  github.com/GoogleCloudPlatform/workloadagentplatform/integration/common v0.0.0-20241128074450-a997f5a8e0ef
   github.com/gammazero/workerpool v1.1.3
+  github.com/go-sql-driver/mysql v1.8.1
   github.com/google/go-cmp v0.6.0
   github.com/jonboulle/clockwork v0.4.1-0.20230717050334-b1209715e43c
   github.com/kardianos/service v1.2.2
+  github.com/mattn/go-sqlite3 v1.14.16
   github.com/shirou/gopsutil/v3 v3.24.5
   github.com/sijms/go-ora v1.3.2
   github.com/spf13/cobra v1.8.1
   github.com/spf13/pflag v1.0.5
   go.uber.org/zap v1.27.0
   golang.org/x/exp v0.0.0-20230321023759-10a507213a29
-  github.com/mattn/go-sqlite3 v1.14.16
   google.golang.org/genproto v0.0.0-20240205150955-31a09d347014
   google.golang.org/genproto/googleapis/api v0.0.0-20240205150955-31a09d347014
   google.golang.org/protobuf v1.34.3-0.20240708074925-b46f280f9725
@@ -33,7 +34,8 @@ require (
   cloud.google.com/go/logging v1.9.0 // indirect
   cloud.google.com/go/longrunning v0.5.5 // indirect
   cloud.google.com/go/secretmanager v1.11.5 // indirect
-  github.com/GoogleCloudPlatform/workloadagentplatform/integration/common v0.0.0-20241128074450-a997f5a8e0ef // indirect
+  filippo.io/edwards25519 v1.1.0 // indirect
+  github.com/GoogleCloudPlatform/sapagent v1.5.2-0.20241015171556-8aee46464472 // indirect
   github.com/cenkalti/backoff/v4 v4.1.3 // indirect
   github.com/felixge/httpsnoop v1.0.4 // indirect
   github.com/gammazero/deque v0.2.0 // indirect
