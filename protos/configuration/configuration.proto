@@ -96,7 +96,49 @@ message RedisConfiguration {
 }
 
 message SQLServerConfiguration {
+  message CollectionConfiguration {
+    // defaults to True
+    // enables or disables guest os collection
+    bool collect_guest_os_metrics = 1;
+    // defaults to 3600s (1 hour)
+    // guest os metrics collection interval
+    google.protobuf.Duration guest_os_metrics_collection_frequency = 2;
+    // defaults to True
+    // enables or disables SQL Server collection
+    bool collect_sql_metrics = 3;
+    // defaults to 3600s (1 hour)
+    // SQL Server metrics collection interval
+    google.protobuf.Duration sql_metrics_collection_frequency = 4;
+  }
+  message CredentialConfiguration {
+    message GuestCredentialsRemoteWin {
+      ConnectionParameters connection_parameters = 1;
+    }
+
+    message GuestCredentialsRemoteLinux {
+      ConnectionParameters connection_parameters = 1;
+      // private key for linux remote collection
+      string linux_ssh_private_key_path = 2;
+    }
+    CloudProperties vm_properties = 1;
+    repeated ConnectionParameters connection_parameters = 2;
+    oneof guest_configurations {
+      bool local_collection = 3;
+      GuestCredentialsRemoteWin remote_win = 4;
+      GuestCredentialsRemoteLinux remote_linux = 5;
+    }
+  }
   optional bool enabled = 1;
+  CollectionConfiguration collection_configuration = 2;
+  repeated CredentialConfiguration credential_configurations = 3;
+  // default timeout is 10s
+  google.protobuf.Duration collection_timeout = 4;
+  // default max_retries is 3
+  int32 max_retries = 5;
+  // default retry_frequency is 3600s
+  google.protobuf.Duration retry_frequency = 6;
+  // default remote collection is false
+  bool remote_collection = 7;
 }
 
 message ConnectionParameters {
