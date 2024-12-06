@@ -55,6 +55,13 @@ var (
 	errMissingServiceName          = errors.New("service_name is required")
 	errMissingProjectID            = errors.New("project_id is required")
 	errMissingSecretName           = errors.New("secret_name is required")
+
+	sqlServerConfigurationErrors = map[string]error{
+		"errMissingCollectionConfiguration":  errors.New("collection_configuration is required"),
+		"errMissingCredentialConfigurations": errors.New("credential_configurations are required"),
+		"errMissingCollectionTimeout":        errors.New("collection_timeout is required"),
+		"errMissingRetryFrequency":           errors.New("retry_frequency is required"),
+	}
 )
 
 const (
@@ -104,7 +111,11 @@ func Load(path string, read ReadConfigFile, cloudProps *cpb.CloudProperties) (*c
 	}
 
 	if err := validateOracleConfiguration(cfgFromFile); err != nil {
-		return nil, fmt.Errorf("validating configuration: %w", err)
+		return nil, fmt.Errorf("validating Oracle configuration: %w", err)
+	}
+
+	if err := validateSQLServerConfiguration(cfgFromFile); err != nil {
+		return nil, fmt.Errorf("validating SQL Server configuration: %w", err)
 	}
 
 	proto.Merge(cfg, cfgFromFile)
@@ -140,6 +151,26 @@ func validateOracleConfiguration(config *cpb.Configuration) error {
 	return nil
 }
 
+func validateSQLServerConfiguration(config *cpb.Configuration) error {
+	if !config.GetSqlserverConfiguration().GetEnabled() {
+		return nil
+	}
+
+	if config.GetSqlserverConfiguration().GetCollectionConfiguration() == nil {
+		return sqlServerConfigurationErrors["errMissingCollectionConfiguration"]
+	}
+	if config.GetSqlserverConfiguration().GetCredentialConfigurations() == nil {
+		return sqlServerConfigurationErrors["errMissingCredentialConfigurations"]
+	}
+	if config.GetSqlserverConfiguration().GetCollectionTimeout() == nil {
+		return sqlServerConfigurationErrors["errMissingCollectionTimeout"]
+	}
+	if config.GetSqlserverConfiguration().GetRetryFrequency() == nil {
+		return sqlServerConfigurationErrors["errMissingRetryFrequency"]
+	}
+	return nil
+}
+
 // defaultConfig returns the default configuration.
 func defaultConfig(cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) {
 	oracleQueries, err := defaultOracleQueries()
@@ -165,6 +196,19 @@ func defaultConfig(cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) 
 				MaxExecutionThreads: 10,
 				Queries:             oracleQueries,
 			},
+		},
+		SqlserverConfiguration: &cpb.SQLServerConfiguration{
+			Enabled: proto.Bool(false),
+			CollectionConfiguration: &cpb.SQLServerConfiguration_CollectionConfiguration{
+				CollectGuestOsMetrics:             true,
+				GuestOsMetricsCollectionFrequency: dpb.New(time.Duration(time.Hour)),
+				CollectSqlMetrics:                 true,
+				SqlMetricsCollectionFrequency:     dpb.New(time.Duration(time.Hour)),
+			},
+			CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{},
+			CollectionTimeout:        dpb.New(10 * time.Duration(time.Minute)),
+			MaxRetries:               3,
+			RetryFrequency:           dpb.New(time.Duration(time.Hour)),
 		},
 	}, nil
 }
