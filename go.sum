@@ -23,6 +23,8 @@ github.com/GoogleCloudPlatform/sapagent v1.5.2-0.20241015171556-8aee46464472 h1:
 github.com/GoogleCloudPlatform/sapagent v1.5.2-0.20241015171556-8aee46464472/go.mod h1:V8DxNa3SvogrCoGLhAAHqemw421pzQOoAW5O5MlI5Us=
 github.com/GoogleCloudPlatform/workloadagentplatform/integration/common v0.0.0-20241128074450-a997f5a8e0ef h1:Zg4ZDSz7jijHR/6Xk4/Inb6hQ5W9whk0DpzPL/dbL/k=
 github.com/GoogleCloudPlatform/workloadagentplatform/integration/common v0.0.0-20241128074450-a997f5a8e0ef/go.mod h1:2hnJdfkqASwOWG3NqhFMGDjCja1+RB4vr9nnid+BrGE=
+github.com/GoogleCloudPlatform/workloadagentplatform/integration/common v0.0.0-20241206140426-05c9bb5240c5 h1:0c9Q/U0Iwi2gEMzR1gTeaPmtKIaKlvJ3KetIJxqZ4gQ=
+github.com/GoogleCloudPlatform/workloadagentplatform/integration/common v0.0.0-20241206140426-05c9bb5240c5/go.mod h1:2hnJdfkqASwOWG3NqhFMGDjCja1+RB4vr9nnid+BrGE=
 github.com/cenkalti/backoff/v4 v4.1.3 h1:cFAlzYUlVYDysBEH2T5hyJZMh3+5+WCBvSnK6Q8UtC4=
 github.com/cenkalti/backoff/v4 v4.1.3/go.mod h1:scbssz8iZGpm3xbr14ovlUdkxfGXNInqkPWOWmG2CLw=
 github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA12rnyqOA5BBL4O983OfeGPqjHWSTneU=
