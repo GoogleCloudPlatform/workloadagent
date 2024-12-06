@@ -15,6 +15,7 @@ require (
   github.com/jonboulle/clockwork v0.4.1-0.20230717050334-b1209715e43c
   github.com/kardianos/service v1.2.2
   github.com/mattn/go-sqlite3 v1.14.16
+  github.com/redis/go-redis/v9 v9.7.0
   github.com/shirou/gopsutil/v3 v3.24.5
   github.com/sijms/go-ora v1.3.2
   github.com/spf13/cobra v1.8.1
@@ -35,8 +36,9 @@ require (
   cloud.google.com/go/longrunning v0.5.5 // indirect
   cloud.google.com/go/secretmanager v1.11.5 // indirect
   filippo.io/edwards25519 v1.1.0 // indirect
-  github.com/GoogleCloudPlatform/sapagent v1.5.2-0.20241015171556-8aee46464472 // indirect
   github.com/cenkalti/backoff/v4 v4.1.3 // indirect
+  github.com/cespare/xxhash/v2 v2.2.0 // indirect
+  github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
   github.com/felixge/httpsnoop v1.0.4 // indirect
   github.com/gammazero/deque v0.2.0 // indirect
   github.com/go-logr/logr v1.4.1 // indirect
