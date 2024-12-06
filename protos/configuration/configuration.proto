@@ -93,6 +93,9 @@ message CommonDiscovery {
 
 message RedisConfiguration {
   optional bool enabled = 1;
+  SecretRef secret = 2;
+  string password = 3;
+  string port = 4;
 }
 
 message SQLServerConfiguration {

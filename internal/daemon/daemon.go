@@ -133,8 +133,8 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 	oracleCh := make(chan commondiscovery.Result, 1)
 	mySQLCh := make(chan commondiscovery.Result, 1)
 	redisCh := make(chan commondiscovery.Result, 1)
-	sqlserveCh := make(chan commondiscovery.Result, 1)
-	cdChs := []chan commondiscovery.Result{mySQLCh, oracleCh}
+	sqlserverCh := make(chan commondiscovery.Result, 1)
+	cdChs := []chan commondiscovery.Result{mySQLCh, oracleCh, redisCh, sqlserverCh}
 	commondiscovery := commondiscovery.DiscoveryService{
 		ProcessLister: commondiscovery.DefaultProcessLister{},
 		ReadFile:      os.ReadFile,
@@ -155,7 +155,7 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 		&oracle.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: oracleCh},
 		&mysql.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: mySQLCh},
 		&redis.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: redisCh},
-		&sqlserver.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: sqlserveCh},
+		&sqlserver.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: sqlserverCh},
 	}
 	for _, service := range d.services {
 		log.Logger.Infof("Starting %s", service.String())
