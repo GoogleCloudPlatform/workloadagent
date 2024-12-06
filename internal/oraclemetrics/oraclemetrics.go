@@ -35,6 +35,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/cloudmonitoring"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce/metadataserver"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/recovery"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/timeseries"
@@ -510,8 +511,8 @@ func queryMap(queries []*configpb.Query) map[string]*configpb.Query {
 }
 
 // convertCloudProperties converts Cloud Properties proto to CloudProperties struct.
-func convertCloudProperties(cp *configpb.CloudProperties) *timeseries.CloudProperties {
-	return &timeseries.CloudProperties{
+func convertCloudProperties(cp *configpb.CloudProperties) *metadataserver.CloudProperties {
+	return &metadataserver.CloudProperties{
 		ProjectID:        cp.GetProjectId(),
 		InstanceID:       cp.GetInstanceId(),
 		Zone:             cp.GetZone(),

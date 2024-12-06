@@ -14,6 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// TODO: Move this to the common shared directory.
+
 // Package secret provides a custom string type that hides sensitive data from output.
 package secret
 

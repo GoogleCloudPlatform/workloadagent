@@ -35,8 +35,8 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/cloudmonitoring"
 	cmfake "github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/cloudmonitoring/fake"
 	gcefake "github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce/fake"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce/metadataserver"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
-	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/timeseries"
 
 	mpb "google.golang.org/genproto/googleapis/api/metric"
 	mrespb "google.golang.org/genproto/googleapis/api/monitoredres"
@@ -556,7 +556,7 @@ func TestConvertCloudProperties(t *testing.T) {
 		Region:           "region",
 	}
 
-	want := &timeseries.CloudProperties{
+	want := &metadataserver.CloudProperties{
 		ProjectID:        "project-id",
 		InstanceID:       "instance-id",
 		Zone:             "zone",

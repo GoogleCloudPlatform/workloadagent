@@ -101,8 +101,8 @@ func NewCommand(lp log.Parameters, cloudProps *cpb.CloudProperties) *cobra.Comma
 	logUsageCmd.Flags().IntVar(&l.action, "a", 0, "usage action code")
 	logUsageCmd.Flags().IntVar(&l.usageError, "error", 0, "usage error code")
 	logUsageCmd.Flags().IntVar(&l.usageError, "e", 0, "usage error code")
-	logUsageCmd.Flags().StringVar(&l.image, "image", "", "the image url of the compute instance(optional), default value is retreived from metadata)")
-	logUsageCmd.Flags().StringVar(&l.image, "i", "", "the image url of the compute instance(optional), default value is retreived from metadata)")
+	logUsageCmd.Flags().StringVar(&l.image, "image", "", "the image url of the compute instance(optional), default value is retrieved from metadata)")
+	logUsageCmd.Flags().StringVar(&l.image, "i", "", "the image url of the compute instance(optional), default value is retrieved from metadata)")
 
 	return logUsageCmd
 }
@@ -118,8 +118,8 @@ func (l *LogUsage) logUsageHandler(cmd *cobra.Command, cloudProps *cpb.CloudProp
 		log.Print("A usage status value is required.")
 		return fmt.Errorf("a usage status value is required")
 	case l.status == string(usagemetrics.StatusUpdated) && l.agentVersion == "":
-		log.Print("For status UPDATED, Agent Version is requried.")
-		return fmt.Errorf("for status UPDATED, Agent Version is requried")
+		log.Print("For status UPDATED, Agent Version is required.")
+		return fmt.Errorf("for status UPDATED, Agent Version is required")
 	case l.status == string(usagemetrics.StatusError) && l.usageError <= 0:
 		log.Print("For status ERROR, an error code is required.")
 		return fmt.Errorf("for status ERROR, an error code is required")
