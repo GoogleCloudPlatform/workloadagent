@@ -8,6 +8,7 @@ replace github.com/GoogleCloudPlatform/workloadagent/protos => ./protos
 
 require (
   cloud.google.com/go/monitoring v1.17.1
+  github.com/DATA-DOG/go-sqlmock v1.5.0
   github.com/GoogleCloudPlatform/workloadagentplatform/integration/common v0.0.0-20241206140426-05c9bb5240c5
   github.com/gammazero/workerpool v1.1.3
   github.com/go-sql-driver/mysql v1.8.1
@@ -15,6 +16,7 @@ require (
   github.com/jonboulle/clockwork v0.4.1-0.20230717050334-b1209715e43c
   github.com/kardianos/service v1.2.2
   github.com/mattn/go-sqlite3 v1.14.16
+  github.com/microsoft/go-mssqldb v1.4.0
   github.com/redis/go-redis/v9 v9.7.0
   github.com/shirou/gopsutil/v3 v3.24.5
   github.com/sijms/go-ora v1.3.2
@@ -44,6 +46,8 @@ require (
   github.com/go-logr/logr v1.4.1 // indirect
   github.com/go-logr/stdr v1.2.2 // indirect
   github.com/go-ole/go-ole v1.2.6 // indirect
+  github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9 // indirect
+  github.com/golang-sql/sqlexp v0.1.0 // indirect
   github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
   github.com/golang/protobuf v1.5.4 // indirect
   github.com/google/s2a-go v0.1.7 // indirect
