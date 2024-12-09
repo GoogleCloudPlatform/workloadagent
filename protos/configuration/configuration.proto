@@ -93,6 +93,7 @@ message CommonDiscovery {
 
 message RedisConfiguration {
   optional bool enabled = 1;
+  ConnectionParameters connection_parameters = 2;
 }
 
 message SQLServerConfiguration {
@@ -147,6 +148,7 @@ message ConnectionParameters {
   string host = 3;
   int32 port = 4;
   string service_name = 5;
+  string password = 6;
 }
 
 message SecretRef {

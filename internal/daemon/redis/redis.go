@@ -27,6 +27,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/redismetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/recovery"
 )
@@ -122,14 +123,28 @@ func runMetricCollection(ctx context.Context, a any) {
 	var args runMetricCollectionArgs
 	var ok bool
 	if args, ok = a.(runMetricCollectionArgs); !ok {
-		log.CtxLogger(ctx).Warnw("failed to parse metric collection args", "args", a)
+		log.CtxLogger(ctx).Errorf("failed to parse metric collection args", "args", a)
 		return
 	}
 	log.CtxLogger(ctx).Debugw("Redis metric collection args", "args", args)
+	gceService, err := gce.NewGCEClient(ctx)
+	if err != nil {
+		usagemetrics.Error(usagemetrics.GCEServiceCreationFailure)
+		log.CtxLogger(ctx).Errorf("initializing GCE services: %w", err)
+		return
+	}
+	r := &redismetrics.RedisMetrics{
+		Config: args.s.Config,
+	}
+	err = r.InitDB(ctx, gceService)
+	if err != nil {
+		log.CtxLogger(ctx).Errorf("failed to initialize Redis DB client", "error", err)
+		return
+	}
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
 	for {
-		redismetrics.CollectMetricsOnce(ctx)
+		r.CollectMetricsOnce(ctx)
 		select {
 		case <-ctx.Done():
 			log.CtxLogger(ctx).Info("Redis metric collection cancellation requested")
