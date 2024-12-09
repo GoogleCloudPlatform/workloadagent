@@ -41,6 +41,8 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/timeseries"
 
 	mpb "google.golang.org/genproto/googleapis/api/metric"
+	mrespb "google.golang.org/genproto/googleapis/api/monitoredres"
+	cpb "google.golang.org/genproto/googleapis/monitoring/v3"
 	mrpb "google.golang.org/genproto/googleapis/monitoring/v3"
 	tspb "google.golang.org/protobuf/types/known/timestamppb"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
@@ -50,6 +52,16 @@ const (
 	metricURL        = "workload.googleapis.com/oracle"
 	maxQueryFailures = 3
 	dbViewQuery      = `SELECT d.dbid, d.db_unique_name, d.database_role, p.name AS pdb_name FROM v$database d LEFT JOIN v$pdbs p ON 1=1`
+	healthQuery      = `SELECT 1 FROM dual`
+)
+
+const (
+	// Healthy is the healthy status of the database.
+	Healthy HealthStatus = "Healthy"
+	// Unhealthy is the unhealthy status of the database.
+	Unhealthy HealthStatus = "Unhealthy"
+	// Unknown is the unknown status of the database.
+	Unknown HealthStatus = "Unknown"
 )
 
 type (
@@ -59,6 +71,16 @@ type (
 
 	dbPinger interface {
 		PingContext(ctx context.Context) error
+	}
+
+	// HealthStatus is the health status of a database.
+	HealthStatus string
+
+	// ServiceHealth holds the health information for a specific service.
+	ServiceHealth struct {
+		Status      HealthStatus
+		LastChecked time.Time
+		Message     string // Optional message (e.g., reason for unhealthy status)
 	}
 
 	// MetricCollector holds the parameters required for metric collection.
@@ -176,6 +198,96 @@ func New(ctx context.Context, config *configpb.Configuration) (*MetricCollector,
 	}, nil
 }
 
+// createHealthMetrics creates health metrics for all the databases.
+func createHealthMetrics(ctx context.Context, statusData map[string]*ServiceHealth, cfg *configpb.Configuration) []*mrpb.TimeSeries {
+	timeSeries := []*mrpb.TimeSeries{}
+	for serviceName, serviceHealth := range statusData {
+		ts := &mrpb.TimeSeries{
+			Metric: &mpb.Metric{
+				Type:   metricURL + "/health",
+				Labels: map[string]string{"service_name": serviceName},
+			},
+			Resource: &mrespb.MonitoredResource{
+				Type: "gce_instance",
+				Labels: map[string]string{
+					"project_id":  cfg.GetCloudProperties().GetProjectId(),
+					"instance_id": cfg.GetCloudProperties().GetInstanceId(),
+					"zone":        cfg.GetCloudProperties().GetZone(),
+				},
+			},
+			Points: []*mrpb.Point{
+				{
+					Interval: &cpb.TimeInterval{
+						EndTime: tspb.New(serviceHealth.LastChecked),
+					},
+					Value: &cpb.TypedValue{
+						Value: &cpb.TypedValue_BoolValue{
+							BoolValue: serviceHealth.Status == Healthy,
+						},
+					},
+				},
+			},
+		}
+		timeSeries = append(timeSeries, ts)
+	}
+	return timeSeries
+}
+
+func checkDatabaseHealth(ctx context.Context, connections map[string]*sql.DB) map[string]*ServiceHealth {
+	statusData := make(map[string]*ServiceHealth)
+
+	for serviceName, db := range connections {
+		rows, err := db.QueryContext(ctx, healthQuery)
+		if err != nil {
+			statusData[serviceName] = &ServiceHealth{
+				Status:      Unhealthy,
+				LastChecked: time.Now(),
+				Message:     fmt.Sprintf("query execution failed: %v", err.Error()),
+			}
+			continue
+		}
+		defer rows.Close()
+
+		var result int
+		for rows.Next() {
+			if err := rows.Scan(&result); err != nil {
+				statusData[serviceName] = &ServiceHealth{
+					Status:      Unhealthy,
+					LastChecked: time.Now(),
+					Message:     fmt.Sprintf("query returned no rows: %v", err.Error()),
+				}
+				continue
+			}
+			switch result {
+			case 1:
+				statusData[serviceName] = &ServiceHealth{
+					Status:      Healthy,
+					LastChecked: time.Now(),
+					Message:     "",
+				}
+			default:
+				continue
+			}
+		}
+	}
+	return statusData
+}
+
+// SendHealthMetricsToCloudMonitoring sends health metrics to Cloud Monitoring.
+func (c *MetricCollector) SendHealthMetricsToCloudMonitoring(ctx context.Context) []*mrpb.TimeSeries {
+	statusData := checkDatabaseHealth(ctx, c.connections)
+	ts := createHealthMetrics(ctx, statusData, c.Config)
+
+	sent, batchCount, err := cloudmonitoring.SendTimeSeries(ctx, ts, c.TimeSeriesCreator, c.BackOffs, c.Config.GetCloudProperties().GetProjectId())
+	if err != nil {
+		log.CtxLogger(ctx).Errorw("Failed to send health metrics to Cloud Monitoring", "error", err)
+		usagemetrics.Error(usagemetrics.OracleMetricCollectionFailure)
+		return nil
+	}
+	log.CtxLogger(ctx).Debugw("Successfully sent health metrics to Cloud Monitoring", "sent", sent, "batches", batchCount)
+	return ts
+}
+
 func (c *MetricCollector) shouldSkipQuery(ctx context.Context, serviceName, qn string) bool {
 	key := fmt.Sprintf("%s:%s", serviceName, qn)
 	if c.failCount[key] >= maxQueryFailures {
@@ -188,9 +300,9 @@ func (c *MetricCollector) shouldSkipQuery(ctx context.Context, serviceName, qn s
 	return false
 }
 
-// CollectDBMetricsOnce submits a task for each database connection to the worker pool.
+// SendDefaultMetricsToCloudMonitoring submits a task for each database connection to the worker pool.
 // Each task executes a query from default_queries.json and sends the results as metrics to Cloud Monitoring.
-func (c *MetricCollector) CollectDBMetricsOnce(ctx context.Context) []*mrpb.TimeSeries {
+func (c *MetricCollector) SendDefaultMetricsToCloudMonitoring(ctx context.Context) []*mrpb.TimeSeries {
 	queryNamesMap := queryMap(c.Config.GetOracleConfiguration().GetOracleMetrics().GetQueries())
 	var queryNames []string
 	for qn := range queryNamesMap {

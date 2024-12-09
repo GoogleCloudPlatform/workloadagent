@@ -230,7 +230,7 @@
     },
     {
         "name": "instance_status_queries",
-        "sql": "SELECT i.instance_name AS name, CASE WHEN i.status = 'STARTED' THEN 1 WHEN i.status = 'MOUNTED' THEN 2 WHEN i.status = 'OPEN' THEN 3 WHEN i.status = 'OPEN MIGRATE' THEN 4 ELSE 0 END AS status_int, CASE WHEN d.open_mode = 'MOUNTED' THEN 1 WHEN d.open_mode = 'READ WRITE' THEN 2 WHEN d.open_mode = 'READ ONLY' THEN 3 WHEN d.open_mode = 'READ ONLY WITH APPLY' THEN 4 ELSE 0 END AS open_mode_int, (SELECT 1 FROM dual) AS availability_check FROM v$instance i, v$database d",
+        "sql": "SELECT i.instance_name AS name, CASE WHEN i.status = 'STARTED' THEN 1 WHEN i.status = 'MOUNTED' THEN 2 WHEN i.status = 'OPEN' THEN 3 WHEN i.status = 'OPEN MIGRATE' THEN 4 ELSE 0 END AS status_int, CASE WHEN d.open_mode = 'MOUNTED' THEN 1 WHEN d.open_mode = 'READ WRITE' THEN 2 WHEN d.open_mode = 'READ ONLY' THEN 3 WHEN d.open_mode = 'READ ONLY WITH APPLY' THEN 4 ELSE 0 END AS open_mode_int FROM v$instance i, v$database d",
         "columns": [
             {
                 "name": "name",
@@ -246,12 +246,6 @@
             {
                 "name": "open_mode_int",
                 "name_override": "instance/db_open_mode",
-                "metric_type": "METRIC_GAUGE",
-                "value_type": "VALUE_INT64"
-            },
-            {
-                "name": "availability_check",
-                "name_override": "instance/availability",
                 "metric_type": "METRIC_GAUGE",
                 "value_type": "VALUE_INT64"
             }

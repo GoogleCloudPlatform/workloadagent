@@ -29,6 +29,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/secret"
@@ -661,17 +662,24 @@ func TestDisabledQuery(t *testing.T) {
 func setupSQLiteDB(t *testing.T) (*sql.DB, error) {
 	t.Helper()
 	seedSQLStatements := []string{
+		// v$database table
 		`CREATE TABLE "v$database" (
 				dbid TEXT PRIMARY KEY,
 				db_unique_name TEXT,
 				database_role TEXT
 			)`,
+		`INSERT INTO "v$database" (dbid, db_unique_name, database_role) VALUES ('1', 'test_db_unique_name', 'PRIMARY')`,
+
+		// v$pdbs table
 		`CREATE TABLE "v$pdbs" (
 				id TEXT PRIMARY KEY,
 				name TEXT
 			)`,
-		`INSERT INTO "v$database" (dbid, db_unique_name, database_role) VALUES ('1', 'test_db_unique_name', 'PRIMARY')`,
 		`INSERT INTO "v$pdbs" (id, name) VALUES ('1', 'test_pdb_name')`,
+
+		// DUAL table
+		`CREATE TABLE DUAL (DUMMY TEXT PRIMARY KEY)`,
+		`INSERT INTO DUAL (DUMMY) VALUES ('X')`,
 	}
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
@@ -707,7 +715,7 @@ func TestFetchDatabaseInfo(t *testing.T) {
 	}
 }
 
-func TestCollectDBMetricsOnce(t *testing.T) {
+func TestSendDefaultMetricsToCloudMonitoring(t *testing.T) {
 	db, err := setupSQLiteDB(t)
 	if err != nil {
 		t.Fatalf("Failed to setup testing SQLite DB: %v", err)
@@ -751,7 +759,7 @@ func TestCollectDBMetricsOnce(t *testing.T) {
 				},
 			},
 			want: []*mrpb.TimeSeries{
-				&mrpb.TimeSeries{
+				{
 					Metric: &mpb.Metric{
 						Type:   "workload.googleapis.com/oracle/test_col",
 						Labels: map[string]string{"dbid": "1", "db_unique_name": "test_db_unique_name", "pdb_name": "test_pdb_name"},
@@ -765,7 +773,7 @@ func TestCollectDBMetricsOnce(t *testing.T) {
 						},
 					},
 					Points: []*mrpb.Point{
-						&mrpb.Point{
+						{
 							Interval: &cpb.TimeInterval{
 								StartTime: &tspb.Timestamp{Seconds: 1724194800},
 								EndTime:   &tspb.Timestamp{Seconds: 1724194800},
@@ -878,10 +886,10 @@ func TestCollectDBMetricsOnce(t *testing.T) {
 				connections:       tc.connections,
 			}
 
-			got := collector.CollectDBMetricsOnce(context.Background())
+			got := collector.SendDefaultMetricsToCloudMonitoring(context.Background())
 
 			if diff := cmp.Diff(tc.want, got, protocmp.Transform(), protocmp.IgnoreFields(&mrpb.Point{}, "interval")); diff != "" {
-				t.Errorf("CollectDBMetricsOnce() returned an unexpected diff (-want +got): %v", diff)
+				t.Errorf("SendDefaultMetricsToCloudMonitoring() returned an unexpected diff (-want +got): %v", diff)
 			}
 		})
 	}
@@ -958,7 +966,7 @@ func TestExecuteQueryAndSendMetrics(t *testing.T) {
 				Disabled:     proto.Bool(false),
 			},
 			want: []*mrpb.TimeSeries{
-				&mrpb.TimeSeries{
+				{
 					Metric: &mpb.Metric{
 						Type:   "workload.googleapis.com/oracle/test_col",
 						Labels: map[string]string{"dbid": "1", "db_unique_name": "test_db_unique_name", "pdb_name": "test_pdb_name"},
@@ -972,7 +980,7 @@ func TestExecuteQueryAndSendMetrics(t *testing.T) {
 						},
 					},
 					Points: []*mrpb.Point{
-						&mrpb.Point{
+						{
 							Interval: &cpb.TimeInterval{
 								StartTime: &tspb.Timestamp{Seconds: 1724194800},
 								EndTime:   &tspb.Timestamp{Seconds: 1724194800},
@@ -1041,6 +1049,243 @@ func TestExecuteQueryAndSendMetrics(t *testing.T) {
 
 			if diff := cmp.Diff(tc.want, got, protocmp.Transform(), protocmp.IgnoreFields(&mrpb.Point{}, "interval")); diff != "" {
 				t.Errorf("executeQueryAndSendMetrics() returned an unexpected diff (-want +got): %v", diff)
+			}
+		})
+	}
+}
+
+func TestCreateHealthMetrics(t *testing.T) {
+	statusData := map[string]*ServiceHealth{
+		"service_name1": &ServiceHealth{Status: Healthy},
+		"service_name2": &ServiceHealth{Status: Unhealthy},
+	}
+	cfg := &configpb.Configuration{
+		CloudProperties: &configpb.CloudProperties{
+			ProjectId:  "project-id",
+			InstanceId: "instance-id",
+			Zone:       "zone",
+		},
+	}
+
+	want := []*mrpb.TimeSeries{
+		{
+			Metric: &mpb.Metric{
+				Type:   metricURL + "/health",
+				Labels: map[string]string{"service_name": "service_name1"},
+			},
+			Resource: &mrespb.MonitoredResource{
+				Type: "gce_instance",
+				Labels: map[string]string{
+					"project_id":  "project-id",
+					"instance_id": "instance-id",
+					"zone":        "zone",
+				},
+			},
+			Points: []*mrpb.Point{
+				{
+					Interval: &cpb.TimeInterval{
+						EndTime: tspb.Now(),
+					},
+					Value: &cpb.TypedValue{
+						Value: &cpb.TypedValue_BoolValue{
+							BoolValue: true,
+						},
+					},
+				},
+			},
+		},
+		&mrpb.TimeSeries{
+			Metric: &mpb.Metric{
+				Type:   metricURL + "/health",
+				Labels: map[string]string{"service_name": "service_name2"},
+			},
+			Resource: &mrespb.MonitoredResource{
+				Type: "gce_instance",
+				Labels: map[string]string{
+					"project_id":  "project-id",
+					"instance_id": "instance-id",
+					"zone":        "zone",
+				},
+			},
+			Points: []*mrpb.Point{
+				{
+					Interval: &cpb.TimeInterval{
+						EndTime: tspb.Now(),
+					},
+					Value: &cpb.TypedValue{
+						Value: &cpb.TypedValue_BoolValue{
+							BoolValue: false,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	got := createHealthMetrics(context.Background(), statusData, cfg)
+
+	if diff := cmp.Diff(want, got, protocmp.Transform(), protocmp.IgnoreFields(&mrpb.Point{}, "interval")); diff != "" {
+		t.Errorf("createHealthMetrics() returned diff (-want +got):\n%s", diff)
+	}
+}
+
+func TestDatabaseHealth(t *testing.T) {
+	healthyDB, err := setupSQLiteDB(t)
+	if err != nil {
+		t.Fatalf("Failed to setup testing SQLite DB: %v", err)
+	}
+
+	unhealthyDB, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatalf("cannot create a sqlite testing database")
+	}
+
+	tests := []struct {
+		name        string
+		connections map[string]*sql.DB
+		want        map[string]*ServiceHealth
+	}{
+		{
+			name: "Success",
+			connections: map[string]*sql.DB{
+				"service_name1": healthyDB,
+			},
+			want: map[string]*ServiceHealth{
+				"service_name1": &ServiceHealth{
+					Status: Healthy,
+				},
+			},
+		},
+		{
+			name: "Failure",
+			connections: map[string]*sql.DB{
+				"service_name2": unhealthyDB,
+			},
+			want: map[string]*ServiceHealth{
+				"service_name2": &ServiceHealth{
+					Status:  Unhealthy,
+					Message: "query execution failed: no such table: dual",
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := checkDatabaseHealth(context.Background(), tc.connections)
+
+			opts := []cmp.Option{cmpopts.IgnoreFields(ServiceHealth{}, "LastChecked")}
+			if diff := cmp.Diff(tc.want, got, opts...); diff != "" {
+				t.Errorf("checkDatabaseHealth() returned diff (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestSendHealthMetricsToCloudMonitoring(t *testing.T) {
+	healthyDB, err := setupSQLiteDB(t)
+	if err != nil {
+		t.Fatalf("Failed to setup testing SQLite DB: %v", err)
+	}
+
+	unhealthyDB, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatalf("cannot create a sqlite testing database")
+	}
+
+	tests := []struct {
+		name        string
+		connections map[string]*sql.DB
+		want        []*mrpb.TimeSeries
+	}{
+		{
+			name: "Healthy",
+			connections: map[string]*sql.DB{
+				"service_name1": healthyDB,
+			},
+			want: []*mrpb.TimeSeries{
+				{
+					Metric: &mpb.Metric{
+						Type:   metricURL + "/health",
+						Labels: map[string]string{"service_name": "service_name1"},
+					},
+					Resource: &mrespb.MonitoredResource{
+						Type: "gce_instance",
+						Labels: map[string]string{
+							"project_id":  "project-id",
+							"instance_id": "instance-id",
+							"zone":        "zone",
+						},
+					},
+					Points: []*mrpb.Point{
+						{
+							Interval: &cpb.TimeInterval{
+								EndTime: tspb.Now(),
+							},
+							Value: &cpb.TypedValue{
+								Value: &cpb.TypedValue_BoolValue{
+									BoolValue: true,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "Unhealthy",
+			connections: map[string]*sql.DB{
+				"service_name2": unhealthyDB,
+			},
+			want: []*mrpb.TimeSeries{
+				{
+					Metric: &mpb.Metric{
+						Type:   metricURL + "/health",
+						Labels: map[string]string{"service_name": "service_name2"},
+					},
+					Resource: &mrespb.MonitoredResource{
+						Type: "gce_instance",
+						Labels: map[string]string{
+							"project_id":  "project-id",
+							"instance_id": "instance-id",
+							"zone":        "zone",
+						},
+					},
+					Points: []*mrpb.Point{
+						{
+							Interval: &cpb.TimeInterval{
+								EndTime: tspb.Now(),
+							},
+							Value: &cpb.TypedValue{
+								Value: &cpb.TypedValue_BoolValue{
+									BoolValue: false,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			collector := &MetricCollector{
+				Config: &configpb.Configuration{
+					CloudProperties: &configpb.CloudProperties{
+						ProjectId:  "project-id",
+						InstanceId: "instance-id",
+						Zone:       "zone",
+					},
+				},
+				TimeSeriesCreator: &cmfake.TimeSeriesCreator{},
+				connections:       tc.connections,
+			}
+
+			got := collector.SendHealthMetricsToCloudMonitoring(context.Background())
+
+			if diff := cmp.Diff(tc.want, got, protocmp.Transform(), protocmp.IgnoreFields(&mrpb.Point{}, "interval")); diff != "" {
+				t.Errorf("SendHealthMetricsToCloudMonitoring() returned diff (-want +got):\n%s", diff)
 			}
 		})
 	}
