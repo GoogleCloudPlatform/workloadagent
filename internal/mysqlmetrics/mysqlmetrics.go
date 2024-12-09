@@ -84,10 +84,10 @@ type engineResult struct {
 // Without either, the password is not set and requests to the MySQL database will fail.
 func (m *MySQLMetrics) password(ctx context.Context, gceService gceInterface) (secret.String, error) {
 	pw := ""
-	if m.Config.GetMysqlConfiguration().GetPassword() != "" {
-		return secret.String(m.Config.GetMysqlConfiguration().GetPassword()), nil
+	if m.Config.GetMysqlConfiguration().GetConnectionParameters().GetPassword() != "" {
+		return secret.String(m.Config.GetMysqlConfiguration().GetConnectionParameters().GetPassword()), nil
 	}
-	secretCfg := m.Config.GetMysqlConfiguration().GetSecret()
+	secretCfg := m.Config.GetMysqlConfiguration().GetConnectionParameters().GetSecret()
 	if secretCfg.GetSecretName() != "" && secretCfg.GetProjectId() != "" {
 		var err error
 		pw, err = gceService.GetSecret(ctx, secretCfg.GetProjectId(), secretCfg.GetSecretName())
@@ -113,7 +113,7 @@ func (m *MySQLMetrics) dbDSN(ctx context.Context, gceService gceInterface) (stri
 		return "", fmt.Errorf("initializing password: %w", err)
 	}
 	cfg := mysql.Config{
-		User:   m.Config.GetMysqlConfiguration().GetUser(),
+		User:   m.Config.GetMysqlConfiguration().GetConnectionParameters().GetUsername(),
 		Passwd: pw.SecretValue(),
 		Addr:   "localhost:3306", // using localhost because the agent is running on the same machine as the MySQL server
 		DBName: "mysql",
