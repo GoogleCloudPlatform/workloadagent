@@ -111,7 +111,6 @@ if [ "$1" = "0" ]; then
   rm -f /lib/systemd/system/%{name}.service
   rm -f /usr/lib/systemd/system/%{name}.service
   rm -fr %{_docdir}
-  rm -fr %{_confdir}
 else
   # log usage metrics for upgrade
   timeout 30 %{_bindir}/google_cloud_workload_agent logusage -s UPDATED -agent-version "%{name}-%{VERSION}-%{RELEASE}" &> /dev/null || true
