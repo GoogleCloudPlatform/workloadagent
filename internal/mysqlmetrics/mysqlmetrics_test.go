@@ -127,7 +127,9 @@ func TestInitPassword(t *testing.T) {
 			m: MySQLMetrics{
 				Config: &configpb.Configuration{
 					MysqlConfiguration: &configpb.MySQLConfiguration{
-						Secret: &configpb.SecretRef{ProjectId: "fake-project-id", SecretName: "fake-secret-name"},
+						ConnectionParameters: &configpb.ConnectionParameters{
+							Secret: &configpb.SecretRef{ProjectId: "fake-project-id", SecretName: "fake-secret-name"},
+						},
 					},
 				},
 			},
@@ -143,7 +145,9 @@ func TestInitPassword(t *testing.T) {
 			m: MySQLMetrics{
 				Config: &configpb.Configuration{
 					MysqlConfiguration: &configpb.MySQLConfiguration{
-						Secret: &configpb.SecretRef{ProjectId: "fake-project-id", SecretName: "fake-secret-name"},
+						ConnectionParameters: &configpb.ConnectionParameters{
+							Secret: &configpb.SecretRef{ProjectId: "fake-project-id", SecretName: "fake-secret-name"},
+						},
 					},
 				},
 			},
@@ -159,7 +163,9 @@ func TestInitPassword(t *testing.T) {
 			m: MySQLMetrics{
 				Config: &configpb.Configuration{
 					MysqlConfiguration: &configpb.MySQLConfiguration{
-						Secret: &configpb.SecretRef{SecretName: "fake-secret-name"},
+						ConnectionParameters: &configpb.ConnectionParameters{
+							Secret: &configpb.SecretRef{SecretName: "fake-secret-name"},
+						},
 					},
 				},
 			},
@@ -175,7 +181,9 @@ func TestInitPassword(t *testing.T) {
 			m: MySQLMetrics{
 				Config: &configpb.Configuration{
 					MysqlConfiguration: &configpb.MySQLConfiguration{
-						Secret: &configpb.SecretRef{ProjectId: "fake-project-id"},
+						ConnectionParameters: &configpb.ConnectionParameters{
+							Secret: &configpb.SecretRef{ProjectId: "fake-project-id"},
+						},
 					},
 				},
 			},
@@ -191,7 +199,9 @@ func TestInitPassword(t *testing.T) {
 			m: MySQLMetrics{
 				Config: &configpb.Configuration{
 					MysqlConfiguration: &configpb.MySQLConfiguration{
-						Password: "fake-password",
+						ConnectionParameters: &configpb.ConnectionParameters{
+							Password: "fake-password",
+						},
 					},
 				},
 			},
@@ -483,14 +493,18 @@ func TestNew(t *testing.T) {
 			name: "HappyPath",
 			cfg: &configpb.Configuration{
 				MysqlConfiguration: &configpb.MySQLConfiguration{
-					User:   "test-user",
-					Secret: &configpb.SecretRef{ProjectId: "test-project-id", SecretName: "test-secret-name"},
+					ConnectionParameters: &configpb.ConnectionParameters{
+						Username: "test-user",
+						Secret:   &configpb.SecretRef{ProjectId: "test-project-id", SecretName: "test-secret-name"},
+					},
 				},
 			},
 			want: &configpb.Configuration{
 				MysqlConfiguration: &configpb.MySQLConfiguration{
-					User:   "test-user",
-					Secret: &configpb.SecretRef{ProjectId: "test-project-id", SecretName: "test-secret-name"},
+					ConnectionParameters: &configpb.ConnectionParameters{
+						Username: "test-user",
+						Secret:   &configpb.SecretRef{ProjectId: "test-project-id", SecretName: "test-secret-name"},
+					},
 				},
 			},
 		},
@@ -516,8 +530,10 @@ func TestDbDSN(t *testing.T) {
 			m: MySQLMetrics{
 				Config: &configpb.Configuration{
 					MysqlConfiguration: &configpb.MySQLConfiguration{
-						User:   "test-user",
-						Secret: &configpb.SecretRef{ProjectId: "fake-project-id", SecretName: "fake-secret-name"},
+						ConnectionParameters: &configpb.ConnectionParameters{
+							Username: "test-user",
+							Secret:   &configpb.SecretRef{ProjectId: "fake-project-id", SecretName: "fake-secret-name"},
+						},
 					},
 				},
 			},
@@ -533,8 +549,10 @@ func TestDbDSN(t *testing.T) {
 			m: MySQLMetrics{
 				Config: &configpb.Configuration{
 					MysqlConfiguration: &configpb.MySQLConfiguration{
-						User:     "test-user",
-						Password: "fake-password",
+						ConnectionParameters: &configpb.ConnectionParameters{
+							Username: "test-user",
+							Password: "fake-password",
+						},
 					},
 				},
 			},
@@ -547,8 +565,10 @@ func TestDbDSN(t *testing.T) {
 			m: MySQLMetrics{
 				Config: &configpb.Configuration{
 					MysqlConfiguration: &configpb.MySQLConfiguration{
-						User:   "test-user",
-						Secret: &configpb.SecretRef{ProjectId: "fake-project-id", SecretName: "fake-secret-name"},
+						ConnectionParameters: &configpb.ConnectionParameters{
+							Username: "test-user",
+							Secret:   &configpb.SecretRef{ProjectId: "fake-project-id", SecretName: "fake-secret-name"},
+						},
 					},
 				},
 			},
@@ -587,8 +607,10 @@ func TestInitDB(t *testing.T) {
 			m: MySQLMetrics{
 				Config: &configpb.Configuration{
 					MysqlConfiguration: &configpb.MySQLConfiguration{
-						User:   "test-user",
-						Secret: &configpb.SecretRef{ProjectId: "fake-project-id", SecretName: "fake-secret-name"},
+						ConnectionParameters: &configpb.ConnectionParameters{
+							Username: "test-user",
+							Secret:   &configpb.SecretRef{ProjectId: "fake-project-id", SecretName: "fake-secret-name"},
+						},
 					},
 				},
 				connect: func(ctx context.Context, dataSource string) (dbInterface, error) { return emptyDB, nil },
@@ -604,8 +626,10 @@ func TestInitDB(t *testing.T) {
 			m: MySQLMetrics{
 				Config: &configpb.Configuration{
 					MysqlConfiguration: &configpb.MySQLConfiguration{
-						User:     "test-user",
-						Password: "fake-password",
+						ConnectionParameters: &configpb.ConnectionParameters{
+							Username: "test-user",
+							Password: "fake-password",
+						},
 					},
 				},
 				connect: func(ctx context.Context, dataSource string) (dbInterface, error) { return emptyDB, nil },
@@ -618,8 +642,10 @@ func TestInitDB(t *testing.T) {
 			m: MySQLMetrics{
 				Config: &configpb.Configuration{
 					MysqlConfiguration: &configpb.MySQLConfiguration{
-						User:   "test-user",
-						Secret: &configpb.SecretRef{ProjectId: "fake-project-id", SecretName: "fake-secret-name"},
+						ConnectionParameters: &configpb.ConnectionParameters{
+							Username: "test-user",
+							Secret:   &configpb.SecretRef{ProjectId: "fake-project-id", SecretName: "fake-secret-name"},
+						},
 					},
 				},
 				connect: func(ctx context.Context, dataSource string) (dbInterface, error) { return emptyDB, nil },
@@ -635,8 +661,10 @@ func TestInitDB(t *testing.T) {
 			m: MySQLMetrics{
 				Config: &configpb.Configuration{
 					MysqlConfiguration: &configpb.MySQLConfiguration{
-						User:   "test-user",
-						Secret: &configpb.SecretRef{ProjectId: "fake-project-id", SecretName: "fake-secret-name"},
+						ConnectionParameters: &configpb.ConnectionParameters{
+							Username: "test-user",
+							Secret:   &configpb.SecretRef{ProjectId: "fake-project-id", SecretName: "fake-secret-name"},
+						},
 					},
 				},
 				connect: func(ctx context.Context, dataSource string) (dbInterface, error) {
