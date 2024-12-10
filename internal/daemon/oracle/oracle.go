@@ -95,7 +95,7 @@ func runDiscovery(ctx context.Context, a any) {
 	var args runDiscoveryArgs
 	var ok bool
 	if args, ok = a.(runDiscoveryArgs); !ok {
-		log.CtxLogger(ctx).Warn("args is not of type runDiscoveryArgs")
+		log.CtxLogger(ctx).Error("args is not of type runDiscoveryArgs")
 		return
 	}
 
@@ -127,7 +127,7 @@ func runMetricCollection(ctx context.Context, a any) {
 	var args runMetricCollectionArgs
 	var ok bool
 	if args, ok = a.(runMetricCollectionArgs); !ok {
-		log.CtxLogger(ctx).Warnw("Failed to parse metric collection args", "args", a)
+		log.CtxLogger(ctx).Errorw("Failed to parse metric collection args", "args", a)
 		return
 	}
 

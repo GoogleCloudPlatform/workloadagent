@@ -101,7 +101,7 @@ func runDiscovery(ctx context.Context, a any) {
 	var args runDiscoveryArgs
 	var ok bool
 	if args, ok = a.(runDiscoveryArgs); !ok {
-		log.CtxLogger(ctx).Warnw("failed to parse discovery args", "args", a)
+		log.CtxLogger(ctx).Errorw("failed to parse discovery args", "args", a)
 		return
 	}
 	log.CtxLogger(ctx).Debugw("Redis discovery args", "args", args)
