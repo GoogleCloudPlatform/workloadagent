@@ -26,6 +26,7 @@ import (
 	"time"
 
 	// database/sql driver for sqlite
+
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/google/go-cmp/cmp"
@@ -1094,7 +1095,7 @@ func TestCreateHealthMetrics(t *testing.T) {
 				},
 			},
 		},
-		&mrpb.TimeSeries{
+		{
 			Metric: &mpb.Metric{
 				Type:   metricURL + "/health",
 				Labels: map[string]string{"service_name": "service_name2"},
@@ -1124,7 +1125,12 @@ func TestCreateHealthMetrics(t *testing.T) {
 
 	got := createHealthMetrics(context.Background(), statusData, cfg)
 
-	if diff := cmp.Diff(want, got, protocmp.Transform(), protocmp.IgnoreFields(&mrpb.Point{}, "interval")); diff != "" {
+	opts := []cmp.Option{
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&mrpb.Point{}, "interval"),
+		cmpopts.SortSlices(func(m1, m2 *mrpb.TimeSeries) bool { return m1.String() < m2.String() }),
+	}
+	if diff := cmp.Diff(want, got, opts...); diff != "" {
 		t.Errorf("createHealthMetrics() returned diff (-want +got):\n%s", diff)
 	}
 }

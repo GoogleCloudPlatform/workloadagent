@@ -256,17 +256,11 @@ func checkDatabaseHealth(ctx context.Context, connections map[string]*sql.DB) ma
 					LastChecked: time.Now(),
 					Message:     fmt.Sprintf("query returned no rows: %v", err.Error()),
 				}
-				continue
-			}
-			switch result {
-			case 1:
+			} else {
 				statusData[serviceName] = &ServiceHealth{
 					Status:      Healthy,
 					LastChecked: time.Now(),
-					Message:     "",
 				}
-			default:
-				continue
 			}
 		}
 	}
