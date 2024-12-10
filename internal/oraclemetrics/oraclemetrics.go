@@ -250,23 +250,26 @@ func checkDatabaseHealth(ctx context.Context, connections map[string]*sql.DB) ma
 
 		var result int
 		for rows.Next() {
-			if err := rows.Scan(&result); err != nil {
+			err := rows.Scan(&result)
+
+			switch {
+			case err != nil:
 				statusData[serviceName] = &ServiceHealth{
 					Status:      Unhealthy,
 					LastChecked: time.Now(),
 					Message:     fmt.Sprintf("query returned no rows: %v", err.Error()),
 				}
-				continue
-			}
-			switch result {
-			case 1:
+			case result != 1:
+				statusData[serviceName] = &ServiceHealth{
+					Status:      Unhealthy,
+					LastChecked: time.Now(),
+					Message:     fmt.Sprintf("query returned %d, want 1", result),
+				}
+			default:
 				statusData[serviceName] = &ServiceHealth{
 					Status:      Healthy,
 					LastChecked: time.Now(),
-					Message:     "",
 				}
-			default:
-				continue
 			}
 		}
 	}
