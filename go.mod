@@ -10,6 +10,7 @@ require (
   cloud.google.com/go/monitoring v1.17.1
   github.com/DATA-DOG/go-sqlmock v1.5.0
   github.com/GoogleCloudPlatform/workloadagentplatform/integration/common v0.0.0-20241206140426-05c9bb5240c5
+  github.com/StackExchange/wmi v1.2.1
   github.com/gammazero/workerpool v1.1.3
   github.com/go-sql-driver/mysql v1.8.1
   github.com/google/go-cmp v0.6.0
