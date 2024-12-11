@@ -480,8 +480,11 @@
         }
       },
       {
+        "yPos": 48,
+        "width": 24,
+        "height": 16,
         "widget": {
-          "title": "workload/oracle/instance/availability [MEAN]",
+          "title": "workload/oracle/health",
           "xyChart": {
             "chartOptions": {
               "mode": "COLOR"
@@ -495,9 +498,11 @@
                   "timeSeriesFilter": {
                     "aggregation": {
                       "alignmentPeriod": "60s",
-                      "perSeriesAligner": "ALIGN_MEAN"
+                      "crossSeriesReducer": "REDUCE_MEAN",
+                      "groupByFields": [],
+                      "perSeriesAligner": "ALIGN_FRACTION_TRUE"
                     },
-                    "filter": "metric.type=\"workload.googleapis.com/oracle/instance/availability\" resource.type=\"gce_instance\""
+                    "filter": "metric.type=\"workload.googleapis.com/oracle/health\" resource.type=\"gce_instance\""
                   }
                 }
               }
@@ -508,10 +513,7 @@
               "scale": "LINEAR"
             }
           }
-        },
-        "height": 16,
-        "width": 24,
-        "yPos": 48
+        }
       }
     ]
   },
