@@ -22,3 +22,10 @@ type MetricDetails struct {
 	Name   string
 	Fields []map[string]string
 }
+
+// Disks contains information about a device name and the disk type.
+type Disks struct {
+	DeviceName string
+	DiskType   string
+	Mapping    string
+}
