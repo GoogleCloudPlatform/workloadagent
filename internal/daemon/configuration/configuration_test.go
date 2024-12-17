@@ -140,9 +140,8 @@ func TestLoad(t *testing.T) {
 					"sqlserver_configuration": {
 						"collection_configuration": {
 							"collect_guest_os_metrics":true,
-							"guest_os_metrics_collection_frequency":"3600s",
 							"collect_sql_metrics":true,
-							"sql_metrics_collection_frequency": "3600s"
+							"collection_frequency": "3600s"
 						},
 						"credential_configurations": [
 							{
@@ -209,10 +208,9 @@ func TestLoad(t *testing.T) {
 				SqlserverConfiguration: &cpb.SQLServerConfiguration{
 					Enabled: proto.Bool(false),
 					CollectionConfiguration: &cpb.SQLServerConfiguration_CollectionConfiguration{
-						CollectGuestOsMetrics:             true,
-						GuestOsMetricsCollectionFrequency: &dpb.Duration{Seconds: 3600},
-						CollectSqlMetrics:                 true,
-						SqlMetricsCollectionFrequency:     &dpb.Duration{Seconds: 3600},
+						CollectGuestOsMetrics: true,
+						CollectSqlMetrics:     true,
+						CollectionFrequency:   &dpb.Duration{Seconds: 3600},
 					},
 					CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{
 						&cpb.SQLServerConfiguration_CredentialConfiguration{

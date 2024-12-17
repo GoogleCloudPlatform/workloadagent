@@ -2,9 +2,8 @@
   "sqlserver_configuration": {
     "collection_configuration": {
       "collect_guest_os_metrics":true,
-      "guest_os_metrics_collection_frequency":"3600s",
       "collect_sql_metrics":true,
-      "sql_metrics_collection_frequency": "3600s"
+      "collection_frequency": "3600s"
     },
     "credential_configurations": [
       {

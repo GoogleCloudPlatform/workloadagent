@@ -200,10 +200,9 @@ func defaultConfig(cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) 
 		SqlserverConfiguration: &cpb.SQLServerConfiguration{
 			Enabled: proto.Bool(false),
 			CollectionConfiguration: &cpb.SQLServerConfiguration_CollectionConfiguration{
-				CollectGuestOsMetrics:             true,
-				GuestOsMetricsCollectionFrequency: dpb.New(time.Duration(time.Hour)),
-				CollectSqlMetrics:                 true,
-				SqlMetricsCollectionFrequency:     dpb.New(time.Duration(time.Hour)),
+				CollectGuestOsMetrics: true,
+				CollectSqlMetrics:     true,
+				CollectionFrequency:   dpb.New(time.Duration(time.Hour)),
 			},
 			CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{},
 			CollectionTimeout:        dpb.New(10 * time.Duration(time.Minute)),

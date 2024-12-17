@@ -99,15 +99,12 @@ message SQLServerConfiguration {
     // defaults to True
     // enables or disables guest os collection
     bool collect_guest_os_metrics = 1;
-    // defaults to 3600s (1 hour)
-    // guest os metrics collection interval
-    google.protobuf.Duration guest_os_metrics_collection_frequency = 2;
     // defaults to True
     // enables or disables SQL Server collection
-    bool collect_sql_metrics = 3;
+    bool collect_sql_metrics = 2;
     // defaults to 3600s (1 hour)
-    // SQL Server metrics collection interval
-    google.protobuf.Duration sql_metrics_collection_frequency = 4;
+    // collection frequency
+    google.protobuf.Duration collection_frequency = 3;
   }
   message CredentialConfiguration {
     message GuestCredentialsRemoteWin {
