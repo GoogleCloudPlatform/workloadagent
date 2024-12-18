@@ -29,3 +29,21 @@ type Disks struct {
 	DiskType   string
 	Mapping    string
 }
+
+// SQLConfig .
+type SQLConfig struct {
+	Host       string
+	Username   string
+	SecretName string
+	PortNumber int32
+}
+
+// GuestConfig .
+type GuestConfig struct {
+	ServerName             string
+	GuestUserName          string
+	GuestSecretName        string
+	GuestPortNumber        int32
+	LinuxRemote            bool
+	LinuxSSHPrivateKeyPath string
+}
