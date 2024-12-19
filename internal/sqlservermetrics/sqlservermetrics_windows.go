@@ -101,7 +101,7 @@ func (s *SQLServerMetrics) osCollection(ctx context.Context) error {
 
 		log.Logger.Debugf("Source vm %s is sending os collected data on target machine, %s, to workload manager.", sip.Instance, targetInstanceProps.Instance)
 		updateCollectedData(wlm, sip, targetInstanceProps, details)
-		sendRequestToWLM(wlm, sip.Name, s.Config.GetMaxRetries(), s.Config.GetRetryFrequency().AsDuration())
+		sendRequestToWLM(ctx, wlm, sip.Name, s.Config.GetMaxRetries(), s.Config.GetRetryFrequency().AsDuration())
 
 		// Local collection.
 		// Exit the loop. Only take the first credential in the credentialconfiguration array.
@@ -194,7 +194,7 @@ func (s *SQLServerMetrics) sqlCollection(ctx context.Context) error {
 		}
 		updateCollectedData(wlm, sip, targetInstanceProps, validationDetails)
 		log.Logger.Debugf("Source vm %s is sending collected sql data on target machine, %s, to workload manager.", sip.Instance, targetInstanceProps.Instance)
-		sendRequestToWLM(wlm, sip.Name, s.Config.GetMaxRetries(), s.Config.GetRetryFrequency().AsDuration())
+		sendRequestToWLM(ctx, wlm, sip.Name, s.Config.GetMaxRetries(), s.Config.GetRetryFrequency().AsDuration())
 	}
 	log.Logger.Info("SQL rules collection ends.")
 	return nil

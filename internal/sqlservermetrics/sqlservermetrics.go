@@ -28,6 +28,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce/metadataserver"
 
 	bo "github.com/cenkalti/backoff/v4"
+	retry "github.com/sethvargo/go-retry"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics/wlm"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce"
 
@@ -233,41 +234,16 @@ func updateCollectedData(wlmService wlm.WorkloadManagerService, sourceProps, tar
 }
 
 // sendRequestToWLM sends request to workloadmanager.
-func sendRequestToWLM(wlmService wlm.WorkloadManagerService, location string, retries int32, retryFrequency time.Duration) {
-	sendRequest := func() bool {
-		_, err := wlmService.SendRequest(location)
-		if err != nil {
-			log.Logger.Errorw("Failed to send request to workload manager", "error", err)
-			return false
-		}
-		return true
-	}
-
-	if err := retry(sendRequest, retries, retryFrequency); err != nil {
-		log.Logger.Errorw("Failed to retry sending request to workload manager", "error", err)
-	}
-}
-
-// retry returns error if it exceeds max retries limits.
-func retry(run func() bool, maxRetries int32, retryFrequency time.Duration) error {
-	if maxRetries == -1 {
-		for {
-			if !run() {
-				time.Sleep(retryFrequency)
-				continue
-			}
-			return nil
-		}
-	}
-
-	for retry := int32(0); retry < maxRetries; retry++ {
-		if !run() {
-			time.Sleep(retryFrequency)
-			continue
+func sendRequestToWLM(ctx context.Context, wlmService wlm.WorkloadManagerService, location string, retries int32, retryFrequency time.Duration) {
+	sendRequest := func(ctx context.Context) error {
+		if _, err := wlmService.SendRequest(location); err != nil {
+			return err
 		}
 		return nil
 	}
-	return fmt.Errorf("reached max retries")
+	if err := retry.Do(ctx, retry.WithMaxRetries(uint64(retries), retry.NewConstant(retryFrequency)), sendRequest); err != nil {
+		log.Logger.Errorw("Failed to retry sending request to workload manager", "error", err)
+	}
 }
 
 // addPhysicalDriveLocal starts physical drive to physical path mapping

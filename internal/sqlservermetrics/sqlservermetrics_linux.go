@@ -66,7 +66,7 @@ func (s *SQLServerMetrics) osCollection(ctx context.Context) error {
 	updateCollectedData(wlm, sip, targetInstanceProps, details)
 
 	log.Logger.Debugf("Source vm %s is sending os collected data on target machine, %s, to workload manager.", sip.Instance, targetInstanceProps.Instance)
-	sendRequestToWLM(wlm, sip.Name, s.Config.GetMaxRetries(), s.Config.GetRetryFrequency().AsDuration())
+	sendRequestToWLM(ctx, wlm, sip.Name, s.Config.GetMaxRetries(), s.Config.GetRetryFrequency().AsDuration())
 
 	log.Logger.Info("Guest os rules collection ends.")
 	return nil
@@ -136,7 +136,7 @@ func (s *SQLServerMetrics) sqlCollection(ctx context.Context) error {
 		targetInstanceProps := sip
 		updateCollectedData(wlm, sip, targetInstanceProps, validationDetails)
 		log.Logger.Debugf("Source vm %s is sending collected sql data on target machine, %s, to workload manager.", sip.Instance, targetInstanceProps.Instance)
-		sendRequestToWLM(wlm, sip.Name, s.Config.GetMaxRetries(), s.Config.GetRetryFrequency().AsDuration())
+		sendRequestToWLM(ctx, wlm, sip.Name, s.Config.GetMaxRetries(), s.Config.GetRetryFrequency().AsDuration())
 
 	}
 	log.Logger.Info("Sql rules collection ends.")
