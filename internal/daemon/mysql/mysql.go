@@ -176,6 +176,7 @@ func (s *Service) checkCommonDiscovery(ctx context.Context) bool {
 }
 
 func (s *Service) identifyMySQLProcesses(ctx context.Context) {
+	s.mySQLProcesses = []commondiscovery.ProcessWrapper{}
 	for _, process := range s.processes.Processes {
 		name, err := process.Name()
 		if err == nil && name == "mysqld" {
