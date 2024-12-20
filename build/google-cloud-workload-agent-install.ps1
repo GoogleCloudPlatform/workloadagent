@@ -74,10 +74,11 @@ function CreateInstall-Dirs {
 
 function ConfigureAgentWindows-Service {
   # Remove any existing service
-  if ($(Get-Service -Name $SVC_NAME -ErrorAction SilentlyContinue).Status) {
+  if ($(Get-Service -Name $SVC_NAME -ErrorAction SilentlyContinue).Length -gt 0) {
     Stop-Service $SVC_NAME
     $service = Get-CimInstance -ClassName Win32_Service -Filter "Name='google-cloud-workload-agent'"
     $service.Dispose()
+    sc.exe delete $SVC_NAME
   }
   # Create a new service
   New-Service -Name $SVC_NAME -BinaryPathName '"C:\Program Files\Google\google-cloud-workload-agent\google-cloud-workload-agent.exe" winservice' -DisplayName 'Google Cloud Workload Agent' -Description 'Google Cloud Workload Agent' -StartupType Automatic
