@@ -25,6 +25,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics/guestoscollector"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics/sqlcollector"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics/sqlserverutils"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 )
@@ -37,6 +38,7 @@ func (s *SQLServerMetrics) osCollection(ctx context.Context) error {
 
 	wlm, err := s.initCollection(ctx, false)
 	if err != nil {
+		usagemetrics.Error(usagemetrics.WorkloadManagerConnectionError)
 		return err
 	}
 
@@ -46,6 +48,7 @@ func (s *SQLServerMetrics) osCollection(ctx context.Context) error {
 	credentialCfg := s.Config.GetCredentialConfigurations()[0]
 	guestCfg := guestConfigFromCredential(credentialCfg)
 	if err := validateCredCfgGuest(false, !guestCfg.LinuxRemote, guestCfg, credentialCfg.GetVmProperties().GetInstanceId(), credentialCfg.GetVmProperties().GetInstanceName()); err != nil {
+		usagemetrics.Error(usagemetrics.SQLServerInvalidConfigurationsError)
 		return err
 	}
 
@@ -80,6 +83,7 @@ func (s *SQLServerMetrics) sqlCollection(ctx context.Context) error {
 
 	wlm, err := s.initCollection(ctx, false)
 	if err != nil {
+		usagemetrics.Error(usagemetrics.WorkloadManagerConnectionError)
 		return err
 	}
 
@@ -89,11 +93,13 @@ func (s *SQLServerMetrics) sqlCollection(ctx context.Context) error {
 		guestCfg := guestConfigFromCredential(credentialCfg)
 		for _, sqlCfg := range sqlConfigFromCredential(credentialCfg) {
 			if err := validateCredCfgSQL(false, !guestCfg.LinuxRemote, sqlCfg, guestCfg, credentialCfg.GetVmProperties().GetInstanceId(), credentialCfg.GetVmProperties().GetInstanceName()); err != nil {
+				usagemetrics.Error(usagemetrics.SQLServerInvalidConfigurationsError)
 				log.Logger.Errorw("Invalid credential configuration", "error", err)
 				continue
 			}
 			pswd, err := secretValue(ctx, sip.ProjectID, sqlCfg.SecretName)
 			if err != nil {
+				usagemetrics.Error(usagemetrics.SecretManagerValueError)
 				log.Logger.Errorw("Failed to get secret value", "error", err)
 				continue
 			}

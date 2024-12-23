@@ -28,6 +28,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics/guestoscollector/remote"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics/sqlcollector"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics/sqlserverutils"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 )
 
@@ -44,6 +45,7 @@ func (s *SQLServerMetrics) osCollection(ctx context.Context) error {
 	}
 	wlm, err := s.initCollection(ctx, true)
 	if err != nil {
+		usagemetrics.Error(usagemetrics.WorkloadManagerConnectionError)
 		return err
 	}
 
@@ -51,6 +53,7 @@ func (s *SQLServerMetrics) osCollection(ctx context.Context) error {
 	for _, credentialCfg := range s.Config.GetCredentialConfigurations() {
 		guestCfg := guestConfigFromCredential(credentialCfg)
 		if err := validateCredCfgGuest(s.Config.GetRemoteCollection(), !guestCfg.LinuxRemote, guestCfg, credentialCfg.GetVmProperties().GetInstanceId(), credentialCfg.GetVmProperties().GetInstanceName()); err != nil {
+			usagemetrics.Error(usagemetrics.SQLServerInvalidConfigurationsError)
 			log.Logger.Errorw("Invalid credential configuration", "error", err)
 			if !s.Config.GetRemoteCollection() {
 				break
@@ -72,6 +75,7 @@ func (s *SQLServerMetrics) osCollection(ctx context.Context) error {
 				log.Logger.Debug("Starting remote win guest collection for ip " + host)
 				pswd, err := secretValue(ctx, sip.ProjectID, guestCfg.GuestSecretName)
 				if err != nil {
+					usagemetrics.Error(usagemetrics.SecretManagerValueError)
 					log.Logger.Errorw("Collection failed", "target", guestCfg.ServerName, "error", fmt.Errorf("failed to get secret value: %v", err))
 					if !s.Config.GetRemoteCollection() {
 						break
@@ -122,6 +126,7 @@ func (s *SQLServerMetrics) sqlCollection(ctx context.Context) error {
 
 	wlm, err := s.initCollection(ctx, true)
 	if err != nil {
+		usagemetrics.Error(usagemetrics.WorkloadManagerConnectionError)
 		return err
 	}
 
@@ -131,11 +136,13 @@ func (s *SQLServerMetrics) sqlCollection(ctx context.Context) error {
 		guestCfg := guestConfigFromCredential(credentialCfg)
 		for _, sqlCfg := range sqlConfigFromCredential(credentialCfg) {
 			if err := validateCredCfgSQL(s.Config.GetRemoteCollection(), !guestCfg.LinuxRemote, sqlCfg, guestCfg, credentialCfg.GetVmProperties().GetInstanceId(), credentialCfg.GetVmProperties().GetInstanceName()); err != nil {
+				usagemetrics.Error(usagemetrics.SQLServerInvalidConfigurationsError)
 				log.Logger.Errorw("Invalid credential configuration", "error", err)
 				continue
 			}
 			pswd, err := secretValue(ctx, sip.ProjectID, sqlCfg.SecretName)
 			if err != nil {
+				usagemetrics.Error(usagemetrics.SecretManagerValueError)
 				log.Logger.Errorw("Failed to get secret value", "error", err)
 				continue
 			}

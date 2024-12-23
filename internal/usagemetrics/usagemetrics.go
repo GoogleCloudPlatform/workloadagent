@@ -57,6 +57,9 @@ const (
 	SQLServerDiscoveryFailure            = 19
 	OracleConnectionFailure              = 20
 	OraclePingFailure                    = 21
+	SQLServerInvalidConfigurationsError  = 22
+	SecretManagerValueError              = 23
+	WorkloadManagerConnectionError       = 24
 )
 
 // Agent wide action mappings.
