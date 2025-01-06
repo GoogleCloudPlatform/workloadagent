@@ -24,7 +24,7 @@ try {
     Stop-Service $SVC_NAME
     $service = Get-CimInstance -ClassName Win32_Service -Filter "Name='google-cloud-workload-agent'"
     $service.Dispose()
-    sc.exe delete $SVC_NAME
+    & sc.exe delete $SVC_NAME
   }
 
   # remove the agent directory
