@@ -49,7 +49,6 @@ func (s *SQLServerMetrics) osCollection(ctx context.Context) error {
 		return err
 	}
 
-	log.Logger.Info("Guest rules collection starts.")
 	for _, credentialCfg := range s.Config.GetCredentialConfigurations() {
 		guestCfg := guestConfigFromCredential(credentialCfg)
 		if err := validateCredCfgGuest(s.Config.GetRemoteCollection(), !guestCfg.LinuxRemote, guestCfg, credentialCfg.GetVmProperties().GetInstanceId(), credentialCfg.GetVmProperties().GetInstanceName()); err != nil {
@@ -113,7 +112,6 @@ func (s *SQLServerMetrics) osCollection(ctx context.Context) error {
 			break
 		}
 	}
-	log.Logger.Info("Guest rules collection ends.")
 
 	return nil
 }
@@ -130,7 +128,6 @@ func (s *SQLServerMetrics) sqlCollection(ctx context.Context) error {
 		return err
 	}
 
-	log.Logger.Info("SQL rules collection starts.")
 	for _, credentialCfg := range s.Config.GetCredentialConfigurations() {
 		validationDetails := []sqlserverutils.MetricDetails{}
 		guestCfg := guestConfigFromCredential(credentialCfg)
@@ -203,7 +200,6 @@ func (s *SQLServerMetrics) sqlCollection(ctx context.Context) error {
 		log.Logger.Debugf("Source vm %s is sending collected sql data on target machine, %s, to workload manager.", sip.Instance, targetInstanceProps.Instance)
 		sendRequestToWLM(ctx, wlm, sip.Name, s.Config.GetMaxRetries(), s.Config.GetRetryFrequency().AsDuration())
 	}
-	log.Logger.Info("SQL rules collection ends.")
 	return nil
 }
 

@@ -81,11 +81,10 @@ func TestLoad(t *testing.T) {
 					NumericProjectId: "123456789",
 					InstanceName:     "test-instance-name",
 				},
-				AgentProperties:        &cpb.AgentProperties{Name: AgentName, Version: AgentVersion},
-				LogLevel:               cpb.Configuration_INFO,
-				LogToCloud:             proto.Bool(false),
-				OracleConfiguration:    defaultCfg.OracleConfiguration,
-				SqlserverConfiguration: defaultCfg.SqlserverConfiguration,
+				AgentProperties:     &cpb.AgentProperties{Name: AgentName, Version: AgentVersion},
+				LogLevel:            cpb.Configuration_INFO,
+				LogToCloud:          proto.Bool(false),
+				OracleConfiguration: defaultCfg.OracleConfiguration,
 			},
 		},
 		{
@@ -136,32 +135,6 @@ func TestLoad(t *testing.T) {
 								}
 							]
 						}
-					},
-					"sqlserver_configuration": {
-						"collection_configuration": {
-							"collect_guest_os_metrics":true,
-							"collect_sql_metrics":true,
-							"collection_frequency": "3600s"
-						},
-						"credential_configurations": [
-							{
-								"connection_parameters": [
-									{
-										"host":"test-host",
-										"username":"",
-										"secret": {
-											"project_id":"",
-											"secret_name":""
-										},
-										"port":1433
-									}
-								],
-								"local_collection":true
-							}
-						],
-						"collection_timeout":"10s",
-						"max_retries":3,
-						"retry_frequency":"3600s"
 					}
 				}`
 				return []byte(fileContent), nil
@@ -204,31 +177,6 @@ func TestLoad(t *testing.T) {
 							Disabled: proto.Bool(true),
 						}),
 					},
-				},
-				SqlserverConfiguration: &cpb.SQLServerConfiguration{
-					Enabled: proto.Bool(false),
-					CollectionConfiguration: &cpb.SQLServerConfiguration_CollectionConfiguration{
-						CollectGuestOsMetrics: true,
-						CollectSqlMetrics:     true,
-						CollectionFrequency:   &dpb.Duration{Seconds: 3600},
-					},
-					CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{
-						&cpb.SQLServerConfiguration_CredentialConfiguration{
-							ConnectionParameters: []*cpb.ConnectionParameters{
-								&cpb.ConnectionParameters{
-									Host:   "test-host",
-									Secret: &cpb.SecretRef{},
-									Port:   1433,
-								},
-							},
-							GuestConfigurations: &cpb.SQLServerConfiguration_CredentialConfiguration_LocalCollection{
-								LocalCollection: true,
-							},
-						},
-					},
-					CollectionTimeout: &dpb.Duration{Seconds: 10},
-					MaxRetries:        3,
-					RetryFrequency:    &dpb.Duration{Seconds: 3600},
 				},
 			},
 		},

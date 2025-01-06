@@ -197,18 +197,6 @@ func defaultConfig(cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) 
 				Queries:             oracleQueries,
 			},
 		},
-		SqlserverConfiguration: &cpb.SQLServerConfiguration{
-			Enabled: proto.Bool(false),
-			CollectionConfiguration: &cpb.SQLServerConfiguration_CollectionConfiguration{
-				CollectGuestOsMetrics: true,
-				CollectSqlMetrics:     true,
-				CollectionFrequency:   dpb.New(time.Duration(time.Hour)),
-			},
-			CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{},
-			CollectionTimeout:        dpb.New(10 * time.Duration(time.Minute)),
-			MaxRetries:               3,
-			RetryFrequency:           dpb.New(time.Duration(time.Hour)),
-		},
 	}, nil
 }
 

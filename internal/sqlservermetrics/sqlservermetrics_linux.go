@@ -42,7 +42,6 @@ func (s *SQLServerMetrics) osCollection(ctx context.Context) error {
 		return err
 	}
 
-	log.Logger.Info("Guest os rules collection starts.")
 	// only local collection is supported for linux binary.
 	// therefore we only get the first credential from cred list and ignore the followings.
 	credentialCfg := s.Config.GetCredentialConfigurations()[0]
@@ -71,7 +70,6 @@ func (s *SQLServerMetrics) osCollection(ctx context.Context) error {
 	log.Logger.Debugf("Source vm %s is sending os collected data on target machine, %s, to workload manager.", sip.Instance, targetInstanceProps.Instance)
 	sendRequestToWLM(ctx, wlm, sip.Name, s.Config.GetMaxRetries(), s.Config.GetRetryFrequency().AsDuration())
 
-	log.Logger.Info("Guest os rules collection ends.")
 	return nil
 }
 
@@ -87,7 +85,6 @@ func (s *SQLServerMetrics) sqlCollection(ctx context.Context) error {
 		return err
 	}
 
-	log.Logger.Info("Sql rules collection starts.")
 	for _, credentialCfg := range s.Config.GetCredentialConfigurations() {
 		validationDetails := []sqlserverutils.MetricDetails{}
 		guestCfg := guestConfigFromCredential(credentialCfg)
@@ -145,7 +142,6 @@ func (s *SQLServerMetrics) sqlCollection(ctx context.Context) error {
 		sendRequestToWLM(ctx, wlm, sip.Name, s.Config.GetMaxRetries(), s.Config.GetRetryFrequency().AsDuration())
 
 	}
-	log.Logger.Info("Sql rules collection ends.")
 	return nil
 }
 
