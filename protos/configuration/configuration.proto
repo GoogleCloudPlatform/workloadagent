@@ -40,6 +40,7 @@ message Configuration {
   CommonDiscovery common_discovery = 8;
   RedisConfiguration redis_configuration = 9;
   SQLServerConfiguration sqlserver_configuration = 10;
+  string data_warehouse_endpoint = 11;
 }
 
 message CloudProperties {
