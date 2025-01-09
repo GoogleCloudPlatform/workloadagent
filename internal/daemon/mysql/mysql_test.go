@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/GoogleCloudPlatform/workloadagent/internal/commondiscovery"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 )
 
@@ -66,7 +66,7 @@ func TestIsWorkloadPresent(t *testing.T) {
 	}{
 		{
 			name: "Present",
-			s: &Service{mySQLProcesses: []commondiscovery.ProcessWrapper{
+			s: &Service{mySQLProcesses: []servicecommunication.ProcessWrapper{
 				processStub{
 					username: "mysql_user",
 					pid:      1234,
@@ -79,7 +79,7 @@ func TestIsWorkloadPresent(t *testing.T) {
 		},
 		{
 			name: "NotPresent",
-			s:    &Service{mySQLProcesses: []commondiscovery.ProcessWrapper{}},
+			s:    &Service{mySQLProcesses: []servicecommunication.ProcessWrapper{}},
 			want: false,
 		},
 	}
@@ -103,8 +103,8 @@ func TestIdentifyMySQLProcesses(t *testing.T) {
 		{
 			name: "MixedProcesses",
 			s: &Service{
-				processes: commondiscovery.Result{
-					Processes: []commondiscovery.ProcessWrapper{
+				processes: servicecommunication.DiscoveryResult{
+					Processes: []servicecommunication.ProcessWrapper{
 						processStub{
 							username: "mysql_user",
 							pid:      1234,
@@ -117,14 +117,16 @@ func TestIdentifyMySQLProcesses(t *testing.T) {
 							pid:      1234,
 							name:     "test_name",
 						},
-					}}},
+					},
+				},
+			},
 			want: 1,
 		},
 		{
 			name: "OneMySQLProcess",
 			s: &Service{
-				processes: commondiscovery.Result{
-					Processes: []commondiscovery.ProcessWrapper{
+				processes: servicecommunication.DiscoveryResult{
+					Processes: []servicecommunication.ProcessWrapper{
 						processStub{
 							username: "mysql_user",
 							pid:      1234,
@@ -138,8 +140,8 @@ func TestIdentifyMySQLProcesses(t *testing.T) {
 		{
 			name: "OneNotMySQLProcess",
 			s: &Service{
-				processes: commondiscovery.Result{
-					Processes: []commondiscovery.ProcessWrapper{
+				processes: servicecommunication.DiscoveryResult{
+					Processes: []servicecommunication.ProcessWrapper{
 						processStub{
 							username: "test_user",
 							pid:      1234,
@@ -150,7 +152,7 @@ func TestIdentifyMySQLProcesses(t *testing.T) {
 		},
 		{
 			name: "ZeroProcesses",
-			s:    &Service{processes: commondiscovery.Result{Processes: []commondiscovery.ProcessWrapper{}}},
+			s:    &Service{processes: servicecommunication.DiscoveryResult{Processes: []servicecommunication.ProcessWrapper{}}},
 			want: 0,
 		},
 	}
@@ -160,17 +162,17 @@ func TestIdentifyMySQLProcesses(t *testing.T) {
 			test.s.identifyMySQLProcesses(context.Background())
 			got := len(test.s.mySQLProcesses)
 			if got != test.want {
-				t.Errorf("isWorkloadPresent() = %v, want %v", got, test.want)
+				t.Errorf("length of MySQL processes = %v, want %v", got, test.want)
 			}
 		})
 	}
 }
 
-func sendCommonDiscoveryResult(t *testing.T, result commondiscovery.Result, ch chan commondiscovery.Result) {
+func sendCommonDiscoveryResult(t *testing.T, result servicecommunication.Message, ch chan *servicecommunication.Message) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 	for {
-		ch <- result
+		ch <- &result
 		select {
 		case <-ticker.C:
 			continue
@@ -178,17 +180,51 @@ func sendCommonDiscoveryResult(t *testing.T, result commondiscovery.Result, ch c
 	}
 }
 
-func TestCheckCommonDiscovery(t *testing.T) {
-	ch := make(chan commondiscovery.Result)
-	result := commondiscovery.Result{Processes: []commondiscovery.ProcessWrapper{
-		processStub{
-			username: "mysql_user",
-			pid:      1234,
-			name:     "mysqld",
-			args:     []string{"--basedir=/usr/local/mysql", "--datadir=/var/lib/mysql", "--socket=/var/lib/mysql/mysql.sock"},
-			environ:  []string{"MYSQL_HOME=/usr/local/mysql", "MYSQL_DATADIR=/var/lib/mysql", "MYSQL_SOCKET=/var/lib/mysql/mysql.sock"},
+func TestCheckCommonDiscoveryMissingOrigin(t *testing.T) {
+	ch := make(chan *servicecommunication.Message)
+	result := servicecommunication.Message{
+		DiscoveryResult: servicecommunication.DiscoveryResult{
+			Processes: []servicecommunication.ProcessWrapper{
+				processStub{
+					username: "mysql_user",
+					pid:      1234,
+					name:     "mysqld",
+					args:     []string{"--basedir=/usr/local/mysql", "--datadir=/var/lib/mysql", "--socket=/var/lib/mysql/mysql.sock"},
+					environ:  []string{"MYSQL_HOME=/usr/local/mysql", "MYSQL_DATADIR=/var/lib/mysql", "MYSQL_SOCKET=/var/lib/mysql/mysql.sock"},
+				},
+			},
 		},
-	}}
+	}
+	// Need a message to be sent to the channel after the method starts listening to the channel.
+	go sendCommonDiscoveryResult(t, result, ch)
+
+	want := false
+	s := &Service{CommonCh: ch}
+	t.Run("OriginMissing", func(t *testing.T) {
+		got := s.checkCommonDiscovery(context.Background())
+		if got != want {
+			t.Errorf("checkCommonDiscovery() = %v, want %v", got, want)
+		}
+	})
+
+}
+
+func TestCheckCommonDiscovery(t *testing.T) {
+	ch := make(chan *servicecommunication.Message)
+	result := servicecommunication.Message{
+		Origin: servicecommunication.Discovery,
+		DiscoveryResult: servicecommunication.DiscoveryResult{
+			Processes: []servicecommunication.ProcessWrapper{
+				processStub{
+					username: "mysql_user",
+					pid:      1234,
+					name:     "mysqld",
+					args:     []string{"--basedir=/usr/local/mysql", "--datadir=/var/lib/mysql", "--socket=/var/lib/mysql/mysql.sock"},
+					environ:  []string{"MYSQL_HOME=/usr/local/mysql", "MYSQL_DATADIR=/var/lib/mysql", "MYSQL_SOCKET=/var/lib/mysql/mysql.sock"},
+				},
+			},
+		},
+	}
 	// Need a message to be sent to the channel after the method starts listening to the channel.
 	go sendCommonDiscoveryResult(t, result, ch)
 

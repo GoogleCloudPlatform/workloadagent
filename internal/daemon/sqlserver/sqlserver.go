@@ -21,7 +21,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/GoogleCloudPlatform/workloadagent/internal/commondiscovery"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
@@ -33,9 +33,9 @@ import (
 type Service struct {
 	Config             *configpb.Configuration
 	CloudProps         *configpb.CloudProperties
-	CommonCh           chan commondiscovery.Result
-	processes          commondiscovery.Result
-	sqlServerProcesses []commondiscovery.ProcessWrapper
+	CommonCh           <-chan *servicecommunication.Message
+	processes          servicecommunication.DiscoveryResult
+	sqlServerProcesses []servicecommunication.ProcessWrapper
 }
 
 type runMetricCollectionArgs struct {

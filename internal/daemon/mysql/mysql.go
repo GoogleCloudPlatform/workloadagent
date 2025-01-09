@@ -22,9 +22,9 @@ import (
 	"time"
 
 	"go.uber.org/zap/zapcore"
-	"github.com/GoogleCloudPlatform/workloadagent/internal/commondiscovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/mysqldiscovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/mysqlmetrics"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce"
@@ -36,9 +36,9 @@ import (
 type Service struct {
 	Config         *configpb.Configuration
 	CloudProps     *configpb.CloudProperties
-	CommonCh       chan commondiscovery.Result
-	processes      commondiscovery.Result
-	mySQLProcesses []commondiscovery.ProcessWrapper
+	CommonCh       <-chan *servicecommunication.Message
+	processes      servicecommunication.DiscoveryResult
+	mySQLProcesses []servicecommunication.ProcessWrapper
 	// ... MySQL-specific attributes ...
 }
 
@@ -86,14 +86,21 @@ func (s *Service) Start(ctx context.Context, a any) {
 		ExpectedMinDuration: 0,
 	}
 	metricCollectionRoutine.StartRoutine(mcCtx)
-	select {
-	case <-ctx.Done():
-		log.CtxLogger(ctx).Info("MySQL workload agent service cancellation requested")
-		return
-	case s.processes = <-s.CommonCh:
-		log.CtxLogger(ctx).Debugw("MySQL workload agent service received common discovery result", "result", s.processes)
-		s.identifyMySQLProcesses(ctx)
-		return
+	for {
+		select {
+		case <-ctx.Done():
+			log.CtxLogger(ctx).Info("MySQL workload agent service cancellation requested")
+			return
+		case msg := <-s.CommonCh:
+			log.CtxLogger(ctx).Debugw("MySQL workload agent service received a message on the servicecommunication channel", "message", msg)
+			switch msg.Origin {
+			case servicecommunication.Discovery:
+				s.processes = msg.DiscoveryResult
+				s.identifyMySQLProcesses(ctx)
+			default:
+				log.CtxLogger(ctx).Debugw("MySQL workload agent service received a message with an unexpected origin", "origin", msg.Origin)
+			}
+		}
 	}
 }
 
@@ -154,6 +161,7 @@ func runMetricCollection(ctx context.Context, a any) {
 	}
 }
 
+// TODO: Refactor this to be more generic to receiving servicecommunication.Message.
 // checkCommonDiscovery checks for common discovery results.
 // Returns true if MySQL workload is present on the host.
 // Otherwise, returns false to indicate that the context is done.
@@ -163,8 +171,13 @@ func (s *Service) checkCommonDiscovery(ctx context.Context) bool {
 		case <-ctx.Done():
 			log.CtxLogger(ctx).Info("MySQL workload agent service cancellation requested")
 			return false
-		case s.processes = <-s.CommonCh:
-			log.CtxLogger(ctx).Debugw("MySQL workload agent service received common discovery result", "NumProcesses", len(s.processes.Processes))
+		case msg := <-s.CommonCh:
+			log.CtxLogger(ctx).Debugw("MySQL workload agent service received a message on the common channel", "message", msg)
+			if msg.Origin != servicecommunication.Discovery {
+				log.CtxLogger(ctx).Debugw("MySQL workload agent service received a message with an unexpected origin", "origin", msg.Origin)
+				return false
+			}
+			s.processes = msg.DiscoveryResult
 			s.identifyMySQLProcesses(ctx)
 			if s.isWorkloadPresent() {
 				log.CtxLogger(ctx).Info("MySQL workload is present, starting discovery and metric collection")
@@ -176,7 +189,7 @@ func (s *Service) checkCommonDiscovery(ctx context.Context) bool {
 }
 
 func (s *Service) identifyMySQLProcesses(ctx context.Context) {
-	s.mySQLProcesses = []commondiscovery.ProcessWrapper{}
+	s.mySQLProcesses = []servicecommunication.ProcessWrapper{}
 	for _, process := range s.processes.Processes {
 		name, err := process.Name()
 		if err == nil && name == "mysqld" {
@@ -191,6 +204,7 @@ func (s *Service) isWorkloadPresent() bool {
 }
 
 func (s *Service) logMySQLProcesses(ctx context.Context, loglevel zapcore.Level) {
+	log.CtxLogger(ctx).Logf(loglevel, "Number of processes found: %v", len(s.processes.Processes))
 	log.CtxLogger(ctx).Logf(loglevel, "Number of MySQL processes found: %v", len(s.mySQLProcesses))
 	for _, process := range s.mySQLProcesses {
 		name, _ := process.Name()

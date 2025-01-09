@@ -22,9 +22,9 @@ import (
 	"time"
 
 	"go.uber.org/zap/zapcore"
-	"github.com/GoogleCloudPlatform/workloadagent/internal/commondiscovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/redisdiscovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/redismetrics"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce"
@@ -36,9 +36,9 @@ import (
 type Service struct {
 	Config         *configpb.Configuration
 	CloudProps     *configpb.CloudProperties
-	CommonCh       chan commondiscovery.Result
-	processes      commondiscovery.Result
-	redisProcesses []commondiscovery.ProcessWrapper
+	CommonCh       <-chan *servicecommunication.Message
+	processes      servicecommunication.DiscoveryResult
+	redisProcesses []servicecommunication.ProcessWrapper
 }
 
 type runDiscoveryArgs struct {
@@ -85,14 +85,21 @@ func (s *Service) Start(ctx context.Context, a any) {
 		ExpectedMinDuration: 0,
 	}
 	metricCollectionRoutine.StartRoutine(mcCtx)
-	select {
-	case <-ctx.Done():
-		log.CtxLogger(ctx).Info("Redis workload agent service cancellation requested")
-		return
-	case s.processes = <-s.CommonCh:
-		log.CtxLogger(ctx).Debugw("Redis workload agent service received common discovery result", "result", s.processes)
-		s.identifyRedisProcesses(ctx)
-		return
+	for {
+		select {
+		case <-ctx.Done():
+			log.CtxLogger(ctx).Info("Redis workload agent service cancellation requested")
+			return
+		case msg := <-s.CommonCh:
+			log.CtxLogger(ctx).Debugw("Redis workload agent service received a message on the servicecommunication channel", "message", msg)
+			switch msg.Origin {
+			case servicecommunication.Discovery:
+				s.processes = msg.DiscoveryResult
+				s.identifyRedisProcesses(ctx)
+			default:
+				log.CtxLogger(ctx).Debugw("Redis workload agent service received a message with an unexpected origin", "origin", msg.Origin)
+			}
+		}
 	}
 }
 
@@ -155,6 +162,7 @@ func runMetricCollection(ctx context.Context, a any) {
 	}
 }
 
+// TODO: Refactor this to be more generic to receiving servicecommunication.Message.
 // checkCommonDiscovery checks for common discovery results.
 // Returns true if Redis workload is present on the host.
 // Otherwise, returns false to indicate that the context is done.
@@ -164,8 +172,13 @@ func (s *Service) checkCommonDiscovery(ctx context.Context) bool {
 		case <-ctx.Done():
 			log.CtxLogger(ctx).Info("Redis workload agent service cancellation requested")
 			return false
-		case s.processes = <-s.CommonCh:
-			log.CtxLogger(ctx).Debugw("Redis workload agent service received common discovery result", "NumProcesses", len(s.processes.Processes))
+		case msg := <-s.CommonCh:
+			log.CtxLogger(ctx).Debugw("Redis workload agent service received a message on the common channel", "message", msg)
+			if msg.Origin != servicecommunication.Discovery {
+				log.CtxLogger(ctx).Debugw("Redis workload agent service received a message with an unexpected origin", "origin", msg.Origin)
+				return false
+			}
+			s.processes = msg.DiscoveryResult
 			s.identifyRedisProcesses(ctx)
 			if s.isWorkloadPresent() {
 				log.CtxLogger(ctx).Info("Redis workload is present, starting discovery and metric collection")

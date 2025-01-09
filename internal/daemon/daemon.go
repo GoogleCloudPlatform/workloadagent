@@ -26,12 +26,13 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/GoogleCloudPlatform/workloadagent/internal/commondiscovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/mysql"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/oracle"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/redis"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/sqlserver"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication/discovery"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/recovery"
@@ -130,13 +131,13 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 	signal.Notify(shutdownch, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 
 	log.Logger.Info("Starting common discovery")
-	oracleCh := make(chan commondiscovery.Result, 1)
-	mySQLCh := make(chan commondiscovery.Result, 1)
-	redisCh := make(chan commondiscovery.Result, 1)
-	sqlserverCh := make(chan commondiscovery.Result, 1)
-	cdChs := []chan commondiscovery.Result{mySQLCh, oracleCh, redisCh, sqlserverCh}
-	commondiscovery := commondiscovery.DiscoveryService{
-		ProcessLister: commondiscovery.DefaultProcessLister{},
+	oracleCh := make(chan *servicecommunication.Message, 1)
+	mySQLCh := make(chan *servicecommunication.Message, 1)
+	redisCh := make(chan *servicecommunication.Message, 1)
+	sqlserverCh := make(chan *servicecommunication.Message, 1)
+	cdChs := []chan<- *servicecommunication.Message{mySQLCh, oracleCh, redisCh, sqlserverCh}
+	commondiscovery := discovery.Service{
+		ProcessLister: discovery.DefaultProcessLister{},
 		ReadFile:      os.ReadFile,
 		Hostname:      os.Hostname,
 		Config:        d.config,

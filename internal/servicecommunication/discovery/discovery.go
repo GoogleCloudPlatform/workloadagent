@@ -14,12 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package commondiscovery performs common discovery operations for all services.
-package commondiscovery
+// Package discovery performs common discovery operations for all services.
+package discovery
 
 import (
 	"context"
 	"errors"
+	"reflect"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/process"
@@ -27,13 +28,8 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/commandlineexecutor"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 
+	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
-)
-
-const (
-	mySQLProcess   = "mysqld"
-	oracleProcess  = "ora_pmon_"
-	oracleListener = "tnslsnr"
 )
 
 // executeCommand abstracts the commandlineexecutor.ExecuteCommand for testability.
@@ -47,45 +43,31 @@ type hostname func() (string, error)
 
 // processLister is a wrapper around []*process.Process.
 type processLister interface {
-	listAllProcesses() ([]ProcessWrapper, error)
+	listAllProcesses() ([]servicecommunication.ProcessWrapper, error)
 }
 
 // DefaultProcessLister implements the ProcessLister interface for listing processes.
 type DefaultProcessLister struct{}
 
 // listAllProcesses returns a list of processes.
-func (DefaultProcessLister) listAllProcesses() ([]ProcessWrapper, error) {
+func (DefaultProcessLister) listAllProcesses() ([]servicecommunication.ProcessWrapper, error) {
 	ps, err := process.Processes()
 	if err != nil {
 		return nil, err
 	}
-	processes := make([]ProcessWrapper, len(ps))
+	processes := make([]servicecommunication.ProcessWrapper, len(ps))
 	for i, p := range ps {
 		processes[i] = &gopsProcess{process: p}
 	}
 	return processes, nil
 }
 
-// DiscoveryService is used to perform common discovery operations.
-type DiscoveryService struct {
+// Service is used to perform common discovery operations.
+type Service struct {
 	ProcessLister processLister
 	ReadFile      readFile
 	Hostname      hostname
 	Config        *cpb.Configuration
-}
-
-// ProcessWrapper is a wrapper around process.Process to support testing.
-type ProcessWrapper interface {
-	Username() (string, error)
-	Pid() int32
-	Name() (string, error)
-	CmdlineSlice() ([]string, error)
-	Environ() ([]string, error)
-}
-
-// Result holds the results of a common discovery operation.
-type Result struct {
-	Processes []ProcessWrapper
 }
 
 // gopsProcess implements the processWrapper for abstracting process.Process.
@@ -119,26 +101,24 @@ func (p gopsProcess) Environ() ([]string, error) {
 	return p.process.Environ()
 }
 
-func (d DiscoveryService) commonDiscoveryLoop(ctx context.Context) (Result, error) {
+func (d Service) commonDiscoveryLoop(ctx context.Context) (servicecommunication.DiscoveryResult, error) {
 	processes, err := d.ProcessLister.listAllProcesses()
 	if err != nil {
-		log.CtxLogger(ctx).Errorw("Failed to ListAllProcesses", "error", err)
-		return Result{}, err
+		return servicecommunication.DiscoveryResult{}, err
 	}
 	if len(processes) < 1 {
-		log.CtxLogger(ctx).Error("No processes found")
-		return Result{}, errors.New("no processes found")
+		return servicecommunication.DiscoveryResult{}, errors.New("no processes found")
 	}
-	return Result{Processes: processes}, nil
+	return servicecommunication.DiscoveryResult{Processes: processes}, nil
 }
 
 // CommonDiscovery returns a CommonDiscoveryResult and any errors encountered during the discovery process.
-func (d DiscoveryService) CommonDiscovery(ctx context.Context, a any) {
+func (d Service) CommonDiscovery(ctx context.Context, a any) {
 	log.CtxLogger(ctx).Info("CommonDiscovery started")
-	var chs []chan Result
+	var chs []chan<- *servicecommunication.Message
 	var ok bool
-	if chs, ok = a.([]chan Result); !ok {
-		log.CtxLogger(ctx).Warn("args is not of type chan Result")
+	if chs, ok = a.([]chan<- *servicecommunication.Message); !ok {
+		log.CtxLogger(ctx).Warnw("args is not of type []chan servicecommunication.Message", "args", a, "type", reflect.TypeOf(a), "kind", reflect.TypeOf(a).Kind())
 		return
 	}
 	frequency := 3 * time.Hour
@@ -157,7 +137,7 @@ func (d DiscoveryService) CommonDiscovery(ctx context.Context, a any) {
 		fullChs := 0
 		for _, ch := range chs {
 			select {
-			case ch <- discoveryResult:
+			case ch <- &servicecommunication.Message{Origin: servicecommunication.Discovery, DiscoveryResult: discoveryResult}:
 			default:
 				fullChs++
 			}
@@ -177,13 +157,13 @@ func (d DiscoveryService) CommonDiscovery(ctx context.Context, a any) {
 }
 
 // ErrorCode returns the error code for CommonDiscovery.
-func (d DiscoveryService) ErrorCode() int {
+func (d Service) ErrorCode() int {
 	return usagemetrics.CommonDiscoveryFailure
 }
 
 // ExpectedMinDuration returns the expected minimum duration for CommonDiscovery.
 // Used by the recovery handler to determine if the service ran long enough to be considered
 // successful.
-func (d DiscoveryService) ExpectedMinDuration() time.Duration {
+func (d Service) ExpectedMinDuration() time.Duration {
 	return 0
 }

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package commondiscovery
+package discovery
 
 import (
 	"context"
@@ -25,6 +25,7 @@ import (
 	dpb "google.golang.org/protobuf/types/known/durationpb"
 	"github.com/google/go-cmp/cmp"
 	"github.com/shirou/gopsutil/v3/process"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
@@ -33,7 +34,7 @@ type errorProneProcessLister struct {
 	processes []processStub
 }
 
-func (f errorProneProcessLister) listAllProcesses() ([]ProcessWrapper, error) {
+func (f errorProneProcessLister) listAllProcesses() ([]servicecommunication.ProcessWrapper, error) {
 	return nil, errors.New("test error")
 }
 
@@ -41,10 +42,10 @@ type fakeProcessLister struct {
 	processes []processStub
 }
 
-func (f fakeProcessLister) listAllProcesses() ([]ProcessWrapper, error) {
-	result := make([]ProcessWrapper, len(f.processes))
+func (f fakeProcessLister) listAllProcesses() ([]servicecommunication.ProcessWrapper, error) {
+	result := make([]servicecommunication.ProcessWrapper, len(f.processes))
 	for i, p := range f.processes {
-		result[i] = ProcessWrapper(p)
+		result[i] = servicecommunication.ProcessWrapper(p)
 	}
 	return result, nil
 }
@@ -156,12 +157,12 @@ func TestCmdlineSlice(t *testing.T) {
 func TestErrorCode(t *testing.T) {
 	tests := []struct {
 		name string
-		d    DiscoveryService
+		d    Service
 		want int
 	}{
 		{
 			name: "ErrorCode",
-			d:    DiscoveryService{},
+			d:    Service{},
 			want: usagemetrics.CommonDiscoveryFailure,
 		},
 	}
@@ -176,12 +177,12 @@ func TestErrorCode(t *testing.T) {
 func TestExpectedMinDuration(t *testing.T) {
 	tests := []struct {
 		name string
-		d    DiscoveryService
+		d    Service
 		want time.Duration
 	}{
 		{
 			name: "ExpectedMinDuration",
-			d:    DiscoveryService{},
+			d:    Service{},
 			want: 0,
 		},
 	}
@@ -196,12 +197,12 @@ func TestExpectedMinDuration(t *testing.T) {
 func TestListAllProcesses(t *testing.T) {
 	tests := []struct {
 		name string
-		d    *DiscoveryService
+		d    *Service
 		want []processStub
 	}{
 		{
 			name: "ListAllProcesses",
-			d: &DiscoveryService{
+			d: &Service{
 				ProcessLister: fakeProcessLister{processes: []processStub{
 					{username: "user1", pid: 123, name: "test"},
 					{username: "user2", pid: 456, name: "tnslsnr", args: []string{"tnslsnr", "LISTENER"}},
@@ -245,7 +246,7 @@ func TestListAllProcesses(t *testing.T) {
 	}
 }
 
-func ValidateResult(gotProcesses []ProcessWrapper, wantProcesses []ProcessWrapper, testName string, t *testing.T) {
+func ValidateResult(gotProcesses []servicecommunication.ProcessWrapper, wantProcesses []servicecommunication.ProcessWrapper, testName string, t *testing.T) {
 	if len(gotProcesses) != len(wantProcesses) {
 		t.Errorf("TestCommonDiscovery() with name %s got %d processes, want %d", testName, len(gotProcesses), len(wantProcesses))
 	}
@@ -277,47 +278,47 @@ func ValidateResult(gotProcesses []ProcessWrapper, wantProcesses []ProcessWrappe
 func TestCommonDiscoveryLoop(t *testing.T) {
 	tests := []struct {
 		name    string
-		d       *DiscoveryService
-		want    Result
+		d       *Service
+		want    servicecommunication.DiscoveryResult
 		wantErr error
 	}{
 		{
 			name: "UnrelatedProcess",
-			d: &DiscoveryService{
+			d: &Service{
 				ProcessLister: fakeProcessLister{processes: []processStub{
 					{username: "user1", pid: 123, name: "test"},
 				}},
 			},
-			want: Result{
-				Processes: []ProcessWrapper{
+			want: servicecommunication.DiscoveryResult{
+				Processes: []servicecommunication.ProcessWrapper{
 					processStub{username: "user1", pid: 123, name: "test"},
 				},
 			},
 		},
 		{
 			name: "MySQLProcess",
-			d: &DiscoveryService{
+			d: &Service{
 				ProcessLister: fakeProcessLister{processes: []processStub{
 					{username: "user1", pid: 123, name: "mysqld"},
 				}},
 			},
-			want: Result{
-				Processes: []ProcessWrapper{
+			want: servicecommunication.DiscoveryResult{
+				Processes: []servicecommunication.ProcessWrapper{
 					processStub{username: "user1", pid: 123, name: "mysqld"},
 				},
 			},
 		},
 		{
 			name: "OracleProcess",
-			d: &DiscoveryService{
+			d: &Service{
 				ProcessLister: fakeProcessLister{processes: []processStub{
 					{username: "user1", pid: 123, name: "test"},
 					{username: "user2", pid: 456, name: "tnslsnr", args: []string{"tnslsnr", "LISTENER"}},
 					{username: "user2", pid: 789, name: "ora_pmon_orcl"},
 				}},
 			},
-			want: Result{
-				Processes: []ProcessWrapper{
+			want: servicecommunication.DiscoveryResult{
+				Processes: []servicecommunication.ProcessWrapper{
 					processStub{username: "user1", pid: 123, name: "test"},
 					processStub{username: "user2", pid: 456, name: "tnslsnr", args: []string{"tnslsnr", "LISTENER"}},
 					processStub{username: "user2", pid: 789, name: "ora_pmon_orcl"},
@@ -326,7 +327,7 @@ func TestCommonDiscoveryLoop(t *testing.T) {
 		},
 		{
 			name: "AllTypesOfProcesses",
-			d: &DiscoveryService{
+			d: &Service{
 				ProcessLister: fakeProcessLister{processes: []processStub{
 					{username: "user1", pid: 123, name: "test"},
 					{username: "user1", pid: 234, name: "mysqld"},
@@ -334,8 +335,8 @@ func TestCommonDiscoveryLoop(t *testing.T) {
 					{username: "user2", pid: 789, name: "ora_pmon_orcl"},
 				}},
 			},
-			want: Result{
-				Processes: []ProcessWrapper{
+			want: servicecommunication.DiscoveryResult{
+				Processes: []servicecommunication.ProcessWrapper{
 					processStub{username: "user1", pid: 123, name: "test"},
 					processStub{username: "user1", pid: 234, name: "mysqld"},
 					processStub{username: "user2", pid: 456, name: "tnslsnr", args: []string{"tnslsnr", "LISTENER"}},
@@ -345,33 +346,33 @@ func TestCommonDiscoveryLoop(t *testing.T) {
 		},
 		{
 			name: "EmptyProcesses",
-			d: &DiscoveryService{
+			d: &Service{
 				ProcessLister: fakeProcessLister{processes: []processStub{}},
 			},
-			want: Result{
-				Processes: []ProcessWrapper{},
+			want: servicecommunication.DiscoveryResult{
+				Processes: []servicecommunication.ProcessWrapper{},
 			},
 			wantErr: errors.New("no processes found"),
 		},
 		{
 			name: "ProcessListerError",
-			d: &DiscoveryService{
+			d: &Service{
 				ProcessLister: errorProneProcessLister{processes: []processStub{}},
 			},
-			want: Result{
-				Processes: []ProcessWrapper{},
+			want: servicecommunication.DiscoveryResult{
+				Processes: []servicecommunication.ProcessWrapper{},
 			},
 			wantErr: errors.New("test error"),
 		},
 		{
 			name: "EnvVars",
-			d: &DiscoveryService{
+			d: &Service{
 				ProcessLister: fakeProcessLister{processes: []processStub{
 					{username: "user2", pid: 456, name: "testprocess", args: []string{"testprocess", "flag"}, environ: []string{"VAR1=val1", "VAR2=val2"}},
 				}},
 			},
-			want: Result{
-				Processes: []ProcessWrapper{
+			want: servicecommunication.DiscoveryResult{
+				Processes: []servicecommunication.ProcessWrapper{
 					processStub{username: "user2", pid: 456, name: "testprocess", args: []string{"testprocess", "flag"}, environ: []string{"VAR1=val1", "VAR2=val2"}},
 				},
 			},
@@ -395,19 +396,17 @@ func TestCommonDiscoveryLoop(t *testing.T) {
 func TestCommonDiscoveryUnbufferedChannels(t *testing.T) {
 	tests := []struct {
 		name string
-		d    *DiscoveryService
-		chs  []chan Result
-		want Result
+		d    *Service
+		chs  []chan<- *servicecommunication.Message
 	}{
 		{
 			name: "UnbufferedChannelsDoNotHang",
-			d: &DiscoveryService{
+			d: &Service{
 				ProcessLister: fakeProcessLister{processes: []processStub{
 					{username: "user1", pid: 123, name: "test"},
 				}},
 			},
-			chs:  []chan Result{make(chan Result), make(chan Result), make(chan Result)},
-			want: Result{},
+			chs: []chan<- *servicecommunication.Message{make(chan<- *servicecommunication.Message), make(chan<- *servicecommunication.Message), make(chan<- *servicecommunication.Message)},
 		},
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -419,30 +418,25 @@ func TestCommonDiscoveryUnbufferedChannels(t *testing.T) {
 }
 
 func TestCommonDiscoveryFullChannel(t *testing.T) {
-	tests := []struct {
-		name string
-		d    *DiscoveryService
-		chs  []chan Result
-		want Result
-	}{
-		{
-			name: "OneChannelFullOneChannelNotBlocked",
-			d: &DiscoveryService{
-				Config: &cpb.Configuration{
-					CommonDiscovery: &cpb.CommonDiscovery{
-						// every 0.1 seconds
-						CollectionFrequency: &dpb.Duration{Nanos: 1000000000 * 0.1},
-					},
-				},
-				ProcessLister: fakeProcessLister{processes: []processStub{
-					{username: "user1", pid: 123, name: "test"},
-				}},
+	name := "OneChannelFullOneChannelNotBlocked"
+	d := &Service{
+		Config: &cpb.Configuration{
+			CommonDiscovery: &cpb.CommonDiscovery{
+				// every 0.1 seconds
+				CollectionFrequency: &dpb.Duration{Nanos: 1000000000 * 0.1},
 			},
-			chs: []chan Result{make(chan Result, 1), make(chan Result, 1)},
-			want: Result{
-				Processes: []ProcessWrapper{
-					processStub{username: "user1", pid: 123, name: "test"},
-				},
+		},
+		ProcessLister: fakeProcessLister{processes: []processStub{
+			{username: "user1", pid: 123, name: "test"},
+		}},
+	}
+	ch1 := make(chan *servicecommunication.Message, 1)
+	ch2 := make(chan *servicecommunication.Message, 1)
+	chs := []chan<- *servicecommunication.Message{ch1, ch2}
+	want := servicecommunication.Message{
+		DiscoveryResult: servicecommunication.DiscoveryResult{
+			Processes: []servicecommunication.ProcessWrapper{
+				processStub{username: "user1", pid: 123, name: "test"},
 			},
 		},
 	}
@@ -450,61 +444,65 @@ func TestCommonDiscoveryFullChannel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	for range 10 {
-		for _, tc := range tests {
-			tc.d.CommonDiscovery(ctx, tc.chs)
-			// Ignore the second channel to make sure will not block the first channel.
-			result := <-tc.chs[0]
-			ValidateResult(result.Processes, tc.want.Processes, tc.name, t)
-		}
+		d.CommonDiscovery(ctx, chs)
+		// Ignore the second channel to make sure will not block the first channel.
+		result := <-ch1
+		ValidateResult(result.DiscoveryResult.Processes, want.DiscoveryResult.Processes, name, t)
 	}
 }
 
 func TestCommonDiscovery(t *testing.T) {
+	ch1 := make(chan *servicecommunication.Message, 1)
+	ch2 := make(chan *servicecommunication.Message, 1)
+	sendChs := []chan<- *servicecommunication.Message{ch1, ch2}
+	receiveChs := []<-chan *servicecommunication.Message{ch1, ch2}
 	tests := []struct {
 		name string
-		d    *DiscoveryService
-		chs  []chan Result
-		want Result
+		d    *Service
+		want servicecommunication.Message
 	}{
 		{
 			name: "MultipleChannels",
-			d: &DiscoveryService{
+			d: &Service{
 				ProcessLister: fakeProcessLister{processes: []processStub{
 					{username: "user1", pid: 123, name: "test"},
 				}},
 			},
-			chs: []chan Result{make(chan Result, 1), make(chan Result, 1)},
-			want: Result{
-				Processes: []ProcessWrapper{
-					processStub{username: "user1", pid: 123, name: "test"},
+			want: servicecommunication.Message{
+				DiscoveryResult: servicecommunication.DiscoveryResult{
+					Processes: []servicecommunication.ProcessWrapper{
+						processStub{username: "user1", pid: 123, name: "test"},
+					},
 				},
 			},
 		},
 		{
 			name: "SingleChannel",
-			d: &DiscoveryService{
+			d: &Service{
 				ProcessLister: fakeProcessLister{processes: []processStub{
 					{username: "user1", pid: 123, name: "test"},
 				}},
 			},
-			chs: []chan Result{make(chan Result, 1)},
-			want: Result{
-				Processes: []ProcessWrapper{
-					processStub{username: "user1", pid: 123, name: "test"},
+			want: servicecommunication.Message{
+				DiscoveryResult: servicecommunication.DiscoveryResult{
+					Processes: []servicecommunication.ProcessWrapper{
+						processStub{username: "user1", pid: 123, name: "test"},
+					},
 				},
 			},
 		},
 		{
 			name: "ZeroChannelsDoesNotHang",
-			d: &DiscoveryService{
+			d: &Service{
 				ProcessLister: fakeProcessLister{processes: []processStub{
 					{username: "user1", pid: 123, name: "test"},
 				}},
 			},
-			chs: []chan Result{},
-			want: Result{
-				Processes: []ProcessWrapper{
-					processStub{username: "user1", pid: 123, name: "test"},
+			want: servicecommunication.Message{
+				DiscoveryResult: servicecommunication.DiscoveryResult{
+					Processes: []servicecommunication.ProcessWrapper{
+						processStub{username: "user1", pid: 123, name: "test"},
+					},
 				},
 			},
 		},
@@ -513,10 +511,10 @@ func TestCommonDiscovery(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	for _, tc := range tests {
-		tc.d.CommonDiscovery(ctx, tc.chs)
-		for _, ch := range tc.chs {
+		tc.d.CommonDiscovery(ctx, sendChs)
+		for _, ch := range receiveChs {
 			result := <-ch
-			ValidateResult(result.Processes, tc.want.Processes, tc.name, t)
+			ValidateResult(result.DiscoveryResult.Processes, tc.want.DiscoveryResult.Processes, tc.name, t)
 		}
 	}
 }

@@ -22,9 +22,9 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/GoogleCloudPlatform/workloadagent/internal/commondiscovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/oraclediscovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/oraclemetrics"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
@@ -38,7 +38,7 @@ type Service struct {
 	metricCollectionRoutine *recovery.RecoverableRoutine
 	discoveryRoutine        *recovery.RecoverableRoutine
 	currentSIDs             []string
-	CommonCh                chan commondiscovery.Result
+	CommonCh                <-chan *servicecommunication.Message
 }
 
 type runDiscoveryArgs struct {
