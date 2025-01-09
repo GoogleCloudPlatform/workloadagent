@@ -6,6 +6,8 @@ replace github.com/GoogleCloudPlatform/workloadagent/internal => ./internal
 
 replace github.com/GoogleCloudPlatform/workloadagent/protos => ./protos
 
+replace github.com/GoogleCloudPlatform/workloadagentplatform/integration/common => ./workloadagentplatform/integration/common
+
 require (
   cloud.google.com/go/monitoring v1.17.1
   github.com/DATA-DOG/go-sqlmock v1.5.0

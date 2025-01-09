@@ -1,0 +1,45 @@
+/*
+Copyright 2024 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+syntax = "proto3";
+
+package workloadagent.protos.collectiondefinition;
+
+import "workloadagentplatform/integration/common/shared/protos/configurablemetrics/configurablemetrics.proto";
+
+option go_package = "github.com/GoogleCloudPlatform/workloadagent/protos/configuration";
+
+message CollectionDefinition {
+  WorkloadManager workload_manager = 1;
+}
+
+message WorkloadManager {
+  // Track the version of the workload manager metrics config distributed for
+  // the Workload Agent. This field is intended for debugging purposes only.
+  int64 version = 1;
+
+  MySQLMetrics mysql_metrics = 2;
+  RedisMetrics redis_metrics = 3;
+}
+
+message MySQLMetrics {
+  repeated workloadagentplatform.integration.common.shared.protos
+      .configurablemetrics.OSCommandMetric os_command_metrics = 1;
+}
+
+message RedisMetrics {
+  repeated workloadagentplatform.integration.common.shared.protos
+      .configurablemetrics.OSCommandMetric os_command_metrics = 1;
+}
