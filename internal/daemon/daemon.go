@@ -100,7 +100,14 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 	var err error
 	d.config, err = configuration.Load(d.configFilePath, os.ReadFile, d.cloudProps)
 	if err != nil {
-		return fmt.Errorf("loading %s configuration file: %w", d.configFilePath, err)
+		if d.lp.OSType == "windows" {
+			// Windows gobbles up the error message, so we need to log it separately and exit.
+			log.Logger.Error("Invalid configuration file, please fix the configuration file and restart the service.")
+			log.Logger.Error(err)
+			usagemetrics.Misconfigured()
+			os.Exit(1)
+		}
+		return fmt.Errorf("loading %s configuration file, please fix the configuration file and restart the service: %w", d.configFilePath, err)
 	}
 
 	d.lp.LogToCloud = d.config.GetLogToCloud()

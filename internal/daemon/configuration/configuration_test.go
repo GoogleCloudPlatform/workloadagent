@@ -93,7 +93,7 @@ func TestLoad(t *testing.T) {
 				fileContent := `{"log_to_cloud": true, "cloud_properties": {"project_id": "config-project-id", "instance_id": "config-instance-id", "zone": "config-zone", } }`
 				return []byte(fileContent), nil
 			},
-			want: defaultCfg,
+			wantErr: true,
 		},
 		{
 			name: "OverrideDefaultConfig",

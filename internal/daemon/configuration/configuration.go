@@ -107,8 +107,7 @@ func Load(path string, read ReadConfigFile, cloudProps *cpb.CloudProperties) (*c
 	cfgFromFile := &cpb.Configuration{}
 	err = protojson.Unmarshal(content, cfgFromFile)
 	if err != nil {
-		log.Logger.Errorf("parsing JSON content from %s configuration file: %w", path, err)
-		return cfg, nil
+		return nil, fmt.Errorf("parsing JSON content from %s configuration file: %w", path, err)
 	}
 
 	if err := validateOracleConfiguration(cfgFromFile); err != nil {
