@@ -31,6 +31,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/oracle"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/redis"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/sqlserver"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication/datawarehouseactivation"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication/discovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
@@ -140,11 +141,11 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 	signal.Notify(shutdownch, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 
 	log.Logger.Info("Starting common discovery")
-	oracleCh := make(chan *servicecommunication.Message, 1)
-	mySQLCh := make(chan *servicecommunication.Message, 1)
-	redisCh := make(chan *servicecommunication.Message, 1)
-	sqlserverCh := make(chan *servicecommunication.Message, 1)
-	cdChs := []chan<- *servicecommunication.Message{mySQLCh, oracleCh, redisCh, sqlserverCh}
+	oracleCh := make(chan *servicecommunication.Message, 3)
+	mySQLCh := make(chan *servicecommunication.Message, 3)
+	redisCh := make(chan *servicecommunication.Message, 3)
+	sqlserverCh := make(chan *servicecommunication.Message, 3)
+	scChs := []chan<- *servicecommunication.Message{mySQLCh, oracleCh, redisCh, sqlserverCh}
 	commondiscovery := discovery.Service{
 		ProcessLister: discovery.DefaultProcessLister{},
 		ReadFile:      os.ReadFile,
@@ -153,9 +154,19 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 	}
 	recoverableStart := &recovery.RecoverableRoutine{
 		Routine:             commondiscovery.CommonDiscovery,
-		RoutineArg:          cdChs,
+		RoutineArg:          scChs,
 		ErrorCode:           commondiscovery.ErrorCode(),
 		ExpectedMinDuration: commondiscovery.ExpectedMinDuration(),
+		UsageLogger:         *usagemetrics.UsageLogger,
+	}
+	recoverableStart.StartRoutine(ctx)
+
+	dwActivation := datawarehouseactivation.Service{Config: d.config}
+	recoverableStart = &recovery.RecoverableRoutine{
+		Routine:             dwActivation.DataWarehouseActivationCheck,
+		RoutineArg:          scChs,
+		ErrorCode:           dwActivation.ErrorCode(),
+		ExpectedMinDuration: dwActivation.ExpectedMinDuration(),
 		UsageLogger:         *usagemetrics.UsageLogger,
 	}
 	recoverableStart.StartRoutine(ctx)

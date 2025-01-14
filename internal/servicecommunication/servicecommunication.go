@@ -31,6 +31,11 @@ type DiscoveryResult struct {
 	Processes []ProcessWrapper
 }
 
+// DataWarehouseActivationResult holds the results of a data warehouse activation check.
+type DataWarehouseActivationResult struct {
+	Activated bool
+}
+
 // MessageOrigin is the origin of the message.
 type MessageOrigin int
 
@@ -39,10 +44,13 @@ const (
 	UnspecifiedMessageOrigin MessageOrigin = iota
 	// Discovery is the message origin for discovery.
 	Discovery
+	// DWActivation is the message origin for data warehouse activation.
+	DWActivation
 )
 
 // Message is the message type used to communicate between services.
 type Message struct {
-	Origin          MessageOrigin
-	DiscoveryResult DiscoveryResult
+	Origin             MessageOrigin
+	DiscoveryResult    DiscoveryResult
+	DWActivationResult DataWarehouseActivationResult
 }

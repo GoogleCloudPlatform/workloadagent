@@ -35,31 +35,32 @@ const (
 
 // Agent wide error code mappings.
 const (
-	UnknownError                         = 0
-	OracleDiscoverDatabaseFailure        = 1
-	OracleServiceError                   = 2
-	OracleMetricCollectionFailure        = 3
-	GCEServiceCreationFailure            = 4
-	MetricClientCreationFailure          = 5
-	ConnectionParametersReadFailure      = 6
-	DatabaseConnectionFailure            = 7
-	OracleMetricsCreateWorkerPoolFailure = 8
-	MalformedDefaultOracleQueriesFile    = 9
-	MySQLServiceError                    = 10
-	MySQLMetricCollectionFailure         = 11
-	MySQLDiscoveryFailure                = 12
-	CommonDiscoveryFailure               = 13
-	RedisServiceError                    = 14
-	RedisMetricCollectionFailure         = 15
-	RedisDiscoveryFailure                = 16
-	SQLServerServiceError                = 17
-	SQLServerMetricCollectionFailure     = 18
-	SQLServerDiscoveryFailure            = 19
-	OracleConnectionFailure              = 20
-	OraclePingFailure                    = 21
-	SQLServerInvalidConfigurationsError  = 22
-	SecretManagerValueError              = 23
-	WorkloadManagerConnectionError       = 24
+	UnknownError                          = 0
+	OracleDiscoverDatabaseFailure         = 1
+	OracleServiceError                    = 2
+	OracleMetricCollectionFailure         = 3
+	GCEServiceCreationFailure             = 4
+	MetricClientCreationFailure           = 5
+	ConnectionParametersReadFailure       = 6
+	DatabaseConnectionFailure             = 7
+	OracleMetricsCreateWorkerPoolFailure  = 8
+	MalformedDefaultOracleQueriesFile     = 9
+	MySQLServiceError                     = 10
+	MySQLMetricCollectionFailure          = 11
+	MySQLDiscoveryFailure                 = 12
+	CommonDiscoveryFailure                = 13
+	RedisServiceError                     = 14
+	RedisMetricCollectionFailure          = 15
+	RedisDiscoveryFailure                 = 16
+	SQLServerServiceError                 = 17
+	SQLServerMetricCollectionFailure      = 18
+	SQLServerDiscoveryFailure             = 19
+	OracleConnectionFailure               = 20
+	OraclePingFailure                     = 21
+	SQLServerInvalidConfigurationsError   = 22
+	SecretManagerValueError               = 23
+	WorkloadManagerConnectionError        = 24
+	DataWarehouseActivationServiceFailure = 25
 )
 
 // Agent wide action mappings.
