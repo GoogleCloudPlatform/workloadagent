@@ -166,101 +166,154 @@ func TestIdentifyRedisProcesses(t *testing.T) {
 	}
 }
 
-func sendCommonDiscoveryResult(t *testing.T, result servicecommunication.Message, ch chan *servicecommunication.Message) {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-	for {
-		ch <- &result
-		select {
-		case <-ticker.C:
-			continue
-		}
+func TestCheckServiceCommunicationMissingOrigin(t *testing.T) {
+	ch := make(chan *servicecommunication.Message, 1)
+	result := servicecommunication.Message{
+		Origin: servicecommunication.UnspecifiedMessageOrigin,
+		DiscoveryResult: servicecommunication.DiscoveryResult{
+			Processes: []servicecommunication.ProcessWrapper{
+				processStub{
+					username: "redis_user",
+					pid:      1234,
+					name:     "redis-server",
+					args:     []string{"--port 6379", "--bind 0.0.0.0"},
+					environ:  []string{"REDIS_PORT=6379", "REDIS_BIND=0.0.0.0"},
+				},
+			},
+		},
+		DWActivationResult: servicecommunication.DataWarehouseActivationResult{
+			Activated: true,
+		},
 	}
+
+	ch <- &result
+	s := &Service{CommonCh: ch}
+	s.checkServiceCommunication(context.Background())
+
+	t.Run("OriginMissing", func(t *testing.T) {
+		got := len(s.processes.Processes)
+		want := 0
+		if got != want {
+			t.Errorf("checkServiceCommunication() = %v, want %v", got, want)
+		}
+		gotBool := s.dwActivated
+		wantBool := false
+		if gotBool != wantBool {
+			t.Errorf("checkServiceCommunication() = %v, want %v", gotBool, wantBool)
+		}
+	})
+
 }
 
-func TestCheckCommonDiscoveryMissingOrigin(t *testing.T) {
-	ch := make(chan *servicecommunication.Message)
-	result := servicecommunication.Message{
-		DiscoveryResult: servicecommunication.DiscoveryResult{Processes: []servicecommunication.ProcessWrapper{
-			processStub{
-				username: "redis_user",
-				pid:      1234,
-				name:     "redis-server",
-				args:     []string{"--port 6379", "--bind 0.0.0.0"},
-				environ:  []string{"REDIS_PORT=6379", "REDIS_BIND=0.0.0.0"},
-			},
-		}},
-	}
-	// Need a message to be sent to the channel after the method starts listening to the channel.
-	go sendCommonDiscoveryResult(t, result, ch)
+func TestCheckServiceCommunicationDiscovery(t *testing.T) {
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
 	tests := []struct {
-		name string
-		s    *Service
-		ctx  context.Context
-		want bool
+		name   string
+		ch     chan *servicecommunication.Message
+		ctx    context.Context
+		result servicecommunication.Message
+		want   int
 	}{
 		{
 			name: "WorkloadPresent",
-			s:    &Service{CommonCh: ch},
+			ch:   make(chan *servicecommunication.Message, 1),
 			ctx:  context.Background(),
-			want: false,
+			result: servicecommunication.Message{
+				Origin: servicecommunication.Discovery,
+				DiscoveryResult: servicecommunication.DiscoveryResult{
+					Processes: []servicecommunication.ProcessWrapper{
+						processStub{
+							username: "redis_user",
+							pid:      1234,
+							name:     "redis-server",
+							args:     []string{"--port 6379", "--bind 0.0.0.0"},
+							environ:  []string{"REDIS_PORT=6379", "REDIS_BIND=0.0.0.0"},
+						},
+					},
+				},
+			},
+			want: 1,
+		},
+		{
+			name: "ContextEnded",
+			ch:   make(chan *servicecommunication.Message, 1),
+			ctx:  cancelledCtx,
+			result: servicecommunication.Message{
+				Origin: servicecommunication.Discovery,
+				DiscoveryResult: servicecommunication.DiscoveryResult{
+					Processes: []servicecommunication.ProcessWrapper{
+						processStub{
+							username: "redis_user",
+							pid:      1234,
+							name:     "redis-server",
+							args:     []string{"--port 6379", "--bind 0.0.0.0"},
+							environ:  []string{"REDIS_PORT=6379", "REDIS_BIND=0.0.0.0"},
+						},
+					},
+				},
+			},
+			want: 0,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := test.s.checkCommonDiscovery(test.ctx)
+			s := &Service{CommonCh: test.ch}
+			test.ch <- &test.result
+			s.checkServiceCommunication(test.ctx)
+			got := len(s.processes.Processes)
 			if got != test.want {
-				t.Errorf("checkCommonDiscovery() = %v, want %v", got, test.want)
+				t.Errorf("checkServiceCommunication() = %v, want %v", got, test.want)
 			}
 		})
 	}
 }
 
-func TestCheckCommonDiscovery(t *testing.T) {
-	ch := make(chan *servicecommunication.Message)
-	result := servicecommunication.Message{
-		Origin: servicecommunication.Discovery,
-		DiscoveryResult: servicecommunication.DiscoveryResult{Processes: []servicecommunication.ProcessWrapper{
-			processStub{
-				username: "redis_user",
-				pid:      1234,
-				name:     "redis-server",
-				args:     []string{"--port 6379", "--bind 0.0.0.0"},
-				environ:  []string{"REDIS_PORT=6379", "REDIS_BIND=0.0.0.0"},
-			},
-		}},
-	}
-	// Need a message to be sent to the channel after the method starts listening to the channel.
-	go sendCommonDiscoveryResult(t, result, ch)
-
+func TestCheckServiceCommunicationDWActivation(t *testing.T) {
 	cancelledCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 	tests := []struct {
-		name string
-		s    *Service
-		ctx  context.Context
-		want bool
+		name   string
+		ch     chan *servicecommunication.Message
+		ctx    context.Context
+		result servicecommunication.Message
+		want   bool
 	}{
 		{
-			name: "WorkloadPresent",
-			s:    &Service{CommonCh: ch},
+			name: "DWActivated",
+			ch:   make(chan *servicecommunication.Message, 1),
 			ctx:  context.Background(),
+			result: servicecommunication.Message{
+				Origin: servicecommunication.DWActivation,
+				DWActivationResult: servicecommunication.DataWarehouseActivationResult{
+					Activated: true,
+				},
+			},
 			want: true,
 		},
 		{
 			name: "ContextEnded",
-			s:    &Service{},
+			ch:   make(chan *servicecommunication.Message, 1),
 			ctx:  cancelledCtx,
+			result: servicecommunication.Message{
+				Origin: servicecommunication.DWActivation,
+				DWActivationResult: servicecommunication.DataWarehouseActivationResult{
+					Activated: true,
+				},
+			},
 			want: false,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := test.s.checkCommonDiscovery(test.ctx)
+			s := &Service{CommonCh: test.ch}
+			test.ch <- &test.result
+			s.checkServiceCommunication(test.ctx)
+			got := s.dwActivated
 			if got != test.want {
-				t.Errorf("checkCommonDiscovery() = %v, want %v", got, test.want)
+				t.Errorf("checkServiceCommunication() = %v, want %v", got, test.want)
 			}
 		})
 	}

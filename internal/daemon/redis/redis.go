@@ -39,6 +39,7 @@ type Service struct {
 	CommonCh       <-chan *servicecommunication.Message
 	processes      servicecommunication.DiscoveryResult
 	redisProcesses []servicecommunication.ProcessWrapper
+	dwActivated    bool
 }
 
 type runDiscoveryArgs struct {
@@ -51,17 +52,33 @@ type runMetricCollectionArgs struct {
 
 // Start initiates the Redis workload agent service
 func (s *Service) Start(ctx context.Context, a any) {
-	if s.Config.GetRedisConfiguration() == nil || s.Config.GetRedisConfiguration().Enabled == nil {
-		// If Redis workload agent service is not explicitly enabled in the configuration,
-		// then check if the workload is present on the host.
-		log.CtxLogger(ctx).Info("Redis workload agent service is not explicitly enabled in the configuration")
-		if !s.checkCommonDiscovery(ctx) {
-			return
-		}
-	} else if !s.Config.GetRedisConfiguration().GetEnabled() {
+	if s.Config.GetRedisConfiguration() != nil && !s.Config.GetRedisConfiguration().GetEnabled() {
 		// If Redis workload agent service is explicitly disabled in the configuration, then return.
 		log.CtxLogger(ctx).Info("Redis workload agent service is disabled in the configuration")
 		return
+	}
+
+	go (func() {
+		for {
+			s.checkServiceCommunication(ctx)
+		}
+	})()
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	enabled := s.Config.GetRedisConfiguration().GetEnabled()
+EnableCheck:
+	for {
+		select {
+		case <-ctx.Done():
+			log.CtxLogger(ctx).Info("Redis workload agent service cancellation requested")
+			return
+		case <-ticker.C:
+			// Once DW is enabled and the workload is present/enabled, start discovery and metric collection.
+			if s.dwActivated && (s.isWorkloadPresent() || enabled) {
+				log.CtxLogger(ctx).Info("Redis workload agent service is enabled and DW is activated. Starting discovery and metric collection")
+				break EnableCheck
+			}
+		}
 	}
 
 	// Start Redis Discovery
@@ -85,21 +102,10 @@ func (s *Service) Start(ctx context.Context, a any) {
 		ExpectedMinDuration: 0,
 	}
 	metricCollectionRoutine.StartRoutine(mcCtx)
-	for {
-		select {
-		case <-ctx.Done():
-			log.CtxLogger(ctx).Info("Redis workload agent service cancellation requested")
-			return
-		case msg := <-s.CommonCh:
-			log.CtxLogger(ctx).Debugw("Redis workload agent service received a message on the servicecommunication channel", "message", msg)
-			switch msg.Origin {
-			case servicecommunication.Discovery:
-				s.processes = msg.DiscoveryResult
-				s.identifyRedisProcesses(ctx)
-			default:
-				log.CtxLogger(ctx).Debugw("Redis workload agent service received a message with an unexpected origin", "origin", msg.Origin)
-			}
-		}
+	select {
+	case <-ctx.Done():
+		log.CtxLogger(ctx).Info("Redis workload agent service cancellation requested")
+		return
 	}
 }
 
@@ -162,29 +168,26 @@ func runMetricCollection(ctx context.Context, a any) {
 	}
 }
 
-// TODO: Refactor this to be more generic to receiving servicecommunication.Message.
-// checkCommonDiscovery checks for common discovery results.
-// Returns true if Redis workload is present on the host.
-// Otherwise, returns false to indicate that the context is done.
-func (s *Service) checkCommonDiscovery(ctx context.Context) bool {
-	for {
-		select {
-		case <-ctx.Done():
-			log.CtxLogger(ctx).Info("Redis workload agent service cancellation requested")
-			return false
-		case msg := <-s.CommonCh:
-			log.CtxLogger(ctx).Debugw("Redis workload agent service received a message on the common channel", "message", msg)
-			if msg.Origin != servicecommunication.Discovery {
-				log.CtxLogger(ctx).Debugw("Redis workload agent service received a message with an unexpected origin", "origin", msg.Origin)
-				return false
-			}
+// checkServiceCommunication listens to the common channel for messages and processes them.
+func (s *Service) checkServiceCommunication(ctx context.Context) {
+	// Effectively give ctx.Done() priority over the channel.
+	if ctx.Err() != nil {
+		return
+	}
+
+	select {
+	case <-ctx.Done():
+		return
+	case msg := <-s.CommonCh:
+		log.CtxLogger(ctx).Debugw("Redis workload agent service received a message on the common channel", "message", msg)
+		switch msg.Origin {
+		case servicecommunication.Discovery:
 			s.processes = msg.DiscoveryResult
 			s.identifyRedisProcesses(ctx)
-			if s.isWorkloadPresent() {
-				log.CtxLogger(ctx).Info("Redis workload is present, starting discovery and metric collection")
-				return true
-			}
-			log.CtxLogger(ctx).Debug("Redis workload is not present")
+		case servicecommunication.DWActivation:
+			s.dwActivated = msg.DWActivationResult.Activated
+		default:
+			log.CtxLogger(ctx).Debugw("Redis workload agent service received a message with an unexpected origin", "origin", msg.Origin)
 		}
 	}
 }

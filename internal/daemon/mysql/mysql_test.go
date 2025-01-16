@@ -168,93 +168,120 @@ func TestIdentifyMySQLProcesses(t *testing.T) {
 	}
 }
 
-func sendCommonDiscoveryResult(t *testing.T, result servicecommunication.Message, ch chan *servicecommunication.Message) {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-	for {
-		ch <- &result
-		select {
-		case <-ticker.C:
-			continue
-		}
-	}
-}
+func TestCheckServiceCommunicationMissingOrigin(t *testing.T) {
+	ch := make(chan *servicecommunication.Message, 1)
+	result := servicecommunication.Message{}
 
-func TestCheckCommonDiscoveryMissingOrigin(t *testing.T) {
-	ch := make(chan *servicecommunication.Message)
-	result := servicecommunication.Message{
-		DiscoveryResult: servicecommunication.DiscoveryResult{
-			Processes: []servicecommunication.ProcessWrapper{
-				processStub{
-					username: "mysql_user",
-					pid:      1234,
-					name:     "mysqld",
-					args:     []string{"--basedir=/usr/local/mysql", "--datadir=/var/lib/mysql", "--socket=/var/lib/mysql/mysql.sock"},
-					environ:  []string{"MYSQL_HOME=/usr/local/mysql", "MYSQL_DATADIR=/var/lib/mysql", "MYSQL_SOCKET=/var/lib/mysql/mysql.sock"},
-				},
-			},
-		},
-	}
-	// Need a message to be sent to the channel after the method starts listening to the channel.
-	go sendCommonDiscoveryResult(t, result, ch)
-
-	want := false
+	ch <- &result
 	s := &Service{CommonCh: ch}
+	s.checkServiceCommunication(context.Background())
+
+	want := 0
 	t.Run("OriginMissing", func(t *testing.T) {
-		got := s.checkCommonDiscovery(context.Background())
+		got := len(s.processes.Processes)
 		if got != want {
-			t.Errorf("checkCommonDiscovery() = %v, want %v", got, want)
+			t.Errorf("checkServiceCommunication() = %v, want %v", got, want)
 		}
 	})
 
 }
 
-func TestCheckCommonDiscovery(t *testing.T) {
-	ch := make(chan *servicecommunication.Message)
-	result := servicecommunication.Message{
-		Origin: servicecommunication.Discovery,
-		DiscoveryResult: servicecommunication.DiscoveryResult{
-			Processes: []servicecommunication.ProcessWrapper{
-				processStub{
-					username: "mysql_user",
-					pid:      1234,
-					name:     "mysqld",
-					args:     []string{"--basedir=/usr/local/mysql", "--datadir=/var/lib/mysql", "--socket=/var/lib/mysql/mysql.sock"},
-					environ:  []string{"MYSQL_HOME=/usr/local/mysql", "MYSQL_DATADIR=/var/lib/mysql", "MYSQL_SOCKET=/var/lib/mysql/mysql.sock"},
-				},
-			},
-		},
-	}
-	// Need a message to be sent to the channel after the method starts listening to the channel.
-	go sendCommonDiscoveryResult(t, result, ch)
-
+func TestCheckServiceCommunication(t *testing.T) {
 	cancelledCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 	tests := []struct {
-		name string
-		s    *Service
-		ctx  context.Context
-		want bool
+		name   string
+		ctx    context.Context
+		result servicecommunication.Message
+		ch     chan *servicecommunication.Message
+		want   int
 	}{
 		{
-			name: "WorkloadPresent",
-			s:    &Service{CommonCh: ch},
+			name: "DiscoveryWorkloadPresent",
 			ctx:  context.Background(),
+			result: servicecommunication.Message{
+				Origin: servicecommunication.Discovery,
+				DiscoveryResult: servicecommunication.DiscoveryResult{
+					Processes: []servicecommunication.ProcessWrapper{
+						processStub{
+							username: "mysql_user",
+							pid:      1234,
+							name:     "mysqld",
+							args:     []string{"--basedir=/usr/local/mysql", "--datadir=/var/lib/mysql", "--socket=/var/lib/mysql/mysql.sock"},
+							environ:  []string{"MYSQL_HOME=/usr/local/mysql", "MYSQL_DATADIR=/var/lib/mysql", "MYSQL_SOCKET=/var/lib/mysql/mysql.sock"},
+						},
+					},
+				},
+			},
+			ch:   make(chan *servicecommunication.Message, 1),
+			want: 1,
+		},
+		{
+			name:   "ContextEnded",
+			ctx:    cancelledCtx,
+			result: servicecommunication.Message{},
+			ch:     make(chan *servicecommunication.Message, 1),
+			want:   0,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			s := &Service{CommonCh: test.ch}
+			test.ch <- &test.result
+			s.checkServiceCommunication(test.ctx)
+			got := len(s.processes.Processes)
+			if got != test.want {
+				t.Errorf("checkServiceCommunication() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestCheckServiceCommunicationDWActivation(t *testing.T) {
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	tests := []struct {
+		name   string
+		result servicecommunication.Message
+		ctx    context.Context
+		ch     chan *servicecommunication.Message
+		want   bool
+	}{
+		{
+			name: "DWActivation",
+			ctx:  context.Background(),
+			result: servicecommunication.Message{
+				Origin: servicecommunication.DWActivation,
+				DWActivationResult: servicecommunication.DataWarehouseActivationResult{
+					Activated: true,
+				},
+			},
+			ch:   make(chan *servicecommunication.Message, 1),
 			want: true,
 		},
 		{
 			name: "ContextEnded",
-			s:    &Service{},
 			ctx:  cancelledCtx,
+			result: servicecommunication.Message{
+				Origin: servicecommunication.DWActivation,
+				DWActivationResult: servicecommunication.DataWarehouseActivationResult{
+					Activated: true,
+				},
+			},
+			ch:   make(chan *servicecommunication.Message, 1),
 			want: false,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := test.s.checkCommonDiscovery(test.ctx)
+			s := &Service{CommonCh: test.ch}
+			test.ch <- &test.result
+			s.checkServiceCommunication(test.ctx)
+			got := s.dwActivated
 			if got != test.want {
-				t.Errorf("checkCommonDiscovery() = %v, want %v", got, test.want)
+				t.Errorf("checkServiceCommunication() = %v, want %v", got, test.want)
 			}
 		})
 	}
