@@ -12,12 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-metric: agent
+workload_type: MYSQL
   metric_value: 1
   instance_name: fake-wlmmetrics-1
   os: rhel-8.4
   version: 1.0.0
   gcloud: false
-  workload_type: MYSQL
   agent: workloadagent
   agent_version: 3.2
