@@ -42,6 +42,13 @@ if [ ! -d "workloadagentplatform" ]; then
     find workloadagentplatform/integration/common/shared/protos -type f -exec sed -i 's|"integration/common/shared/protos|"workloadagentplatform/integration/common/shared/protos|g' {} +
 fi
 
+if [ ! -d "google-guest-agent" ]; then
+  echo "**************  Adding the google-guest-agent submodule"
+    git submodule add https://github.com/GoogleCloudPlatform/google-guest-agent
+    # replace the proto imports in the platform that reference the platform
+    find google-guest-agent/internal -type f -exec sed -i 's|"guest-agent/internal|"google-guest-agent/internal|g' {} +
+fi
+
 echo "**************  Getting go 1.23.2"
 curl -sLOS https://go.dev/dl/go1.23.2.linux-amd64.tar.gz
 chmod -fR u+rwx /tmp/workloadagent || :
@@ -75,7 +82,11 @@ mkdir -p "${pb_dest}"
 go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 
 echo "**************  Compiling protobufs"
-protoc --go_opt=paths=source_relative protos/**/*.proto workloadagentplatform/integration/common/shared/protos/**/*.proto --go_out=.
+protoc --go_opt=paths=source_relative \
+protos/**/*.proto \
+workloadagentplatform/integration/common/shared/protos/**/*.proto \
+google-guest-agent/internal/**/*.proto \
+--go_out=.
 
 mkdir -p buildoutput
 echo "**************  Generating the latest go.mod and go.sum dependencies"
