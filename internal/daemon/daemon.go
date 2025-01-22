@@ -63,12 +63,16 @@ type (
 	}
 )
 
-// NewDaemon creates a new startdaemon command.
-func NewDaemon(lp log.Parameters, cloudProps *cpb.CloudProperties) *cobra.Command {
-	d := &Daemon{
+// NewDaemon creates a new Daemon.
+func NewDaemon(lp log.Parameters, cloudProps *cpb.CloudProperties) *Daemon {
+	return &Daemon{
 		lp:         lp,
 		cloudProps: cloudProps,
 	}
+}
+
+// NewDaemonSubCommand creates a new startdaemon subcommand.
+func NewDaemonSubCommand(d *Daemon) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "startdaemon",
 		Short: "Start daemon mode of the agent",
