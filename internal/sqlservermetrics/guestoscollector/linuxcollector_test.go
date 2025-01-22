@@ -221,7 +221,34 @@ func TestCollectLinuxGuestRules(t *testing.T) {
 		want                   sqlserverutils.MetricDetails
 	}{
 		{
-			name: "success",
+			name:        "success",
+			mockRuleMap: true,
+			commandExecutorMapMock: map[string]commandExecutor{
+				GCBDRAgentRunning: commandExecutor{
+					isRule: true,
+					runCommand: func(ctx context.Context, command string) (string, error) {
+						return "false", nil
+					},
+				},
+				PowerProfileSetting: commandExecutor{
+					isRule: true,
+					runCommand: func(ctx context.Context, command string) (string, error) {
+						return "unknown", nil
+					},
+				},
+				DataDiskAllocationUnits: commandExecutor{
+					isRule: true,
+					runCommand: func(ctx context.Context, command string) (string, error) {
+						return "unknown", nil
+					},
+				},
+				UseLocalSSD: commandExecutor{
+					isRule: true,
+					runCommand: func(ctx context.Context, command string) (string, error) {
+						return "unknown", nil
+					},
+				},
+			},
 			want: sqlserverutils.MetricDetails{
 				Name: "OS",
 				Fields: []map[string]string{
