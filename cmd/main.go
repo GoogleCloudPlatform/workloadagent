@@ -50,6 +50,7 @@ func main() {
 			ProjectId:        cp.ProjectID,
 			InstanceId:       cp.InstanceID,
 			Zone:             cp.Zone,
+			Region:           cp.Region,
 			InstanceName:     cp.InstanceName,
 			Image:            cp.Image,
 			NumericProjectId: cp.NumericProjectID,

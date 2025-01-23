@@ -134,6 +134,7 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 		"projectnumber", d.cloudProps.GetNumericProjectId(),
 		"instanceid", d.cloudProps.GetInstanceId(),
 		"zone", d.cloudProps.GetZone(),
+		"region", d.cloudProps.GetRegion(),
 		"instancename", d.cloudProps.GetInstanceName(),
 		"machinetype", d.cloudProps.GetMachineType(),
 		"image", d.cloudProps.GetImage(),
