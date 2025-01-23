@@ -20,3 +20,6 @@ workload_type: MYSQL
   gcloud: false
   agent: workloadagent
   agent_version: 3.2
+workload_type: REDIS
+  metric_value: 1
+  instance_name: fake-wlmmetrics-1

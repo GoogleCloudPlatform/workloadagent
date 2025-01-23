@@ -21,6 +21,7 @@ import (
 	"embed"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -29,7 +30,15 @@ import (
 var (
 	filePath = "test_data/metricoverride.yaml"
 	//go:embed test_data/metricoverride.yaml
-	testFS embed.FS
+	testFS            embed.FS
+	DefaultTestReader = ConfigFileReader(func(path string) (io.ReadCloser, error) {
+		file, err := testFS.Open(filePath)
+		var f io.ReadCloser = file
+		return f, err
+	})
+	DefaultTestReaderErr = ConfigFileReader(func(path string) (io.ReadCloser, error) {
+		return nil, errors.New("failed to read file")
+	})
 )
 
 func TestIsMetricOverrideYamlFileExists(t *testing.T) {
@@ -42,20 +51,14 @@ func TestIsMetricOverrideYamlFileExists(t *testing.T) {
 		{
 			name:     "File exists and is readable",
 			filePath: filePath,
-			reader: ConfigFileReader(func(path string) (io.ReadCloser, error) {
-				file, err := testFS.Open(filePath)
-				var f io.ReadCloser = file
-				return f, err
-			}),
-			want: true,
+			reader:   DefaultTestReader,
+			want:     true,
 		},
 		{
 			name:     "File read error",
 			filePath: "some_file.yaml",
-			reader: ConfigFileReader(func(path string) (io.ReadCloser, error) {
-				return nil, errors.New("failed to read file")
-			}),
-			want: false,
+			reader:   DefaultTestReaderErr,
+			want:     false,
 		},
 	}
 
@@ -67,6 +70,67 @@ func TestIsMetricOverrideYamlFileExists(t *testing.T) {
 
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("readAndLogMetricOverrideYAML returned unexpected output diff (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestCollectOverrideMetrics(t *testing.T) {
+	tests := []struct {
+		name     string
+		filePath string
+		reader   ConfigFileReader
+		want     []WorkloadMetrics
+	}{
+		{
+			name:     "Empty file",
+			filePath: "",
+			reader: ConfigFileReader(func(data string) (io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader(data)), nil
+			}),
+			want: []WorkloadMetrics{
+				{metrics: map[string]string{}},
+			},
+		},
+		{
+			name:     "File exists and is readable",
+			filePath: filePath,
+			reader:   DefaultTestReader,
+			want: []WorkloadMetrics{
+				{
+					workloadType: "MYSQL",
+					metrics: map[string]string{
+						"agent":         "workloadagent",
+						"agent_version": "3.2",
+						"gcloud":        "false",
+						"instance_name": "fake-wlmmetrics-1",
+						"metric_value":  "1",
+						"os":            "rhel-8.4",
+						"version":       "1.0.0",
+					},
+				},
+				{
+					workloadType: "REDIS",
+					metrics:      map[string]string{"instance_name": "fake-wlmmetrics-1", "metric_value": "1"},
+				},
+			},
+		},
+		{
+			name:     "File read error",
+			filePath: "some_file.yaml",
+			reader:   DefaultTestReaderErr,
+			want:     []WorkloadMetrics{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			got := collectOverrideMetrics(ctx, tt.reader)
+
+			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(WorkloadMetrics{})); diff != "" {
+				t.Errorf("collectOverrideMetrics returned unexpected metrics diff (-want +got):\n%s", diff)
 			}
 		})
 	}

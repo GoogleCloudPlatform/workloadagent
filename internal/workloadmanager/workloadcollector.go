@@ -23,6 +23,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"strings"
 
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
@@ -35,6 +36,8 @@ type ConfigFileReader func(string) (io.ReadCloser, error)
 // WorkloadMetrics is a struct that collect data from override configuration file for testing purposes.
 // Future enhancements will include the collection of actual WLM metrics.
 type WorkloadMetrics struct {
+	workloadType string
+	metrics      map[string]string
 }
 
 type wlmWriter interface {
@@ -43,9 +46,16 @@ type wlmWriter interface {
 
 // sendMetricsParams defines the set of parameters required to call sendMetrics
 type sendMetricsParams struct {
-	wm         WorkloadMetrics
+	wm         []WorkloadMetrics
 	cp         *cpb.CloudProperties
 	wlmService wlmWriter
+}
+
+// metricEmitter is a container for constructing metrics from an override configuration file
+type metricEmitter struct {
+	scanner      *bufio.Scanner
+	workloadType string
+	metrics      map[string]string // Add a field to store metrics for the current workload
 }
 
 const metricOverridePath = "/etc/google-cloud-workload-agent/wlmmetricoverride.yaml"
@@ -55,8 +65,12 @@ func CollectAndSendMetricsToDataWarehouse(ctx context.Context, wlmService wlmWri
 	if !readAndLogMetricOverrideYAML(ctx, readFileWrapper) {
 		return
 	}
-	// TODO - Parse the metric override file and create the workload metrics.
-	// TODO - Send the metrics to Data Warehouse.
+	wm := collectOverrideMetrics(ctx, readFileWrapper)
+	sendMetricsToDataWarehouse(ctx, sendMetricsParams{
+		wm:         wm,
+		cp:         cp,
+		wlmService: wlmService,
+	})
 }
 
 func readAndLogMetricOverrideYAML(ctx context.Context, reader ConfigFileReader) bool {
@@ -79,6 +93,81 @@ func readAndLogMetricOverrideYAML(ctx context.Context, reader ConfigFileReader) 
 	}
 
 	return true
+}
+
+// collectOverrideMetrics reads workload metrics from an override file.
+func collectOverrideMetrics(ctx context.Context, reader ConfigFileReader) []WorkloadMetrics {
+	file, err := reader(metricOverridePath)
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("Could not read the metric override file", "error", err)
+		return []WorkloadMetrics{}
+	}
+	defer file.Close()
+
+	var wm []WorkloadMetrics
+	scanner := bufio.NewScanner(file)
+	metricEmitter := metricEmitter{scanner: scanner}
+	for {
+		wt, metrics, last := metricEmitter.getMetric(ctx)
+		wm = append(wm, WorkloadMetrics{workloadType: wt, metrics: metrics})
+		if last {
+			break
+		}
+	}
+	return wm
+}
+
+// getMetric reads the next metric from the underlying scanner.
+//
+// It returns the workload type, a map for validation metrics,
+// and a boolean indicating whether this is the last metric in the current workload group.
+func (e *metricEmitter) getMetric(ctx context.Context) (string, map[string]string, bool) {
+	if e.metrics == nil {
+		e.metrics = make(map[string]string) // Initialize the metrics map if it's nil
+	}
+
+	for e.scanner.Scan() {
+		line := e.scanner.Text()
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue // Skip empty lines and comments directly
+		}
+		key, value, found := strings.Cut(line, ":")
+		if !found {
+			log.CtxLogger(ctx).Warnw("Invalid format: " + line)
+			continue
+		}
+
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+
+		if key == "workload_type" {
+			// Found the first workload type, continue scanning for its metrics.
+			if e.workloadType == "" {
+				e.workloadType = value
+				continue
+			}
+			// Found a new workload type, return the current one with its metrics
+			workloadType := e.workloadType
+			metrics := e.metrics
+			e.workloadType = value              // Update the workload type for the next record
+			e.metrics = make(map[string]string) // Reset the metrics map for the new workload
+			return workloadType, metrics, false
+		}
+		e.metrics[key] = value
+	}
+
+	if err := e.scanner.Err(); err != nil {
+		log.CtxLogger(ctx).Warnw("Could not read from the override metrics file", "error", err)
+	}
+
+	// Reached end of file, return the last workload type and its metrics
+	workloadType := e.workloadType
+	metrics := e.metrics
+	return workloadType, metrics, true
+}
+
+func sendMetricsToDataWarehouse(ctx context.Context, params sendMetricsParams) {
+	// TODO: b/388730895 - Send the metrics to Data Warehouse.
 }
 
 func readFileWrapper(path string) (io.ReadCloser, error) {
