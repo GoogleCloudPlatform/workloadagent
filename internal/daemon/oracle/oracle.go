@@ -55,6 +55,11 @@ func (s *Service) Start(ctx context.Context, a any) {
 		log.CtxLogger(ctx).Info("Oracle service is disabled")
 		return
 	}
+	go (func() {
+		for {
+			s.checkServiceCommunication(ctx)
+		}
+	})()
 	if runtime.GOOS != "linux" {
 		log.CtxLogger(ctx).Error("Oracle service is only supported on Linux")
 		return
@@ -148,6 +153,29 @@ func runMetricCollection(ctx context.Context, a any) {
 		case <-ticker.C:
 			metricCollector.SendHealthMetricsToCloudMonitoring(ctx)
 			metricCollector.SendDefaultMetricsToCloudMonitoring(ctx)
+		}
+	}
+}
+
+// checkServiceCommunication listens to the common channel for messages and processes them.
+func (s *Service) checkServiceCommunication(ctx context.Context) {
+	// Effectively give ctx.Done() priority over the channel.
+	if ctx.Err() != nil {
+		return
+	}
+
+	select {
+	case <-ctx.Done():
+		return
+	case msg := <-s.CommonCh:
+		log.CtxLogger(ctx).Debugw("Oracle workload agent service received a message on the common channel", "message", msg)
+		switch msg.Origin {
+		case servicecommunication.Discovery:
+			log.CtxLogger(ctx).Debugw("Oracle workload agent service received a discovery message")
+		case servicecommunication.DWActivation:
+			log.CtxLogger(ctx).Debugw("Oracle workload agent service received a DW activation message")
+		default:
+			log.CtxLogger(ctx).Debugw("Oracle workload agent service received a message with an unexpected origin", "origin", msg.Origin)
 		}
 	}
 }
