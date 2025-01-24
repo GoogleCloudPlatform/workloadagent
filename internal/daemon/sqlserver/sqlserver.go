@@ -56,6 +56,12 @@ func (s *Service) Start(ctx context.Context, a any) {
 		return
 	}
 
+	go (func() {
+		for {
+			s.checkServiceCommunication(ctx)
+		}
+	})()
+
 	// Start SQL Server Metric Collection
 	mcCtx := log.SetCtx(ctx, "context", "SQLServerMetricCollection")
 	metricCollectionRoutine := &recovery.RecoverableRoutine{
@@ -114,6 +120,29 @@ func runMetricCollection(ctx context.Context, a any) {
 			return
 		case <-ticker.C:
 			continue
+		}
+	}
+}
+
+// checkServiceCommunication listens to the common channel for messages and processes them.
+func (s *Service) checkServiceCommunication(ctx context.Context) {
+	// Effectively give ctx.Done() priority over the channel.
+	if ctx.Err() != nil {
+		return
+	}
+
+	select {
+	case <-ctx.Done():
+		return
+	case msg := <-s.CommonCh:
+		log.CtxLogger(ctx).Debugw("SQL Server workload agent service received a message on the common channel", "message", msg)
+		switch msg.Origin {
+		case servicecommunication.Discovery:
+			log.CtxLogger(ctx).Debugw("SQL Server workload agent service received a discovery message")
+		case servicecommunication.DWActivation:
+			log.CtxLogger(ctx).Debugw("SQL Server workload agent service received a DW activation message")
+		default:
+			log.CtxLogger(ctx).Debugw("SQL Server workload agent service received a message with an unexpected origin", "origin", msg.Origin)
 		}
 	}
 }
