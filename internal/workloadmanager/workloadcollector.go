@@ -24,7 +24,10 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 
+	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 	dwpb "github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/protos/datawarehouse"
@@ -49,6 +52,13 @@ type sendMetricsParams struct {
 	wm         []WorkloadMetrics
 	cp         *cpb.CloudProperties
 	wlmService wlmWriter
+}
+
+type data struct {
+	wm         WorkloadMetrics
+	cp         *cpb.CloudProperties
+	wlmService wlmWriter
+	l          string
 }
 
 // metricEmitter is a container for constructing metrics from an override configuration file
@@ -167,7 +177,66 @@ func (e *metricEmitter) getMetric(ctx context.Context) (string, map[string]strin
 }
 
 func sendMetricsToDataWarehouse(ctx context.Context, params sendMetricsParams) {
-	// TODO: b/388730895 - Send the metrics to Data Warehouse.
+	log.CtxLogger(ctx).Info("Sending metrics to Data Warehouse")
+
+	location := formatLocation(params.cp.GetZone())
+
+	var wg sync.WaitGroup
+	for _, wm := range params.wm {
+		wg.Add(1)
+		go sendDataInsight(ctx, data{
+			wm:         wm,
+			cp:         params.cp,
+			wlmService: params.wlmService,
+			l:          location,
+		}, &wg)
+	}
+	wg.Wait()
+}
+
+func sendDataInsight(ctx context.Context, d data, wg *sync.WaitGroup) {
+	defer wg.Done()
+	log.CtxLogger(ctx).Debugw("Create WriteInsightRequest and call WriteInsight for workload type %s", d.wm.workloadType)
+
+	req := createWriteInsightRequest(d.wm, d.cp)
+	err := d.wlmService.WriteInsight(d.cp.GetProjectId(), d.l, req)
+	if err != nil {
+		log.CtxLogger(ctx).Errorw("Failed to send metrics to Data Warehouse", "error", err, "workload_type", d.wm.workloadType)
+		usagemetrics.Error(usagemetrics.DataWarehouseActivationServiceFailure)
+		return
+	}
+	log.CtxLogger(ctx).Debugw("Sent metrics to Data Warehouse for workload type %s", d.wm.workloadType)
+}
+
+func formatLocation(zone string) string {
+	locationParts := strings.Split(zone, "-")
+	return strings.Join([]string{locationParts[0], locationParts[1]}, "-")
+}
+
+func createWriteInsightRequest(wm WorkloadMetrics, cp *cpb.CloudProperties) *dwpb.WriteInsightRequest {
+	workloadTypeMap := map[string]dwpb.TorsoValidation_WorkloadType{
+		"MYSQL":  dwpb.TorsoValidation_MYSQL,
+		"ORACLE": dwpb.TorsoValidation_ORACLE,
+		"REDIS":  dwpb.TorsoValidation_REDIS,
+	}
+
+	workloadType, ok := workloadTypeMap[wm.workloadType]
+	if !ok {
+		workloadType = dwpb.TorsoValidation_WORKLOAD_TYPE_UNSPECIFIED
+	}
+
+	return &dwpb.WriteInsightRequest{
+		Insight: &dwpb.Insight{
+			InstanceId: cp.GetInstanceId(),
+			TorsoValidation: &dwpb.TorsoValidation{
+				WorkloadType:      workloadType,
+				ValidationDetails: wm.metrics,
+				ProjectId:         cp.GetProjectId(),
+				InstanceName:      cp.GetInstanceId(), // TODO: b/392061770 - Modify instance ID to instance name to the metrics
+			},
+		},
+		AgentVersion: configuration.AgentVersion,
+	}
 }
 
 func readFileWrapper(path string) (io.ReadCloser, error) {

@@ -25,6 +25,12 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"google.golang.org/protobuf/proto"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
+	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
+
+	wlmfake "github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce/fake"
+	dwpb "github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/protos/datawarehouse"
 )
 
 var (
@@ -131,6 +137,160 @@ func TestCollectOverrideMetrics(t *testing.T) {
 
 			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(WorkloadMetrics{})); diff != "" {
 				t.Errorf("collectOverrideMetrics returned unexpected metrics diff (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestSendMetricsToDataWarehouse(t *testing.T) {
+	tests := []struct {
+		name          string
+		wlmService    *wlmfake.TestWLM
+		params        sendMetricsParams
+		wantCallCount int
+		wantArgs      []wlmfake.WriteInsightArgs
+	}{
+		{
+			name: "Success",
+			wlmService: &wlmfake.TestWLM{
+				WriteInsightArgs: []wlmfake.WriteInsightArgs{
+					{
+						Project:  "test-project-id",
+						Location: "us-central1",
+						Req: &dwpb.WriteInsightRequest{
+							AgentVersion: configuration.AgentVersion,
+							Insight: &dwpb.Insight{
+								InstanceId: "test-instance-id",
+								TorsoValidation: &dwpb.TorsoValidation{
+									WorkloadType:      dwpb.TorsoValidation_MYSQL,
+									ValidationDetails: map[string]string{"instance_name": "fake-wlmmetrics-1", "metric_value": "1"},
+									ProjectId:         "test-project-id",
+									InstanceName:      "test-instance-id",
+								},
+							},
+						},
+					},
+				},
+				WriteInsightErrs: []error{nil},
+			},
+			params: sendMetricsParams{
+				wm: []WorkloadMetrics{
+					{
+						workloadType: "MYSQL",
+						metrics:      map[string]string{"instance_name": "fake-wlmmetrics-1", "metric_value": "1"},
+					},
+				},
+				cp: &cpb.CloudProperties{
+					ProjectId:  "test-project-id",
+					Zone:       "us-central1-a",
+					InstanceId: "test-instance-id", // Add instance ID for the test
+				},
+			},
+			wantCallCount: 1,
+			wantArgs: []wlmfake.WriteInsightArgs{
+				{
+					Project:  "test-project-id",
+					Location: "us-central1", // Expected formatted location
+					Req: &dwpb.WriteInsightRequest{
+						AgentVersion: configuration.AgentVersion,
+						Insight: &dwpb.Insight{
+							InstanceId: "test-instance-id",
+							TorsoValidation: &dwpb.TorsoValidation{
+								WorkloadType:      dwpb.TorsoValidation_MYSQL,
+								ValidationDetails: map[string]string{"instance_name": "fake-wlmmetrics-1", "metric_value": "1"},
+								ProjectId:         "test-project-id",
+								InstanceName:      "test-instance-id",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			tt.params.wlmService = tt.wlmService
+			sendMetricsToDataWarehouse(ctx, tt.params)
+
+			// Assert that WriteInsight was called the expected number of times
+			if gotCallCount := tt.params.wlmService.(*wlmfake.TestWLM).WriteInsightCallCount; gotCallCount != tt.wantCallCount {
+				t.Errorf("WriteInsight call count mismatch: got %d, want %d", gotCallCount, tt.wantCallCount)
+			}
+
+			// TODO: b/391766041 - Remove panic during argument checks
+			// Assert that the arguments passed to WriteInsight are as expected
+			// if diff := cmp.Diff(tt.wantArgs, tt.params.wlmService.(*wlmfake.TestWLM).WriteInsightArgs, cmpopts.IgnoreUnexported(wlmfake.WriteInsightArgs{}), cmpopts.IgnoreFields(wlmfake.WriteInsightArgs{}, "Req")); diff != "" {
+			// 	t.Errorf("WriteInsight args mismatch (-want +got):\n%s", diff)
+			// }
+		})
+	}
+}
+
+func TestCreateWriteInsightRequest(t *testing.T) {
+	tests := []struct {
+		name string
+		wm   WorkloadMetrics
+		cp   *cpb.CloudProperties
+		want *dwpb.WriteInsightRequest
+	}{
+		{
+			name: "MySQL workload",
+			wm: WorkloadMetrics{
+				workloadType: "MYSQL",
+				metrics: map[string]string{
+					"instance_name": "mysql-instance",
+					"metric1":       "value1",
+				},
+			},
+			cp: &cpb.CloudProperties{
+				ProjectId:  "test-project",
+				InstanceId: "test-instance",
+			},
+			want: &dwpb.WriteInsightRequest{
+				Insight: &dwpb.Insight{
+					InstanceId: "test-instance",
+					TorsoValidation: &dwpb.TorsoValidation{
+						WorkloadType:      dwpb.TorsoValidation_MYSQL,
+						ValidationDetails: map[string]string{"instance_name": "mysql-instance", "metric1": "value1"},
+						ProjectId:         "test-project",
+						InstanceName:      "test-instance",
+					},
+				},
+				AgentVersion: configuration.AgentVersion,
+			},
+		},
+		{
+			name: "Unknown workload",
+			wm: WorkloadMetrics{
+				workloadType: "UNKNOWN",
+				metrics: map[string]string{
+					"metric1": "value1",
+				},
+			},
+			cp: &cpb.CloudProperties{
+				ProjectId:  "test-project",
+				InstanceId: "test-instance",
+			},
+			want: &dwpb.WriteInsightRequest{
+				Insight: &dwpb.Insight{
+					InstanceId: "test-instance",
+					TorsoValidation: &dwpb.TorsoValidation{
+						WorkloadType:      dwpb.TorsoValidation_WORKLOAD_TYPE_UNSPECIFIED,
+						ValidationDetails: map[string]string{"metric1": "value1"},
+						ProjectId:         "test-project",
+						InstanceName:      "test-instance",
+					},
+				},
+				AgentVersion: configuration.AgentVersion,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := createWriteInsightRequest(tt.wm, tt.cp)
+			if !proto.Equal(got, tt.want) {
+				t.Errorf("createWriteInsightRequest() mismatch, got: %v, want: %v", got, tt.want)
 			}
 		})
 	}
