@@ -36,14 +36,29 @@ import (
 // ConfigFileReader is a function that reads a config file.
 type ConfigFileReader func(string) (io.ReadCloser, error)
 
+// WorkloadType is an enum for the type of workload.
+type WorkloadType string
+
+const (
+	// UNKNOWN  workload type.
+	UNKNOWN WorkloadType = "UNKNOWN"
+	// ORACLE workload type.
+	ORACLE WorkloadType = "ORACLE"
+	// MYSQL workload type.
+	MYSQL WorkloadType = "MYSQL"
+	// REDIS workload type.
+	REDIS WorkloadType = "REDIS"
+)
+
 // WorkloadMetrics is a struct that collect data from override configuration file for testing purposes.
 // Future enhancements will include the collection of actual WLM metrics.
 type WorkloadMetrics struct {
-	workloadType string
-	metrics      map[string]string
+	WorkloadType WorkloadType
+	Metrics      map[string]string
 }
 
-type wlmWriter interface {
+// WLMWriter is an interface for writing insights to Data Warehouse.
+type WLMWriter interface {
 	WriteInsight(project, location string, writeInsightRequest *dwpb.WriteInsightRequest) error
 }
 
@@ -51,27 +66,27 @@ type wlmWriter interface {
 type sendMetricsParams struct {
 	wm         []WorkloadMetrics
 	cp         *cpb.CloudProperties
-	wlmService wlmWriter
+	wlmService WLMWriter
 }
 
-type data struct {
-	wm         WorkloadMetrics
-	cp         *cpb.CloudProperties
-	wlmService wlmWriter
-	l          string
+// SendDataInsightParams defines the set of parameters required to call SendDataInsight
+type SendDataInsightParams struct {
+	WLMetrics  WorkloadMetrics
+	CloudProps *cpb.CloudProperties
+	WLMService WLMWriter
 }
 
 // metricEmitter is a container for constructing metrics from an override configuration file
 type metricEmitter struct {
 	scanner      *bufio.Scanner
-	workloadType string
+	workloadType WorkloadType
 	metrics      map[string]string // Add a field to store metrics for the current workload
 }
 
 const metricOverridePath = "/etc/google-cloud-workload-agent/wlmmetricoverride.yaml"
 
 // CollectAndSendMetricsToDataWarehouse collects workload metrics and sends them to Data Warehouse.
-func CollectAndSendMetricsToDataWarehouse(ctx context.Context, wlmService wlmWriter, cp *cpb.CloudProperties) {
+func CollectAndSendMetricsToDataWarehouse(ctx context.Context, wlmService WLMWriter, cp *cpb.CloudProperties) {
 	if !readAndLogMetricOverrideYAML(ctx, readFileWrapper) {
 		return
 	}
@@ -119,7 +134,7 @@ func collectOverrideMetrics(ctx context.Context, reader ConfigFileReader) []Work
 	metricEmitter := metricEmitter{scanner: scanner}
 	for {
 		wt, metrics, last := metricEmitter.getMetric(ctx)
-		wm = append(wm, WorkloadMetrics{workloadType: wt, metrics: metrics})
+		wm = append(wm, WorkloadMetrics{WorkloadType: wt, Metrics: metrics})
 		if last {
 			break
 		}
@@ -131,7 +146,7 @@ func collectOverrideMetrics(ctx context.Context, reader ConfigFileReader) []Work
 //
 // It returns the workload type, a map for validation metrics,
 // and a boolean indicating whether this is the last metric in the current workload group.
-func (e *metricEmitter) getMetric(ctx context.Context) (string, map[string]string, bool) {
+func (e *metricEmitter) getMetric(ctx context.Context) (WorkloadType, map[string]string, bool) {
 	if e.metrics == nil {
 		e.metrics = make(map[string]string) // Initialize the metrics map if it's nil
 	}
@@ -153,14 +168,14 @@ func (e *metricEmitter) getMetric(ctx context.Context) (string, map[string]strin
 		if key == "workload_type" {
 			// Found the first workload type, continue scanning for its metrics.
 			if e.workloadType == "" {
-				e.workloadType = value
+				e.workloadType = WorkloadType(value)
 				continue
 			}
 			// Found a new workload type, return the current one with its metrics
 			workloadType := e.workloadType
 			metrics := e.metrics
-			e.workloadType = value              // Update the workload type for the next record
-			e.metrics = make(map[string]string) // Reset the metrics map for the new workload
+			e.workloadType = WorkloadType(value) // Update the workload type for the next record
+			e.metrics = make(map[string]string)  // Reset the metrics map for the new workload
 			return workloadType, metrics, false
 		}
 		e.metrics[key] = value
@@ -179,48 +194,45 @@ func (e *metricEmitter) getMetric(ctx context.Context) (string, map[string]strin
 func sendMetricsToDataWarehouse(ctx context.Context, params sendMetricsParams) {
 	log.CtxLogger(ctx).Info("Sending metrics to Data Warehouse")
 
-	location := formatLocation(params.cp.GetZone())
-
 	var wg sync.WaitGroup
 	for _, wm := range params.wm {
 		wg.Add(1)
-		go sendDataInsight(ctx, data{
-			wm:         wm,
-			cp:         params.cp,
-			wlmService: params.wlmService,
-			l:          location,
-		}, &wg)
+		go func(wm WorkloadMetrics) {
+			defer wg.Done()
+			SendDataInsight(ctx, SendDataInsightParams{
+				WLMetrics:  wm,
+				CloudProps: params.cp,
+				WLMService: params.wlmService,
+			})
+		}(wm)
 	}
 	wg.Wait()
 }
 
-func sendDataInsight(ctx context.Context, d data, wg *sync.WaitGroup) {
-	defer wg.Done()
-	log.CtxLogger(ctx).Debugw("Create WriteInsightRequest and call WriteInsight for workload type %s", d.wm.workloadType)
+// SendDataInsight sends a data insight to Data Warehouse.
+func SendDataInsight(ctx context.Context, params SendDataInsightParams) {
+	log.CtxLogger(ctx).Infow("Sending data insight to Data Warehouse", "workload_type", params.WLMetrics.WorkloadType)
 
-	req := createWriteInsightRequest(d.wm, d.cp)
-	err := d.wlmService.WriteInsight(d.cp.GetProjectId(), d.l, req)
+	req := createWriteInsightRequest(ctx, params.WLMetrics, params.CloudProps)
+	err := params.WLMService.WriteInsight(params.CloudProps.GetProjectId(), params.CloudProps.GetRegion(), req)
 	if err != nil {
-		log.CtxLogger(ctx).Errorw("Failed to send metrics to Data Warehouse", "error", err, "workload_type", d.wm.workloadType)
-		usagemetrics.Error(usagemetrics.DataWarehouseActivationServiceFailure)
+		log.CtxLogger(ctx).Errorw("Failed to send metrics to Data Warehouse", "error", err, "workload_type", params.WLMetrics.WorkloadType)
+		usagemetrics.Error(usagemetrics.DataWarehouseWriteInsightFailure)
 		return
 	}
-	log.CtxLogger(ctx).Debugw("Sent metrics to Data Warehouse for workload type %s", d.wm.workloadType)
+	log.CtxLogger(ctx).Infow("Sent metrics to Data Warehouse", "workload_type", params.WLMetrics.WorkloadType)
 }
 
-func formatLocation(zone string) string {
-	locationParts := strings.Split(zone, "-")
-	return strings.Join([]string{locationParts[0], locationParts[1]}, "-")
-}
-
-func createWriteInsightRequest(wm WorkloadMetrics, cp *cpb.CloudProperties) *dwpb.WriteInsightRequest {
-	workloadTypeMap := map[string]dwpb.TorsoValidation_WorkloadType{
-		"MYSQL":  dwpb.TorsoValidation_MYSQL,
-		"ORACLE": dwpb.TorsoValidation_ORACLE,
-		"REDIS":  dwpb.TorsoValidation_REDIS,
+// createWriteInsightRequest creates a WriteInsightRequest from the given WorkloadMetrics and CloudProperties.
+func createWriteInsightRequest(ctx context.Context, wm WorkloadMetrics, cp *cpb.CloudProperties) *dwpb.WriteInsightRequest {
+	log.CtxLogger(ctx).Debugw("Create WriteInsightRequest and call WriteInsight", "workload_type", wm.WorkloadType)
+	workloadTypeMap := map[WorkloadType]dwpb.TorsoValidation_WorkloadType{
+		ORACLE: dwpb.TorsoValidation_ORACLE,
+		MYSQL:  dwpb.TorsoValidation_MYSQL,
+		REDIS:  dwpb.TorsoValidation_REDIS,
 	}
 
-	workloadType, ok := workloadTypeMap[wm.workloadType]
+	workloadType, ok := workloadTypeMap[wm.WorkloadType]
 	if !ok {
 		workloadType = dwpb.TorsoValidation_WORKLOAD_TYPE_UNSPECIFIED
 	}
@@ -230,9 +242,9 @@ func createWriteInsightRequest(wm WorkloadMetrics, cp *cpb.CloudProperties) *dwp
 			InstanceId: cp.GetInstanceId(),
 			TorsoValidation: &dwpb.TorsoValidation{
 				WorkloadType:      workloadType,
-				ValidationDetails: wm.metrics,
+				ValidationDetails: wm.Metrics,
 				ProjectId:         cp.GetProjectId(),
-				InstanceName:      cp.GetInstanceId(), // TODO: b/392061770 - Modify instance ID to instance name to the metrics
+				InstanceName:      cp.GetInstanceName(),
 			},
 		},
 		AgentVersion: configuration.AgentVersion,

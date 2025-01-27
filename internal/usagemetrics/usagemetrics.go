@@ -61,6 +61,7 @@ const (
 	SecretManagerValueError               = 23
 	WorkloadManagerConnectionError        = 24
 	DataWarehouseActivationServiceFailure = 25
+	DataWarehouseWriteInsightFailure      = 26
 )
 
 // Agent wide action mappings.

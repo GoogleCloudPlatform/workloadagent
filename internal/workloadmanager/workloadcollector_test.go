@@ -95,7 +95,7 @@ func TestCollectOverrideMetrics(t *testing.T) {
 				return io.NopCloser(strings.NewReader(data)), nil
 			}),
 			want: []WorkloadMetrics{
-				{metrics: map[string]string{}},
+				{Metrics: map[string]string{}},
 			},
 		},
 		{
@@ -104,8 +104,8 @@ func TestCollectOverrideMetrics(t *testing.T) {
 			reader:   DefaultTestReader,
 			want: []WorkloadMetrics{
 				{
-					workloadType: "MYSQL",
-					metrics: map[string]string{
+					WorkloadType: MYSQL,
+					Metrics: map[string]string{
 						"agent":         "workloadagent",
 						"agent_version": "3.2",
 						"gcloud":        "false",
@@ -116,8 +116,8 @@ func TestCollectOverrideMetrics(t *testing.T) {
 					},
 				},
 				{
-					workloadType: "REDIS",
-					metrics:      map[string]string{"instance_name": "fake-wlmmetrics-1", "metric_value": "1"},
+					WorkloadType: REDIS,
+					Metrics:      map[string]string{"instance_name": "fake-wlmmetrics-1", "metric_value": "1"},
 				},
 			},
 		},
@@ -153,6 +153,7 @@ func TestSendMetricsToDataWarehouse(t *testing.T) {
 		{
 			name: "Success",
 			wlmService: &wlmfake.TestWLM{
+				T: t,
 				WriteInsightArgs: []wlmfake.WriteInsightArgs{
 					{
 						Project:  "test-project-id",
@@ -165,7 +166,7 @@ func TestSendMetricsToDataWarehouse(t *testing.T) {
 									WorkloadType:      dwpb.TorsoValidation_MYSQL,
 									ValidationDetails: map[string]string{"instance_name": "fake-wlmmetrics-1", "metric_value": "1"},
 									ProjectId:         "test-project-id",
-									InstanceName:      "test-instance-id",
+									InstanceName:      "test-instance-name",
 								},
 							},
 						},
@@ -176,14 +177,15 @@ func TestSendMetricsToDataWarehouse(t *testing.T) {
 			params: sendMetricsParams{
 				wm: []WorkloadMetrics{
 					{
-						workloadType: "MYSQL",
-						metrics:      map[string]string{"instance_name": "fake-wlmmetrics-1", "metric_value": "1"},
+						WorkloadType: MYSQL,
+						Metrics:      map[string]string{"instance_name": "fake-wlmmetrics-1", "metric_value": "1"},
 					},
 				},
 				cp: &cpb.CloudProperties{
-					ProjectId:  "test-project-id",
-					Zone:       "us-central1-a",
-					InstanceId: "test-instance-id", // Add instance ID for the test
+					ProjectId:    "test-project-id",
+					Region:       "us-central1",
+					InstanceId:   "test-instance-id",   // Add instance ID for the test
+					InstanceName: "test-instance-name", // Add instance ID for the test
 				},
 			},
 			wantCallCount: 1,
@@ -199,7 +201,7 @@ func TestSendMetricsToDataWarehouse(t *testing.T) {
 								WorkloadType:      dwpb.TorsoValidation_MYSQL,
 								ValidationDetails: map[string]string{"instance_name": "fake-wlmmetrics-1", "metric_value": "1"},
 								ProjectId:         "test-project-id",
-								InstanceName:      "test-instance-id",
+								InstanceName:      "test-instance-name",
 							},
 						},
 					},
@@ -237,24 +239,25 @@ func TestCreateWriteInsightRequest(t *testing.T) {
 		{
 			name: "MySQL workload",
 			wm: WorkloadMetrics{
-				workloadType: "MYSQL",
-				metrics: map[string]string{
+				WorkloadType: MYSQL,
+				Metrics: map[string]string{
 					"instance_name": "mysql-instance",
 					"metric1":       "value1",
 				},
 			},
 			cp: &cpb.CloudProperties{
-				ProjectId:  "test-project",
-				InstanceId: "test-instance",
+				ProjectId:    "test-project",
+				InstanceId:   "test-instance-id",
+				InstanceName: "test-instance-name",
 			},
 			want: &dwpb.WriteInsightRequest{
 				Insight: &dwpb.Insight{
-					InstanceId: "test-instance",
+					InstanceId: "test-instance-id",
 					TorsoValidation: &dwpb.TorsoValidation{
 						WorkloadType:      dwpb.TorsoValidation_MYSQL,
 						ValidationDetails: map[string]string{"instance_name": "mysql-instance", "metric1": "value1"},
 						ProjectId:         "test-project",
-						InstanceName:      "test-instance",
+						InstanceName:      "test-instance-name",
 					},
 				},
 				AgentVersion: configuration.AgentVersion,
@@ -263,32 +266,34 @@ func TestCreateWriteInsightRequest(t *testing.T) {
 		{
 			name: "Unknown workload",
 			wm: WorkloadMetrics{
-				workloadType: "UNKNOWN",
-				metrics: map[string]string{
+				WorkloadType: UNKNOWN,
+				Metrics: map[string]string{
 					"metric1": "value1",
 				},
 			},
 			cp: &cpb.CloudProperties{
-				ProjectId:  "test-project",
-				InstanceId: "test-instance",
+				ProjectId:    "test-project",
+				InstanceId:   "test-instance-id",
+				InstanceName: "test-instance-name",
 			},
 			want: &dwpb.WriteInsightRequest{
 				Insight: &dwpb.Insight{
-					InstanceId: "test-instance",
+					InstanceId: "test-instance-id",
 					TorsoValidation: &dwpb.TorsoValidation{
 						WorkloadType:      dwpb.TorsoValidation_WORKLOAD_TYPE_UNSPECIFIED,
 						ValidationDetails: map[string]string{"metric1": "value1"},
 						ProjectId:         "test-project",
-						InstanceName:      "test-instance",
+						InstanceName:      "test-instance-name",
 					},
 				},
 				AgentVersion: configuration.AgentVersion,
 			},
 		},
 	}
+	ctx := context.Background()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := createWriteInsightRequest(tt.wm, tt.cp)
+			got := createWriteInsightRequest(ctx, tt.wm, tt.cp)
 			if !proto.Equal(got, tt.want) {
 				t.Errorf("createWriteInsightRequest() mismatch, got: %v, want: %v", got, tt.want)
 			}
