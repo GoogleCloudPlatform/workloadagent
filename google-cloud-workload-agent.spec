@@ -65,6 +65,21 @@ if [ -d "/usr/lib/systemd/system/" ]; then
     systemctl daemon-reload
 fi
 
+# Backup configuration from google-cloud-sql-server-agent
+if `systemctl is-active --quiet google-cloud-sql-server-agent > /dev/null 2>&1`; then
+  # Backup the configuration file
+  if [ -f /etc/google-cloud-sql-server-agent/configuration.json ]; then
+    cp /etc/google-cloud-sql-server-agent/configuration.json /etc/google-cloud-workload-agent/cfg_sqlserver_backup.json
+  fi
+  # Uninstall google-cloud-sql-server-agent
+  systemctl stop google-cloud-sql-server-agent
+  systemctl disable google-cloud-sql-server-agent
+  rm -f /lib/systemd/system/google-cloud-sql-server-agent.service
+  rm -f /usr/lib/systemd/system/google-cloud-sql-server-agent.service
+  rm -f -r /etc/google-cloud-sql-server-agent
+  rm -f /usr/bin/google_cloud_sql_server_agent
+fi
+
 # enable and start the agent
 systemctl enable %{name}
 systemctl start %{name}

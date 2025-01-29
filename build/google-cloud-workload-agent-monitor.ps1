@@ -26,7 +26,21 @@ function Log-Write {
   Add-Content -Value ("$time_stamp - $log_message") -path $LOG_FILE
 }
 
+function Backup-SqlServerAgent {
+  if ((Get-Service google-cloud-sql-server-agent -ErrorAction SilentlyContinue) -ne $null) {
+    Log-Write 'Found google-cloud-sql-server-agent, backing up configurations'
+    # update google-cloud-sql-server-agent to the latest version
+    googet -noconfirm install google-cloud-sql-server-agent.x86_64.1.3@675317786
+    # copy and rename the old configuration file
+    Copy-Item -Path 'C:\Program Files\Google\google-cloud-sql-server-agent\configuration.json' -Destination 'C:\Program Files\Google\google-cloud-workload-agent\conf\cfg_sqlserver_backup.json'
+    # uninstall google-cloud-sql-server-agent
+    googet -noconfirm remove google-cloud-sql-server-agent
+    Log-Write 'Backup completed'
+  }
+}
+
 try {
+  Backup-SqlServerAgent
   $status = $(Get-Service -Name $SVC_NAME -ErrorAction Ignore).Status
   if ($status -ne 'Running') {
     Log-Write "Workload Agent service is not running, status: $status"
