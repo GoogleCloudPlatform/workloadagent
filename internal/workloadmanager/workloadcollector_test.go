@@ -159,7 +159,6 @@ func TestSendMetricsToDataWarehouse(t *testing.T) {
 						Project:  "test-project-id",
 						Location: "us-central1",
 						Req: &dwpb.WriteInsightRequest{
-							AgentVersion: configuration.AgentVersion,
 							Insight: &dwpb.Insight{
 								InstanceId: "test-instance-id",
 								TorsoValidation: &dwpb.TorsoValidation{
@@ -167,6 +166,7 @@ func TestSendMetricsToDataWarehouse(t *testing.T) {
 									ValidationDetails: map[string]string{"instance_name": "fake-wlmmetrics-1", "metric_value": "1"},
 									ProjectId:         "test-project-id",
 									InstanceName:      "test-instance-name",
+									AgentVersion: configuration.AgentVersion,
 								},
 							},
 						},
@@ -194,7 +194,6 @@ func TestSendMetricsToDataWarehouse(t *testing.T) {
 					Project:  "test-project-id",
 					Location: "us-central1", // Expected formatted location
 					Req: &dwpb.WriteInsightRequest{
-						AgentVersion: configuration.AgentVersion,
 						Insight: &dwpb.Insight{
 							InstanceId: "test-instance-id",
 							TorsoValidation: &dwpb.TorsoValidation{
@@ -202,6 +201,7 @@ func TestSendMetricsToDataWarehouse(t *testing.T) {
 								ValidationDetails: map[string]string{"instance_name": "fake-wlmmetrics-1", "metric_value": "1"},
 								ProjectId:         "test-project-id",
 								InstanceName:      "test-instance-name",
+								AgentVersion: configuration.AgentVersion,
 							},
 						},
 					},
@@ -258,9 +258,9 @@ func TestCreateWriteInsightRequest(t *testing.T) {
 						ValidationDetails: map[string]string{"instance_name": "mysql-instance", "metric1": "value1"},
 						ProjectId:         "test-project",
 						InstanceName:      "test-instance-name",
+						AgentVersion: configuration.AgentVersion,
 					},
 				},
-				AgentVersion: configuration.AgentVersion,
 			},
 		},
 		{
@@ -284,9 +284,9 @@ func TestCreateWriteInsightRequest(t *testing.T) {
 						ValidationDetails: map[string]string{"metric1": "value1"},
 						ProjectId:         "test-project",
 						InstanceName:      "test-instance-name",
+						AgentVersion: configuration.AgentVersion,
 					},
 				},
-				AgentVersion: configuration.AgentVersion,
 			},
 		},
 	}

@@ -245,9 +245,9 @@ func createWriteInsightRequest(ctx context.Context, wm WorkloadMetrics, cp *cpb.
 				ValidationDetails: wm.Metrics,
 				ProjectId:         cp.GetProjectId(),
 				InstanceName:      cp.GetInstanceName(),
+				AgentVersion: configuration.AgentVersion,
 			},
 		},
-		AgentVersion: configuration.AgentVersion,
 	}
 }
 
