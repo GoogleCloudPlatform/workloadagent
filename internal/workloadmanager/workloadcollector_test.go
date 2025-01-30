@@ -25,11 +25,13 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/protobuf/proto"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 
 	wlmfake "github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce/fake"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce/wlm"
 	dwpb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/datawarehouse"
 )
 
@@ -154,6 +156,9 @@ func TestSendMetricsToDataWarehouse(t *testing.T) {
 			name: "Success",
 			wlmService: &wlmfake.TestWLM{
 				T: t,
+				WriteInsightResponses: []*wlm.WriteInsightResponse{
+					&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
+				},
 				WriteInsightArgs: []wlmfake.WriteInsightArgs{
 					{
 						Project:  "test-project-id",
@@ -166,7 +171,7 @@ func TestSendMetricsToDataWarehouse(t *testing.T) {
 									ValidationDetails: map[string]string{"instance_name": "fake-wlmmetrics-1", "metric_value": "1"},
 									ProjectId:         "test-project-id",
 									InstanceName:      "test-instance-name",
-									AgentVersion: configuration.AgentVersion,
+									AgentVersion:      configuration.AgentVersion,
 								},
 							},
 						},
@@ -201,7 +206,7 @@ func TestSendMetricsToDataWarehouse(t *testing.T) {
 								ValidationDetails: map[string]string{"instance_name": "fake-wlmmetrics-1", "metric_value": "1"},
 								ProjectId:         "test-project-id",
 								InstanceName:      "test-instance-name",
-								AgentVersion: configuration.AgentVersion,
+								AgentVersion:      configuration.AgentVersion,
 							},
 						},
 					},
@@ -258,7 +263,7 @@ func TestCreateWriteInsightRequest(t *testing.T) {
 						ValidationDetails: map[string]string{"instance_name": "mysql-instance", "metric1": "value1"},
 						ProjectId:         "test-project",
 						InstanceName:      "test-instance-name",
-						AgentVersion: configuration.AgentVersion,
+						AgentVersion:      configuration.AgentVersion,
 					},
 				},
 			},
@@ -284,7 +289,7 @@ func TestCreateWriteInsightRequest(t *testing.T) {
 						ValidationDetails: map[string]string{"metric1": "value1"},
 						ProjectId:         "test-project",
 						InstanceName:      "test-instance-name",
-						AgentVersion: configuration.AgentVersion,
+						AgentVersion:      configuration.AgentVersion,
 					},
 				},
 			},

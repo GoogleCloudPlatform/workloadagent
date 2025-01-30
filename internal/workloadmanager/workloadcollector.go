@@ -29,6 +29,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce/wlm"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 	dwpb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/datawarehouse"
 )
@@ -59,7 +60,7 @@ type WorkloadMetrics struct {
 
 // WLMWriter is an interface for writing insights to Data Warehouse.
 type WLMWriter interface {
-	WriteInsight(project, location string, writeInsightRequest *dwpb.WriteInsightRequest) error
+	WriteInsightAndGetResponse(project, location string, writeInsightRequest *dwpb.WriteInsightRequest) (*wlm.WriteInsightResponse, error)
 }
 
 // sendMetricsParams defines the set of parameters required to call sendMetrics
@@ -83,18 +84,33 @@ type metricEmitter struct {
 	metrics      map[string]string // Add a field to store metrics for the current workload
 }
 
+// Service is used to collect workload manager metrics and send them to Data Warehouse.
+type Service struct {
+	Config *cpb.Configuration
+	Client WLMWriter
+}
+
 const metricOverridePath = "/etc/google-cloud-workload-agent/wlmmetricoverride.yaml"
 
+// Client creates a new WLM client.
+func Client(ctx context.Context, config *cpb.Configuration) (WLMWriter, error) {
+	client, err := wlm.NewWLMClient(ctx, config.GetDataWarehouseEndpoint())
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
+}
+
 // CollectAndSendMetricsToDataWarehouse collects workload metrics and sends them to Data Warehouse.
-func CollectAndSendMetricsToDataWarehouse(ctx context.Context, wlmService WLMWriter, cp *cpb.CloudProperties) {
+func (s *Service) CollectAndSendMetricsToDataWarehouse(ctx context.Context, a any) {
 	if !readAndLogMetricOverrideYAML(ctx, readFileWrapper) {
 		return
 	}
 	wm := collectOverrideMetrics(ctx, readFileWrapper)
 	sendMetricsToDataWarehouse(ctx, sendMetricsParams{
 		wm:         wm,
-		cp:         cp,
-		wlmService: wlmService,
+		cp:         s.Config.GetCloudProperties(),
+		wlmService: s.Client,
 	})
 }
 
@@ -210,26 +226,28 @@ func sendMetricsToDataWarehouse(ctx context.Context, params sendMetricsParams) {
 }
 
 // SendDataInsight sends a data insight to Data Warehouse.
-func SendDataInsight(ctx context.Context, params SendDataInsightParams) {
+func SendDataInsight(ctx context.Context, params SendDataInsightParams) (*wlm.WriteInsightResponse, error) {
 	log.CtxLogger(ctx).Infow("Sending data insight to Data Warehouse", "workload_type", params.WLMetrics.WorkloadType)
 
 	req := createWriteInsightRequest(ctx, params.WLMetrics, params.CloudProps)
-	err := params.WLMService.WriteInsight(params.CloudProps.GetProjectId(), params.CloudProps.GetRegion(), req)
+	res, err := params.WLMService.WriteInsightAndGetResponse(params.CloudProps.GetProjectId(), params.CloudProps.GetRegion(), req)
 	if err != nil {
 		log.CtxLogger(ctx).Errorw("Failed to send metrics to Data Warehouse", "error", err, "workload_type", params.WLMetrics.WorkloadType)
 		usagemetrics.Error(usagemetrics.DataWarehouseWriteInsightFailure)
-		return
+		return nil, err
 	}
 	log.CtxLogger(ctx).Infow("Sent metrics to Data Warehouse", "workload_type", params.WLMetrics.WorkloadType)
+	return res, nil
 }
 
 // createWriteInsightRequest creates a WriteInsightRequest from the given WorkloadMetrics and CloudProperties.
 func createWriteInsightRequest(ctx context.Context, wm WorkloadMetrics, cp *cpb.CloudProperties) *dwpb.WriteInsightRequest {
 	log.CtxLogger(ctx).Debugw("Create WriteInsightRequest and call WriteInsight", "workload_type", wm.WorkloadType)
 	workloadTypeMap := map[WorkloadType]dwpb.TorsoValidation_WorkloadType{
-		ORACLE: dwpb.TorsoValidation_ORACLE,
-		MYSQL:  dwpb.TorsoValidation_MYSQL,
-		REDIS:  dwpb.TorsoValidation_REDIS,
+		ORACLE:  dwpb.TorsoValidation_ORACLE,
+		MYSQL:   dwpb.TorsoValidation_MYSQL,
+		REDIS:   dwpb.TorsoValidation_REDIS,
+		UNKNOWN: dwpb.TorsoValidation_WORKLOAD_TYPE_UNSPECIFIED,
 	}
 
 	workloadType, ok := workloadTypeMap[wm.WorkloadType]

@@ -23,6 +23,7 @@ import (
 
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 )
@@ -30,12 +31,26 @@ import (
 // Service is used to perform data warehouse activation checks.
 type Service struct {
 	Config *cpb.Configuration
+	Client workloadmanager.WLMWriter
 }
 
-// TODO: Implement the activation check against the data warehouse API.
-// checkActivation checks if the data warehouse is activated.
+// checkActivation checks if the data warehouse is activated by sending an empty insight.
+// The data warehouse returns a 201 status code if it is activated.
 func (s Service) checkActivation(ctx context.Context) (bool, error) {
-	return true, nil
+	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
+		WLMetrics: workloadmanager.WorkloadMetrics{
+			WorkloadType: workloadmanager.UNKNOWN,
+			Metrics:      map[string]string{},
+		},
+		CloudProps: s.Config.GetCloudProperties(),
+		WLMService: s.Client,
+	})
+	if err != nil {
+		log.CtxLogger(ctx).Infow("Encountered error checking DW activation", "error", err)
+		return false, err
+	}
+	log.CtxLogger(ctx).Debugw("WriteInsight response", "StatusCode", res.HTTPStatusCode)
+	return res.HTTPStatusCode == 201, nil
 }
 
 func (s Service) dwActivationLoop(ctx context.Context) (servicecommunication.DataWarehouseActivationResult, error) {

@@ -179,10 +179,11 @@ func defaultConfig(cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) 
 		return nil, fmt.Errorf("parsing JSON content containing Oracle queries from the embedded default_queries.json file: %w", err)
 	}
 	return &cpb.Configuration{
-		AgentProperties: &cpb.AgentProperties{Name: AgentName, Version: AgentVersion},
-		LogToCloud:      proto.Bool(true),
-		LogLevel:        cpb.Configuration_INFO,
-		CloudProperties: cloudProps,
+		AgentProperties:       &cpb.AgentProperties{Name: AgentName, Version: AgentVersion},
+		LogToCloud:            proto.Bool(true),
+		LogLevel:              cpb.Configuration_INFO,
+		CloudProperties:       cloudProps,
+		DataWarehouseEndpoint: "https://workloadmanager-datawarehouse.googleapis.com/",
 		OracleConfiguration: &cpb.OracleConfiguration{
 			Enabled: proto.Bool(false),
 			OracleDiscovery: &cpb.OracleDiscovery{

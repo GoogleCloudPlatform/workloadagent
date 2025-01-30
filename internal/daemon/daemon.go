@@ -36,7 +36,6 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
-	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce/wlm"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/recovery"
 
@@ -168,7 +167,13 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 	}
 	recoverableStart.StartRoutine(ctx)
 
-	dwActivation := datawarehouseactivation.Service{Config: d.config}
+	wlmClient, err := workloadmanager.Client(ctx, d.config)
+	if err != nil {
+		log.Logger.Errorw("Error creating WLM Client", "error", err)
+		usagemetrics.Error(usagemetrics.WorkloadManagerConnectionError)
+		return err
+	}
+	dwActivation := datawarehouseactivation.Service{Config: d.config, Client: wlmClient}
 	recoverableStart = &recovery.RecoverableRoutine{
 		Routine:             dwActivation.DataWarehouseActivationCheck,
 		RoutineArg:          scChs,
@@ -196,37 +201,21 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 		recoverableStart.StartRoutine(ctx)
 	}
 
+	metricCollectionService := workloadmanager.Service{Config: d.config, Client: wlmClient}
+	metricCollectionCtx := log.SetCtx(ctx, "context", "WorkloadManagerMetrics")
 	recoverableStart = &recovery.RecoverableRoutine{
-		Routine:             startMetricsCollection,
+		Routine:             metricCollectionService.CollectAndSendMetricsToDataWarehouse,
 		RoutineArg:          d.config,
 		ErrorCode:           0,
 		ExpectedMinDuration: 0,
 		UsageLogger:         *usagemetrics.UsageLogger,
 	}
-	recoverableStart.StartRoutine(ctx)
+	recoverableStart.StartRoutine(metricCollectionCtx)
 
 	// Log a RUNNING usage metric once a day.
 	go usagemetrics.LogRunningDaily()
 	d.waitForShutdown(shutdownch, cancel)
 	return nil
-}
-
-/*
- * startMetricsCollection handles the logic for overriding Workload Manager (WLM) metrics.
- * Future enhancements will include the collection of actual WLM metrics.
- *
- * Initializes a new Workload Manager (WLM) client and initiates the metric collection process.
- */
-func startMetricsCollection(ctx context.Context, a any) {
-	config := a.(*cpb.Configuration)
-	wlmService, err := wlm.NewWLMClient(ctx, config.GetDataWarehouseEndpoint())
-	if err != nil {
-		log.Logger.Errorw("Error creating WLM Client", "error", err)
-		usagemetrics.Error(usagemetrics.WorkloadManagerConnectionError)
-		return
-	}
-	wmCtx := log.SetCtx(ctx, "context", "WorkloadManagerMetrics")
-	workloadmanager.CollectAndSendMetricsToDataWarehouse(wmCtx, wlmService, config.GetCloudProperties())
 }
 
 // configureUsageMetricsForDaemon sets up UsageMetrics for Daemon.

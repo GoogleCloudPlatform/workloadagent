@@ -22,9 +22,27 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"google.golang.org/api/googleapi"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce/wlm"
+	dwpb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/datawarehouse"
 )
+
+type fakeWLMWriter struct {
+	writeInsightResponse *wlm.WriteInsightResponse
+	writeInsightError    error
+}
+
+func (f *fakeWLMWriter) WriteInsight(project, location string, writeInsightRequest *dwpb.WriteInsightRequest) error {
+	return f.writeInsightError
+}
+
+func (f *fakeWLMWriter) WriteInsightAndGetResponse(project, location string, writeInsightRequest *dwpb.WriteInsightRequest) (*wlm.WriteInsightResponse, error) {
+	return f.writeInsightResponse, f.writeInsightError
+}
+
+var ActivatedClient *fakeWLMWriter = &fakeWLMWriter{writeInsightResponse: &wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}}}
 
 func TestDataWarehouseActivationCheck(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -34,6 +52,7 @@ func TestDataWarehouseActivationCheck(t *testing.T) {
 	defer close(ch)
 
 	service := Service{}
+	service.Client = ActivatedClient
 	go service.DataWarehouseActivationCheck(ctx, []chan<- *servicecommunication.Message{ch})
 
 	select {
@@ -72,6 +91,7 @@ func TestDwActivationLoop(t *testing.T) {
 	ctx := context.Background()
 
 	service := Service{}
+	service.Client = ActivatedClient
 	result, err := service.dwActivationLoop(ctx)
 	if err != nil {
 		t.Fatalf("dwActivationLoop() returned an unexpected error: %v", err)
