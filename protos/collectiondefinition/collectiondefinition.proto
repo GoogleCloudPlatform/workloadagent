@@ -17,7 +17,7 @@ syntax = "proto3";
 
 package workloadagent.protos.collectiondefinition;
 
-import "workloadagentplatform/integration/common/shared/protos/configurablemetrics/configurablemetrics.proto";
+import "workloadagentplatform/sharedprotos/configurablemetrics/configurablemetrics.proto";
 
 option go_package = "github.com/GoogleCloudPlatform/workloadagent/protos/configuration";
 
@@ -35,11 +35,13 @@ message WorkloadManager {
 }
 
 message MySQLMetrics {
-  repeated workloadagentplatform.integration.common.shared.protos
-      .configurablemetrics.OSCommandMetric os_command_metrics = 1;
+  repeated
+      workloadagentplatform.sharedprotos.configurablemetrics.OSCommandMetric
+          os_command_metrics = 1;
 }
 
 message RedisMetrics {
-  repeated workloadagentplatform.integration.common.shared.protos
-      .configurablemetrics.OSCommandMetric os_command_metrics = 1;
+  repeated
+      workloadagentplatform.sharedprotos.configurablemetrics.OSCommandMetric
+          os_command_metrics = 1;
 }
