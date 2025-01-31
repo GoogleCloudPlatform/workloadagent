@@ -146,6 +146,13 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 	shutdownch := make(chan os.Signal, 1)
 	signal.Notify(shutdownch, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 
+	wlmClient, err := workloadmanager.Client(ctx, d.config)
+	if err != nil {
+		log.Logger.Errorw("Error creating WLM Client", "error", err)
+		usagemetrics.Error(usagemetrics.WorkloadManagerConnectionError)
+		return err
+	}
+
 	log.Logger.Info("Starting common discovery")
 	oracleCh := make(chan *servicecommunication.Message, 3)
 	mySQLCh := make(chan *servicecommunication.Message, 3)
@@ -167,12 +174,6 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 	}
 	recoverableStart.StartRoutine(ctx)
 
-	wlmClient, err := workloadmanager.Client(ctx, d.config)
-	if err != nil {
-		log.Logger.Errorw("Error creating WLM Client", "error", err)
-		usagemetrics.Error(usagemetrics.WorkloadManagerConnectionError)
-		return err
-	}
 	dwActivation := datawarehouseactivation.Service{Config: d.config, Client: wlmClient}
 	recoverableStart = &recovery.RecoverableRoutine{
 		Routine:             dwActivation.DataWarehouseActivationCheck,
@@ -186,7 +187,7 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 	// Add any additional services here.
 	d.services = []Service{
 		&oracle.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: oracleCh},
-		&mysql.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: mySQLCh},
+		&mysql.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: mySQLCh, WLMClient: wlmClient},
 		&redis.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: redisCh},
 		&sqlserver.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: sqlserverCh},
 	}

@@ -20,13 +20,17 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strconv"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/protobuf/testing/protocmp"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/commandlineexecutor"
 	gcefake "github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce/fake"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce/wlm"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 )
 
@@ -40,21 +44,26 @@ func (t *testGCE) GetSecret(ctx context.Context, projectID, secretName string) (
 }
 
 type testDB struct {
-	rows rowsInterface
-	err  error
+	engineRows     rowsInterface
+	engineErr      error
+	bufferPoolRows rowsInterface
+	bufferPoolErr  error
 }
 
 func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (rowsInterface, error) {
-	return t.rows, t.err
+	if query == "SHOW ENGINES" {
+		return t.engineRows, t.engineErr
+	} else if query == "SELECT @@innodb_buffer_pool_size" {
+		return t.bufferPoolRows, t.bufferPoolErr
+	}
+	return nil, nil
 }
 
 func (t *testDB) Ping() error {
-	return t.err
+	return nil
 }
 
-var emptyDB = &testDB{
-	err: nil,
-}
+var emptyDB = &testDB{}
 
 type bufferPoolRows struct {
 	count     int
@@ -232,8 +241,8 @@ func TestBufferPoolSize(t *testing.T) {
 			name: "HappyPath",
 			m: MySQLMetrics{
 				db: &testDB{
-					rows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
-					err:  nil,
+					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
+					bufferPoolErr:  nil,
 				},
 			},
 			want:    134217728,
@@ -243,8 +252,8 @@ func TestBufferPoolSize(t *testing.T) {
 			name: "EmptyResult",
 			m: MySQLMetrics{
 				db: &testDB{
-					rows: &bufferPoolRows{count: 0, size: 0, data: 0, shouldErr: false},
-					err:  nil,
+					bufferPoolRows: &bufferPoolRows{count: 0, size: 0, data: 0, shouldErr: false},
+					bufferPoolErr:  nil,
 				},
 			},
 			want:    0,
@@ -254,7 +263,7 @@ func TestBufferPoolSize(t *testing.T) {
 			name: "QueryError",
 			m: MySQLMetrics{
 				db: &testDB{
-					err: errors.New("test-error"),
+					bufferPoolErr: errors.New("test-error"),
 				},
 			},
 			want:    0,
@@ -264,8 +273,8 @@ func TestBufferPoolSize(t *testing.T) {
 			name: "ScanError",
 			m: MySQLMetrics{
 				db: &testDB{
-					rows: &bufferPoolRows{count: 0, size: 1, data: 0, shouldErr: true},
-					err:  nil,
+					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 0, shouldErr: true},
+					bufferPoolErr:  nil,
 				},
 			},
 			want:    0,
@@ -295,7 +304,7 @@ func TestIsInnoDBStorageEngine(t *testing.T) {
 			name: "HappyPath",
 			m: MySQLMetrics{
 				db: &testDB{
-					rows: &isInnoDBRows{
+					engineRows: &isInnoDBRows{
 						count: 0,
 						size:  1,
 						data: []sql.NullString{
@@ -308,7 +317,7 @@ func TestIsInnoDBStorageEngine(t *testing.T) {
 						},
 						shouldErr: false,
 					},
-					err: nil,
+					engineErr: nil,
 				},
 			},
 			want:    true,
@@ -318,7 +327,7 @@ func TestIsInnoDBStorageEngine(t *testing.T) {
 			name: "NotDefault",
 			m: MySQLMetrics{
 				db: &testDB{
-					rows: &isInnoDBRows{
+					engineRows: &isInnoDBRows{
 						count: 0,
 						size:  1,
 						data: []sql.NullString{
@@ -331,7 +340,7 @@ func TestIsInnoDBStorageEngine(t *testing.T) {
 						},
 						shouldErr: false,
 					},
-					err: nil,
+					engineErr: nil,
 				},
 			},
 			want:    false,
@@ -341,7 +350,7 @@ func TestIsInnoDBStorageEngine(t *testing.T) {
 			name: "OtherStorageEngineAsDefault",
 			m: MySQLMetrics{
 				db: &testDB{
-					rows: &isInnoDBRows{
+					engineRows: &isInnoDBRows{
 						count: 0,
 						size:  1,
 						data: []sql.NullString{
@@ -354,7 +363,7 @@ func TestIsInnoDBStorageEngine(t *testing.T) {
 						},
 						shouldErr: false,
 					},
-					err: nil,
+					engineErr: nil,
 				},
 			},
 			want:    false,
@@ -364,13 +373,13 @@ func TestIsInnoDBStorageEngine(t *testing.T) {
 			name: "EmptyResult",
 			m: MySQLMetrics{
 				db: &testDB{
-					rows: &isInnoDBRows{
+					engineRows: &isInnoDBRows{
 						count:     0,
 						size:      0,
 						data:      []sql.NullString{},
 						shouldErr: false,
 					},
-					err: nil,
+					engineErr: nil,
 				},
 			},
 			want:    false,
@@ -380,7 +389,7 @@ func TestIsInnoDBStorageEngine(t *testing.T) {
 			name: "QueryError",
 			m: MySQLMetrics{
 				db: &testDB{
-					err: errors.New("test-error"),
+					engineErr: errors.New("test-error"),
 				},
 			},
 			want:    false,
@@ -390,13 +399,13 @@ func TestIsInnoDBStorageEngine(t *testing.T) {
 			name: "ScanError",
 			m: MySQLMetrics{
 				db: &testDB{
-					rows: &isInnoDBRows{
+					engineRows: &isInnoDBRows{
 						count:     0,
 						size:      1,
 						data:      []sql.NullString{},
 						shouldErr: true,
 					},
-					err: nil,
+					engineErr: nil,
 				},
 			},
 			want:    false,
@@ -510,7 +519,7 @@ func TestNew(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		got := New(context.Background(), tc.cfg)
+		got := New(context.Background(), tc.cfg, nil)
 		if diff := cmp.Diff(tc.want, got.Config, protocmp.Transform()); diff != "" {
 			t.Errorf("New() test %v returned diff (-want +got):\n%s", tc.name, diff)
 		}
@@ -686,6 +695,233 @@ func TestInitDB(t *testing.T) {
 		gotErr := err != nil
 		if gotErr != tc.wantErr {
 			t.Errorf("InitDB(%v) = %v, wantErr %v", tc.name, err, tc.wantErr)
+		}
+	}
+}
+
+func TestCollectMetricsOnce(t *testing.T) {
+	tests := []struct {
+		name        string
+		m           MySQLMetrics
+		wantMetrics *workloadmanager.WorkloadMetrics
+		wantErr     bool
+	}{
+		{
+			name: "HappyPath",
+			m: MySQLMetrics{
+				db: &testDB{
+					engineRows: &isInnoDBRows{
+						count: 0,
+						size:  1,
+						data: []sql.NullString{
+							sql.NullString{String: "InnoDB"},
+							sql.NullString{String: "DEFAULT"},
+							sql.NullString{String: "teststring3"},
+							sql.NullString{String: "teststring4"},
+							sql.NullString{String: "teststring5"},
+							sql.NullString{String: "teststring6"},
+						},
+						shouldErr: false,
+					},
+					engineErr:      nil,
+					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
+					bufferPoolErr:  nil,
+				},
+				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{
+						StdOut: "MemTotal:        4025040 kB\n",
+					}
+				},
+				WLMClient: &gcefake.TestWLM{
+					WriteInsightErrs: []error{nil},
+					WriteInsightResponses: []*wlm.WriteInsightResponse{
+						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
+					},
+				},
+			},
+			wantMetrics: &workloadmanager.WorkloadMetrics{
+				WorkloadType: workloadmanager.MYSQL,
+				Metrics: map[string]string{
+					bufferPoolKey: "134217728",
+					totalRAMKey:   strconv.Itoa(4025040 * 1024),
+					innoDBKey:     "true",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "BufferPoolSizeError",
+			m: MySQLMetrics{
+				db: &testDB{
+					engineRows: &isInnoDBRows{
+						count: 0,
+						size:  1,
+						data: []sql.NullString{
+							sql.NullString{String: "InnoDB"},
+							sql.NullString{String: "DEFAULT"},
+							sql.NullString{String: "teststring3"},
+							sql.NullString{String: "teststring4"},
+							sql.NullString{String: "teststring5"},
+							sql.NullString{String: "teststring6"},
+						},
+						shouldErr: false,
+					},
+					engineErr:      nil,
+					bufferPoolRows: nil,
+					bufferPoolErr:  errors.New("test-error"),
+				},
+				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{
+						StdOut: "MemTotal:        4025040 kB\n",
+					}
+				},
+				WLMClient: &gcefake.TestWLM{
+					WriteInsightErrs: []error{nil},
+					WriteInsightResponses: []*wlm.WriteInsightResponse{
+						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
+					},
+				},
+			},
+			wantMetrics: &workloadmanager.WorkloadMetrics{
+				WorkloadType: workloadmanager.MYSQL,
+				Metrics: map[string]string{
+					bufferPoolKey: "0",
+					totalRAMKey:   strconv.Itoa(4025040 * 1024),
+					innoDBKey:     "false",
+				},
+			},
+			wantErr: true,
+		}, {
+			name: "TotalRAMError",
+			m: MySQLMetrics{
+				db: &testDB{
+					engineRows: &isInnoDBRows{
+						count: 0,
+						size:  1,
+						data: []sql.NullString{
+							sql.NullString{String: "InnoDB"},
+							sql.NullString{String: "DEFAULT"},
+							sql.NullString{String: "teststring3"},
+							sql.NullString{String: "teststring4"},
+							sql.NullString{String: "teststring5"},
+							sql.NullString{String: "teststring6"},
+						},
+						shouldErr: false,
+					},
+					engineErr:      nil,
+					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
+					bufferPoolErr:  nil,
+				},
+				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{
+						Error: errors.New("test-error"),
+					}
+				},
+				WLMClient: &gcefake.TestWLM{
+					WriteInsightErrs: []error{nil},
+					WriteInsightResponses: []*wlm.WriteInsightResponse{
+						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
+					},
+				},
+			},
+			wantMetrics: &workloadmanager.WorkloadMetrics{
+				WorkloadType: workloadmanager.MYSQL,
+				Metrics: map[string]string{
+					bufferPoolKey: "134217728",
+					totalRAMKey:   "0",
+					innoDBKey:     "true",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "IsInnoDBDefaultError",
+			m: MySQLMetrics{
+				db: &testDB{
+					engineRows:     nil,
+					engineErr:      errors.New("test-error"),
+					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
+					bufferPoolErr:  nil,
+				},
+				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{
+						StdOut: "MemTotal:        4025040 kB\n",
+					}
+				},
+				WLMClient: &gcefake.TestWLM{
+					WriteInsightErrs: []error{nil},
+					WriteInsightResponses: []*wlm.WriteInsightResponse{
+						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
+					},
+				},
+			},
+			wantMetrics: &workloadmanager.WorkloadMetrics{
+				WorkloadType: workloadmanager.MYSQL,
+				Metrics: map[string]string{
+					bufferPoolKey: "134217728",
+					totalRAMKey:   strconv.Itoa(4025040 * 1024),
+					innoDBKey:     "false",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "WLMClientError",
+			m: MySQLMetrics{
+				db: &testDB{
+					engineRows: &isInnoDBRows{
+						count: 0,
+						size:  1,
+						data: []sql.NullString{
+							sql.NullString{String: "InnoDB"},
+							sql.NullString{String: "DEFAULT"},
+							sql.NullString{String: "teststring3"},
+							sql.NullString{String: "teststring4"},
+							sql.NullString{String: "teststring5"},
+							sql.NullString{String: "teststring6"},
+						},
+						shouldErr: false,
+					},
+					engineErr:      nil,
+					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
+					bufferPoolErr:  nil,
+				},
+				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{
+						StdOut: "MemTotal:        4025040 kB\n",
+					}
+				},
+				WLMClient: &gcefake.TestWLM{
+					WriteInsightErrs: []error{errors.New("test-error")},
+					WriteInsightResponses: []*wlm.WriteInsightResponse{
+						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 400}},
+					},
+				},
+			},
+			wantMetrics: &workloadmanager.WorkloadMetrics{
+				WorkloadType: workloadmanager.MYSQL,
+				Metrics: map[string]string{
+					bufferPoolKey: "134217728",
+					totalRAMKey:   strconv.Itoa(4025040 * 1024),
+					innoDBKey:     "true",
+				},
+			},
+			wantErr: true,
+		},
+	}
+
+	ctx := context.Background()
+
+	for _, tc := range tests {
+		gotMetrics, err := tc.m.CollectMetricsOnce(ctx)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("CollectMetricsOnce(%v) returned no error, want error", tc.name)
+			}
+			continue
+		}
+		if diff := cmp.Diff(tc.wantMetrics, gotMetrics, protocmp.Transform()); diff != "" {
+			t.Errorf("CollectMetricsOnce(%v) returned diff (-want +got):\n%s", tc.name, diff)
 		}
 	}
 }

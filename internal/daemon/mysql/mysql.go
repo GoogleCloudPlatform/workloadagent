@@ -26,6 +26,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/mysqlmetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
@@ -40,6 +41,7 @@ type Service struct {
 	processes      servicecommunication.DiscoveryResult
 	mySQLProcesses []servicecommunication.ProcessWrapper
 	dwActivated    bool
+	WLMClient      workloadmanager.WLMWriter
 }
 
 type runDiscoveryArgs struct {
@@ -63,7 +65,7 @@ func (s *Service) Start(ctx context.Context, a any) {
 			s.checkServiceCommunication(ctx)
 		}
 	})()
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	enabled := s.Config.GetMysqlConfiguration().GetEnabled()
 EnableCheck:
@@ -148,7 +150,7 @@ func runMetricCollection(ctx context.Context, a any) {
 		log.CtxLogger(ctx).Errorf("initializing GCE services: %w", err)
 		return
 	}
-	m := mysqlmetrics.New(ctx, args.s.Config)
+	m := mysqlmetrics.New(ctx, args.s.Config, args.s.WLMClient)
 	err = m.InitDB(ctx, gceService)
 	if err != nil {
 		log.CtxLogger(ctx).Errorf("failed to initialize MySQL DB: %v", err)

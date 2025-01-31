@@ -27,9 +27,16 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/secret"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/commandlineexecutor"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
+)
+
+const (
+	innoDBKey     = "is_inno_db_default"
+	bufferPoolKey = "buffer_pool_size"
+	totalRAMKey   = "total_ram"
 )
 
 type gceInterface interface {
@@ -62,10 +69,11 @@ func (d dbWrapper) Ping() error {
 
 // MySQLMetrics contains variables and methods to collect metrics for MySQL databases running on the current host.
 type MySQLMetrics struct {
-	execute commandlineexecutor.Execute
-	Config  *configpb.Configuration
-	db      dbInterface
-	connect func(ctx context.Context, dataSource string) (dbInterface, error)
+	execute   commandlineexecutor.Execute
+	Config    *configpb.Configuration
+	db        dbInterface
+	connect   func(ctx context.Context, dataSource string) (dbInterface, error)
+	WLMClient workloadmanager.WLMWriter
 }
 
 type engineResult struct {
@@ -122,11 +130,12 @@ func (m *MySQLMetrics) dbDSN(ctx context.Context, gceService gceInterface) (stri
 }
 
 // New creates a new MySQLMetrics object initialized with default values.
-func New(ctx context.Context, config *configpb.Configuration) *MySQLMetrics {
+func New(ctx context.Context, config *configpb.Configuration, wlmClient workloadmanager.WLMWriter) *MySQLMetrics {
 	return &MySQLMetrics{
-		execute: commandlineexecutor.ExecuteCommand,
-		Config:  config,
-		connect: defaultConnect,
+		execute:   commandlineexecutor.ExecuteCommand,
+		Config:    config,
+		connect:   defaultConnect,
+		WLMClient: wlmClient,
 	}
 }
 
@@ -253,20 +262,40 @@ func (m *MySQLMetrics) totalRAM(ctx context.Context) (int, error) {
 }
 
 // CollectMetricsOnce collects metrics for MySQL databases running on the host.
-func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context) {
+func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmanager.WorkloadMetrics, error) {
 	bufferPoolSize, err := m.bufferPoolSize(ctx)
 	if err != nil {
 		log.CtxLogger(ctx).Warnf("Failed to get buffer pool size: %v", err)
+		return nil, err
 	}
 	totalRAM, err := m.totalRAM(ctx)
 	if err != nil {
 		log.CtxLogger(ctx).Warnf("Failed to get total RAM: %v", err)
+		return nil, err
 	}
 
 	isInnoDBDefault, err := m.isInnoDBStorageEngine(ctx)
 	if err != nil {
 		log.CtxLogger(ctx).Warnf("Failed to get InnoDB default status: %v", err)
+		return nil, err
 	}
-	// TODO: send these metrics to Data Warehouse.
-	log.CtxLogger(ctx).Debugw("Finished collecting MySQL metrics once", "bufferPoolSize", bufferPoolSize, "totalRAM", totalRAM, "isInnoDBDefault", isInnoDBDefault)
+	log.CtxLogger(ctx).Debugw("Finished collecting MySQL metrics once. Next step is to send to WLM (DW).", "bufferPoolSize", bufferPoolSize, "totalRAM", totalRAM, "isInnoDBDefault", isInnoDBDefault)
+	metrics := workloadmanager.WorkloadMetrics{
+		WorkloadType: workloadmanager.MYSQL,
+		Metrics: map[string]string{
+			bufferPoolKey: strconv.FormatInt(bufferPoolSize, 10),
+			totalRAMKey:   strconv.Itoa(totalRAM),
+			innoDBKey:     strconv.FormatBool(isInnoDBDefault),
+		},
+	}
+	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
+		WLMetrics:  metrics,
+		CloudProps: m.Config.GetCloudProperties(),
+		WLMService: m.WLMClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	log.CtxLogger(ctx).Debugw("WriteInsight response", "StatusCode", res.HTTPStatusCode)
+	return &metrics, nil
 }
