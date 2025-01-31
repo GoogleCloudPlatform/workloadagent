@@ -30,6 +30,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/logusage"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/version"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics/migration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce/metadataserver"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 
@@ -66,6 +67,18 @@ func main() {
 	}
 	rootCmd.AddCommand(version.NewCommand())
 	rootCmd.AddCommand(logusage.NewCommand(lp, cloudProps))
+
+	// SQL Server Agent migration
+	cfgPath := migration.ConfigPathLinux
+	cfgBackupPath := migration.ConfigBackupPathLinux
+	if lp.OSType == "windows" {
+		cfgPath = migration.ConfigPathWindows
+		cfgBackupPath = migration.ConfigBackupPathWindows
+	}
+	if err := migration.MigrateSQLServerConfigurations(cfgBackupPath, cfgPath); err != nil {
+		log.Logger.Error("Failed to migrate SQL Server configurations. Please complete the configuration migration manually. Error: %v", err)
+	}
+
 	d := daemon.NewDaemon(lp, cloudProps)
 	daemonCmd := daemon.NewDaemonSubCommand(d)
 

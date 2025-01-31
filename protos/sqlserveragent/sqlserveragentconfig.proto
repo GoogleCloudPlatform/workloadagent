@@ -1,0 +1,100 @@
+/*
+Copyright 2024 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+// sqlserveragentconfig.proto
+// Definition of the GC SQL Server agent protocol buffer.
+
+syntax = "proto3";
+
+package workloadagent.protos.sqlserveragent;
+
+option go_package = "github.com/GoogleCloudPlatform/workloadagent/protos/sqlserveragent";
+
+message Configuration {
+  CollectionConfiguration collection_configuration = 1;
+  repeated CredentialConfiguration credential_configuration = 2;
+  // default logging is INFO level
+  string log_level = 3;
+  // default is 10 seconds
+  int32 collection_timeout_seconds = 4;
+  // default max_retries is 3
+  int32 max_retries = 5;
+  // default retry_interval is 3600
+  int32 retry_interval_in_seconds = 6;
+  // default remote collection is false
+  bool remote_collection = 7;
+  // default log_to_cloud is false
+  bool log_to_cloud = 8;
+  // default log_usage is false
+  bool disable_log_usage = 9;
+}
+
+message CollectionConfiguration {
+  // defaults to True
+  // enables or disables guest os collection
+  bool collect_guest_os_metrics = 1;
+  // defaults to 3600 (1 hour)
+  // guest os metrics collection interval
+  int32 guest_os_metrics_collection_interval_in_seconds = 2;
+  // defaultsto True
+  // enables or disables SQL Server collection
+  bool collect_sql_metrics = 3;
+  // defaults to 3600 (1 hour)
+  // SQL Server metrics collection interval
+  int32 sql_metrics_collection_interval_in_seconds = 4;
+}
+
+message CredentialConfiguration {
+  message SqlCredentials {
+    // host name for SQL Server connection
+    string host = 1;
+    // full user name for SQL Server connection
+    string user_name = 2;
+    // credential secret name stored in secrets manager
+    string secret_name = 3;
+    // defaults to 1433
+    int32 port_number = 4;
+  }
+  message GuestCredentialsRemoteWin {
+    // full server name
+    string server_name = 1;
+    // full user name for guest collection
+    string guest_user_name = 2;
+    // credential secret name stored in secrets manager
+    string guest_secret_name = 3;
+  }
+
+  message GuestCredentialsRemoteLinux {
+    // full server name
+    string server_name = 1;
+    // full user name for guest collection
+    string guest_user_name = 2;
+    // credential secret name stored in secrets manager
+    int32 guest_port_number = 3;
+    // private key for linux remote collection
+    string linux_ssh_private_key_path = 4;
+  }
+  // instance_name of target machine, typically the remote machine
+  string instance_name = 5;
+  // instance_idof target machine, typically the remote machine
+  string instance_id = 6;
+  repeated SqlCredentials sql_configurations = 7;
+  oneof guest_configurations {
+    bool local_collection = 8;
+    GuestCredentialsRemoteWin remote_win = 9;
+    GuestCredentialsRemoteLinux remote_linux = 10;
+  }
+}
