@@ -40,6 +40,7 @@ jobs:
 
     - name: Commit the compiled protos
       run: |
+        git rm workloadagentplatform
         git config --global user.name 'Git bot'
         git config --global user.email 'bot@noreply.github.com'
         git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
