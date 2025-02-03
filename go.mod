@@ -6,15 +6,11 @@ replace github.com/GoogleCloudPlatform/workloadagent/internal => ./internal
 
 replace github.com/GoogleCloudPlatform/workloadagent/protos => ./protos
 
-replace github.com/GoogleCloudPlatform/workloadagentplatform/integration/common => ./workloadagentplatform/integration/common
-
-replace github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos => ./workloadagentplatform/sharedprotos
-
 require (
   cloud.google.com/go/monitoring v1.17.1
   github.com/DATA-DOG/go-sqlmock v1.5.0
   github.com/GoogleCloudPlatform/workloadagentplatform/integration/common v0.0.0-20250130120719-3629ab2f4c43
-  github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20250130120719-3629ab2f4c43
+  github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20250130133413-c271b7e1b5ad
   github.com/StackExchange/wmi v1.2.1
   github.com/cenkalti/backoff/v4 v4.1.3
   github.com/gammazero/workerpool v1.1.3

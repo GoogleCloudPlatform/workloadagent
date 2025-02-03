@@ -7,7 +7,8 @@ name: go-build-protos
 on:
   push:
     branches: [ "main" ]
-    path: protos/**.proto
+    path:
+      - 'protos/**.proto'
 
 jobs:
   build-protos:
@@ -23,6 +24,9 @@ jobs:
     - name: Add workloadagentplatform submodule
       run: |
         git submodule add https://github.com/GoogleCloudPlatform/workloadagentplatform
+        cd workloadagentplatform
+        git checkout c271b7e1b5adb90dff344c969bb44ee1133d0f8c
+        cd ..
         find workloadagentplatform/sharedprotos -type f -exec sed -i 's|"sharedprotos|"workloadagentplatform/sharedprotos|g' {} +
 
     - name: Install Protoc
