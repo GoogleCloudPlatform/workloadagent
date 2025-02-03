@@ -7,7 +7,7 @@ name: go-build-protos
 on:
   push:
     branches: [ "main" ]
-    path:
+    paths:
       - 'protos/**.proto'
 
 jobs:
