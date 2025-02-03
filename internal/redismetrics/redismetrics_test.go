@@ -22,9 +22,14 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/redis/go-redis/v9"
+	"google.golang.org/api/googleapi"
+	"google.golang.org/protobuf/testing/protocmp"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	gcefake "github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce/fake"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce/wlm"
 )
 
 type testGCE struct {
@@ -173,6 +178,101 @@ func TestInitPassword(t *testing.T) {
 		}
 		if got.SecretValue() != tc.want {
 			t.Errorf("password() = %v, want %v", got, tc.want)
+		}
+	}
+}
+
+func TestCollectMetricsOnce(t *testing.T) {
+	tests := []struct {
+		name             string
+		r                RedisMetrics
+		stringCmdValue   string
+		saveMapContent   map[string]string
+		appendMapContent map[string]string
+		wlmClient        workloadmanager.WLMWriter
+		want             *workloadmanager.WorkloadMetrics
+		wantErr          bool
+	}{
+		{
+			name: "HappyPath",
+			r: RedisMetrics{
+				Config: &configpb.Configuration{
+					CloudProperties: &configpb.CloudProperties{
+						ProjectId: "fake-project-id",
+					},
+				},
+				WLMClient: &gcefake.TestWLM{
+					WriteInsightErrs: []error{nil},
+					WriteInsightResponses: []*wlm.WriteInsightResponse{
+						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
+					},
+				},
+			},
+			stringCmdValue: "role:master\nconnected_slaves:1\n",
+			saveMapContent: map[string]string{
+				"save": "3600 1 300 100 60 10000",
+			},
+			appendMapContent: map[string]string{
+				"appendonly": "no",
+			},
+			want: &workloadmanager.WorkloadMetrics{
+				WorkloadType: workloadmanager.REDIS,
+				Metrics: map[string]string{
+					replicationKey: "true",
+					persistenceKey: "true",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "WLMError",
+			r: RedisMetrics{
+				Config: &configpb.Configuration{
+					CloudProperties: &configpb.CloudProperties{
+						ProjectId: "fake-project-id",
+					},
+				},
+				WLMClient: &gcefake.TestWLM{
+					WriteInsightErrs: []error{errors.New("fake-error")},
+					WriteInsightResponses: []*wlm.WriteInsightResponse{
+						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 400}},
+					},
+				},
+			},
+			stringCmdValue: "role:master\nconnected_slaves:1\n",
+			saveMapContent: map[string]string{
+				"save": "3600 1 300 100 60 10000",
+			},
+			appendMapContent: map[string]string{
+				"appendonly": "no",
+			},
+			want:    nil,
+			wantErr: true,
+		},
+	}
+
+	ctx := context.Background()
+
+	for _, tc := range tests {
+		testDB := &testDB{
+			info:         &redis.StringCmd{},
+			saveConfig:   &redis.MapStringStringCmd{},
+			appendConfig: &redis.MapStringStringCmd{},
+		}
+		testDB.info.SetVal(tc.stringCmdValue)
+		testDB.saveConfig.SetVal(tc.saveMapContent)
+		testDB.appendConfig.SetVal(tc.appendMapContent)
+		tc.r.db = testDB
+
+		got, err := tc.r.CollectMetricsOnce(ctx)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("CollectMetricsOnce(%v) returned no error, want error", tc.name)
+			}
+			continue
+		}
+		if diff := cmp.Diff(tc.want, got, protocmp.Transform()); diff != "" {
+			t.Errorf("CollectMetricsOnce(%v) = %v, want %v", tc.name, got, tc.want)
 		}
 	}
 }
@@ -374,12 +474,12 @@ func TestInitDB(t *testing.T) {
 	ctx := context.Background()
 
 	for _, tc := range tests {
-		err := tc.r.InitDB(ctx, tc.gceService)
+		err := tc.r.InitDB(ctx, tc.gceService, &gcefake.TestWLM{})
 		gotErr := err != nil
 		if gotErr != tc.wantErr {
 			t.Errorf("InitDB(%v) = %v, wantErr %v", tc.name, err, tc.wantErr)
 		}
-		if !gotErr && tc.r.db.String() != tc.want {
+		if !gotErr && (tc.r.db.String() != tc.want || tc.r.WLMClient == nil) {
 			t.Errorf("InitDB(%v) = %v, want %v", tc.name, tc.r.db.String(), tc.want)
 		}
 	}

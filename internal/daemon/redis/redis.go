@@ -26,6 +26,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/redismetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
@@ -40,6 +41,7 @@ type Service struct {
 	processes      servicecommunication.DiscoveryResult
 	redisProcesses []servicecommunication.ProcessWrapper
 	dwActivated    bool
+	WLMClient      workloadmanager.WLMWriter
 }
 
 type runDiscoveryArgs struct {
@@ -63,7 +65,7 @@ func (s *Service) Start(ctx context.Context, a any) {
 			s.checkServiceCommunication(ctx)
 		}
 	})()
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	enabled := s.Config.GetRedisConfiguration().GetEnabled()
 EnableCheck:
@@ -149,7 +151,7 @@ func runMetricCollection(ctx context.Context, a any) {
 	r := &redismetrics.RedisMetrics{
 		Config: args.s.Config,
 	}
-	err = r.InitDB(ctx, gceService)
+	err = r.InitDB(ctx, gceService, args.s.WLMClient)
 	if err != nil {
 		log.CtxLogger(ctx).Errorf("failed to initialize Redis DB client", "error", err)
 		return

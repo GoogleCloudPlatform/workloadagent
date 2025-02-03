@@ -25,6 +25,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/secret"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
 )
@@ -42,6 +43,8 @@ const (
 	yes              = "yes"
 	up               = "up"
 	defaultPort      = 6379
+	persistenceKey   = "persistence_enabled"
+	replicationKey   = "replication_enabled"
 )
 
 type gceInterface interface {
@@ -56,8 +59,9 @@ type dbInterface interface {
 
 // RedisMetrics contains variables and methods to collect metrics for Redis databases running on the current host.
 type RedisMetrics struct {
-	Config *configpb.Configuration
-	db     dbInterface
+	Config    *configpb.Configuration
+	db        dbInterface
+	WLMClient workloadmanager.WLMWriter
 }
 
 // password gets the password for the Redis database.
@@ -81,7 +85,7 @@ func (r *RedisMetrics) password(ctx context.Context, gceService gceInterface) (s
 }
 
 // InitDB initializes the Redis database client.
-func (r *RedisMetrics) InitDB(ctx context.Context, gceService gceInterface) error {
+func (r *RedisMetrics) InitDB(ctx context.Context, gceService gceInterface, wlmClient workloadmanager.WLMWriter) error {
 	pw, err := r.password(ctx, gceService)
 	if err != nil {
 		return fmt.Errorf("failed to get password: %v", err)
@@ -94,6 +98,7 @@ func (r *RedisMetrics) InitDB(ctx context.Context, gceService gceInterface) erro
 		Addr:     fmt.Sprintf("localhost:%d", port),
 		Password: pw.SecretValue(),
 	})
+	r.WLMClient = wlmClient
 	return nil
 }
 
@@ -166,10 +171,25 @@ func (r *RedisMetrics) persistenceEnabled(ctx context.Context) bool {
 }
 
 // CollectMetricsOnce collects metrics for Redis databases running on the host.
-func (r *RedisMetrics) CollectMetricsOnce(ctx context.Context) {
+func (r *RedisMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmanager.WorkloadMetrics, error) {
 	replicationOn := r.replicationModeActive(ctx)
 	persistenceOn := r.persistenceEnabled(ctx)
-
-	// TODO: send these metrics to Data Warehouse.
-	log.CtxLogger(ctx).Debugw("Finished collecting metrics once.", "replicationOn", replicationOn, "persistenceOn", persistenceOn)
+	log.CtxLogger(ctx).Debugw("Finished collecting metrics once. Next step is to send to WLM (DW).", "replicationOn", replicationOn, "persistenceOn", persistenceOn)
+	metrics := workloadmanager.WorkloadMetrics{
+		WorkloadType: workloadmanager.REDIS,
+		Metrics: map[string]string{
+			replicationKey: strconv.FormatBool(replicationOn),
+			persistenceKey: strconv.FormatBool(persistenceOn),
+		},
+	}
+	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
+		WLMetrics:  metrics,
+		CloudProps: r.Config.GetCloudProperties(),
+		WLMService: r.WLMClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	log.CtxLogger(ctx).Debugw("WriteInsight response", "StatusCode", res.HTTPStatusCode)
+	return &metrics, nil
 }
