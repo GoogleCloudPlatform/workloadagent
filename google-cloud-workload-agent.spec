@@ -65,9 +65,30 @@ if [ -d "/usr/lib/systemd/system/" ]; then
     systemctl daemon-reload
 fi
 
+%define _sqlserver_agent_installed false
+# Backup configuration from google-cloud-sql-server-agent
+if `systemctl is-active --quiet google-cloud-sql-server-agent > /dev/null 2>&1`; then
+  _sqlserver_agent_installed=true
+  # Backup the configuration file
+  if [ -f /etc/google-cloud-sql-server-agent/configuration.json ]; then
+    cp /etc/google-cloud-sql-server-agent/configuration.json /etc/google-cloud-workload-agent/cfg_sqlserver_backup.json
+  fi
+fi
+
 # enable and start the agent
 systemctl enable %{name}
 systemctl start %{name}
+
+# Uninstall google-cloud-sql-server-agent
+if [ "${_sqlserver_agent_installed}" = true ]; then
+  if command -v yum &> /dev/null; then
+    nohup sleep 30 && yum remove -y google-cloud-sql-server-agent > /dev/null 2>&1 &
+  elif command -v zypper &> /dev/null; then
+    nohup sleep 30 && zypper remove -y google-cloud-sql-server-agent > /dev/null 2>&1 &
+  else
+    true
+  fi
+fi
 
 # log usage metrics for install
 timeout 30 %{_bindir}/google_cloud_workload_agent logusage -s INSTALLED &> /dev/null || true

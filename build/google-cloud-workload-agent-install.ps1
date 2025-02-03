@@ -14,6 +14,7 @@ $INSTALL_DIR = 'C:\Program Files\Google\google-cloud-workload-agent'
 $SVC_NAME = 'google-cloud-workload-agent'
 $BIN_NAME_EXE = 'google-cloud-workload-agent.exe'
 $MONITOR_TASK = 'google-cloud-workload-agent-monitor'
+$MIGRATION_TASK = 'google-cloud-workload-agent-migration'
 $LOGS_DIR = "$INSTALL_DIR\logs"
 $CONF_DIR = "$INSTALL_DIR\conf"
 $LOG_FILE ="$LOGS_DIR\google-cloud-workload-agent-install.log"
@@ -107,6 +108,26 @@ function AddMonitor-Task {
   Log-Write "Added scheduled task: $MONITOR_TASK"
 }
 
+function AddMigration-Task {
+  if ($(Get-ScheduledTask $MIGRATION_TASK -ErrorAction Ignore).TaskName) {
+     Log-Write "Scheduled task exists: $MIGRATION_TASK"
+     Unregister-ScheduledTask -TaskName $MIGRATION_TASK -Confirm:$false
+  }
+  Log-Write "Adding scheduled task: $MIGRATION_TASK"
+
+  $action = New-ScheduledTaskAction `
+    -Execute 'Powershell.exe' `
+    -Argument "-File `"$INSTALL_DIR\google-cloud-workload-agent-migration.ps1`" -WindowStyle Hidden" `
+    -WorkingDirectory $INSTALL_DIR
+  $trigger = New-ScheduledTaskTrigger `
+      -Once `
+      -At (Get-Date).AddSeconds(30)
+  Register-ScheduledTask -Action $action -Trigger $trigger `
+    -TaskName $MIGRATION_TASK `
+    -Description $MIGRATION_TASK -User 'System'
+  Log-Write "Added scheduled task: $MIGRATION_TASK"
+}
+
 function  StopService-AndTasks {
   if ($(Get-ScheduledTask $MONITOR_TASK -ErrorAction Ignore).TaskName) {
     Disable-ScheduledTask $MONITOR_TASK
@@ -149,6 +170,12 @@ try {
   Log-Write 'Adding monitor task...'
   AddMonitor-Task
   Log-Write 'Monitor task added'
+
+  if ((Get-Service google-cloud-sql-server-agent -ErrorAction SilentlyContinue) -ne $null) {
+    Log-Write 'sql-server-agent service is running, adding migration task'
+    AddMigration-Task
+    Log-Write 'Migration task added'
+  }
 
   $Success = $true
   Log-Write 'Successuflly installed the Google Cloud Workload Agent'
