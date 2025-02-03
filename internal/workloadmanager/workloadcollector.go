@@ -90,7 +90,8 @@ type Service struct {
 	Client WLMWriter
 }
 
-const metricOverridePath = "/etc/google-cloud-workload-agent/wlmmetricoverride.yaml"
+// MetricOverridePath is the path to the metric override file.
+const MetricOverridePath = "/etc/google-cloud-workload-agent/wlmmetricoverride.yaml"
 
 // Client creates a new WLM client.
 func Client(ctx context.Context, config *cpb.Configuration) (WLMWriter, error) {
@@ -115,7 +116,7 @@ func (s *Service) CollectAndSendMetricsToDataWarehouse(ctx context.Context, a an
 }
 
 func readAndLogMetricOverrideYAML(ctx context.Context, reader ConfigFileReader) bool {
-	file, err := reader(metricOverridePath)
+	file, err := reader(MetricOverridePath)
 	if err != nil {
 		log.CtxLogger(ctx).Debugw("Could not read the metric override file", "error", err)
 		return false
@@ -138,7 +139,7 @@ func readAndLogMetricOverrideYAML(ctx context.Context, reader ConfigFileReader) 
 
 // collectOverrideMetrics reads workload metrics from an override file.
 func collectOverrideMetrics(ctx context.Context, reader ConfigFileReader) []WorkloadMetrics {
-	file, err := reader(metricOverridePath)
+	file, err := reader(MetricOverridePath)
 	if err != nil {
 		log.CtxLogger(ctx).Debugw("Could not read the metric override file", "error", err)
 		return []WorkloadMetrics{}
@@ -263,7 +264,7 @@ func createWriteInsightRequest(ctx context.Context, wm WorkloadMetrics, cp *cpb.
 				ValidationDetails: wm.Metrics,
 				ProjectId:         cp.GetProjectId(),
 				InstanceName:      cp.GetInstanceName(),
-				AgentVersion: configuration.AgentVersion,
+				AgentVersion:      configuration.AgentVersion,
 			},
 		},
 	}
