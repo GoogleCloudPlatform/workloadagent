@@ -43,6 +43,7 @@ func (f *fakeWLMWriter) WriteInsightAndGetResponse(project, location string, wri
 }
 
 var ActivatedClient *fakeWLMWriter = &fakeWLMWriter{writeInsightResponse: &wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}}}
+var NilResponseClient *fakeWLMWriter = &fakeWLMWriter{writeInsightResponse: nil}
 
 func TestDataWarehouseActivationCheck(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -98,5 +99,20 @@ func TestDwActivationLoop(t *testing.T) {
 	}
 	if !cmp.Equal(result, servicecommunication.DataWarehouseActivationResult{Activated: true}) {
 		t.Errorf("dwActivationLoop() = %v, want %v", result, servicecommunication.DataWarehouseActivationResult{Activated: true})
+	}
+}
+
+func TestDwActivationNilResponse(t *testing.T) {
+	ctx := context.Background()
+
+	service := Service{}
+	service.Client = NilResponseClient
+	want := servicecommunication.DataWarehouseActivationResult{Activated: false}
+	result, err := service.dwActivationLoop(ctx)
+	if err != nil {
+		t.Fatalf("dwActivationLoop() returned an unexpected error: %v", err)
+	}
+	if !cmp.Equal(result, want) {
+		t.Errorf("dwActivationLoop() = %v, want %v", result, want)
 	}
 }

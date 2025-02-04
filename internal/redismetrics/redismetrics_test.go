@@ -249,6 +249,35 @@ func TestCollectMetricsOnce(t *testing.T) {
 			want:    nil,
 			wantErr: true,
 		},
+		{
+			name: "NilWriteInsightResponse",
+			r: RedisMetrics{
+				Config: &configpb.Configuration{
+					CloudProperties: &configpb.CloudProperties{
+						ProjectId: "fake-project-id",
+					},
+				},
+				WLMClient: &gcefake.TestWLM{
+					WriteInsightErrs:      []error{nil},
+					WriteInsightResponses: []*wlm.WriteInsightResponse{nil},
+				},
+			},
+			stringCmdValue: "role:master\nconnected_slaves:1\n",
+			saveMapContent: map[string]string{
+				"save": "3600 1 300 100 60 10000",
+			},
+			appendMapContent: map[string]string{
+				"appendonly": "no",
+			},
+			want: &workloadmanager.WorkloadMetrics{
+				WorkloadType: workloadmanager.REDIS,
+				Metrics: map[string]string{
+					replicationKey: "true",
+					persistenceKey: "true",
+				},
+			},
+			wantErr: false,
+		},
 	}
 
 	ctx := context.Background()

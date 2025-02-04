@@ -188,7 +188,7 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 	d.services = []Service{
 		&oracle.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: oracleCh},
 		&mysql.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: mySQLCh, WLMClient: wlmClient},
-		&redis.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: redisCh},
+		&redis.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: redisCh, WLMClient: wlmClient},
 		&sqlserver.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: sqlserverCh},
 	}
 	for _, service := range d.services {

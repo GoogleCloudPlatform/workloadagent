@@ -908,6 +908,47 @@ func TestCollectMetricsOnce(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "NilWriteInsightResponse",
+			m: MySQLMetrics{
+				db: &testDB{
+					engineRows: &isInnoDBRows{
+						count: 0,
+						size:  1,
+						data: []sql.NullString{
+							sql.NullString{String: "InnoDB"},
+							sql.NullString{String: "DEFAULT"},
+							sql.NullString{String: "teststring3"},
+							sql.NullString{String: "teststring4"},
+							sql.NullString{String: "teststring5"},
+							sql.NullString{String: "teststring6"},
+						},
+						shouldErr: false,
+					},
+					engineErr:      nil,
+					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
+					bufferPoolErr:  nil,
+				},
+				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{
+						StdOut: "MemTotal:        4025040 kB\n",
+					}
+				},
+				WLMClient: &gcefake.TestWLM{
+					WriteInsightErrs:      []error{nil},
+					WriteInsightResponses: []*wlm.WriteInsightResponse{nil},
+				},
+			},
+			wantMetrics: &workloadmanager.WorkloadMetrics{
+				WorkloadType: workloadmanager.MYSQL,
+				Metrics: map[string]string{
+					bufferPoolKey: "134217728",
+					totalRAMKey:   strconv.Itoa(4025040 * 1024),
+					innoDBKey:     "true",
+				},
+			},
+			wantErr: false,
+		},
 	}
 
 	ctx := context.Background()

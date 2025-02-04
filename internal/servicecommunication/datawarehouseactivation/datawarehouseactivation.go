@@ -49,6 +49,10 @@ func (s Service) checkActivation(ctx context.Context) (bool, error) {
 		log.CtxLogger(ctx).Infow("Encountered error checking DW activation", "error", err)
 		return false, err
 	}
+	if res == nil {
+		log.CtxLogger(ctx).Warn("SendDataInsight did not return an error but the WriteInsight response is nil")
+		return false, nil
+	}
 	log.CtxLogger(ctx).Debugw("WriteInsight response", "StatusCode", res.HTTPStatusCode)
 	return res.HTTPStatusCode == 201, nil
 }

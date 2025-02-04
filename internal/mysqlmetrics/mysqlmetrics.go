@@ -296,6 +296,10 @@ func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmanager
 	if err != nil {
 		return nil, err
 	}
+	if res == nil {
+		log.CtxLogger(ctx).Warn("SendDataInsight did not return an error but the WriteInsight response is nil")
+		return &metrics, nil
+	}
 	log.CtxLogger(ctx).Debugw("WriteInsight response", "StatusCode", res.HTTPStatusCode)
 	return &metrics, nil
 }
