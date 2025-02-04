@@ -153,6 +153,28 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 		return err
 	}
 
+	// Check if the metric override file exists. If it does, operate in override mode.
+	// Override mode will collect metrics from the override file and send them to Data Warehouse.
+	// Override mode will not start any other services.
+	if fileInfo, err := os.ReadFile(workloadmanager.MetricOverridePath); fileInfo != nil && err == nil {
+		log.Logger.Info("Metric override file found. Operating in override mode.")
+		metricCollectionService := workloadmanager.Service{Config: d.config, Client: wlmClient}
+		metricCollectionCtx := log.SetCtx(ctx, "context", "WorkloadManagerMetrics")
+		recoverableStart := &recovery.RecoverableRoutine{
+			Routine:             metricCollectionService.CollectAndSendMetricsToDataWarehouse,
+			RoutineArg:          d.config,
+			ErrorCode:           0,
+			ExpectedMinDuration: 0,
+			UsageLogger:         *usagemetrics.UsageLogger,
+		}
+		recoverableStart.StartRoutine(metricCollectionCtx)
+
+		// Log a RUNNING usage metric once a day.
+		go usagemetrics.LogRunningDaily()
+		d.waitForShutdown(shutdownch, cancel)
+		return nil
+	}
+
 	log.Logger.Info("Starting common discovery")
 	oracleCh := make(chan *servicecommunication.Message, 3)
 	mySQLCh := make(chan *servicecommunication.Message, 3)
@@ -201,17 +223,6 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 		}
 		recoverableStart.StartRoutine(ctx)
 	}
-
-	metricCollectionService := workloadmanager.Service{Config: d.config, Client: wlmClient}
-	metricCollectionCtx := log.SetCtx(ctx, "context", "WorkloadManagerMetrics")
-	recoverableStart = &recovery.RecoverableRoutine{
-		Routine:             metricCollectionService.CollectAndSendMetricsToDataWarehouse,
-		RoutineArg:          d.config,
-		ErrorCode:           0,
-		ExpectedMinDuration: 0,
-		UsageLogger:         *usagemetrics.UsageLogger,
-	}
-	recoverableStart.StartRoutine(metricCollectionCtx)
 
 	// Log a RUNNING usage metric once a day.
 	go usagemetrics.LogRunningDaily()
