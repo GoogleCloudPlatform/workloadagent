@@ -25,6 +25,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
@@ -49,6 +50,8 @@ const (
 	MYSQL WorkloadType = "MYSQL"
 	// REDIS workload type.
 	REDIS WorkloadType = "REDIS"
+	// collectionFrequency is the frequency at which metrics are collected.
+	collectionFrequency = 5 * time.Minute
 )
 
 // WorkloadMetrics is a struct that collect data from override configuration file for testing purposes.
@@ -107,12 +110,24 @@ func (s *Service) CollectAndSendMetricsToDataWarehouse(ctx context.Context, a an
 	if !readAndLogMetricOverrideYAML(ctx, readFileWrapper) {
 		return
 	}
-	wm := collectOverrideMetrics(ctx, readFileWrapper)
-	sendMetricsToDataWarehouse(ctx, sendMetricsParams{
-		wm:         wm,
-		cp:         s.Config.GetCloudProperties(),
-		wlmService: s.Client,
-	})
+
+	ticker := time.NewTicker(collectionFrequency)
+	defer ticker.Stop()
+	for {
+		wm := collectOverrideMetrics(ctx, readFileWrapper)
+		sendMetricsToDataWarehouse(ctx, sendMetricsParams{
+			wm:         wm,
+			cp:         s.Config.GetCloudProperties(),
+			wlmService: s.Client,
+		})
+		select {
+		case <-ctx.Done():
+			log.CtxLogger(ctx).Info("Metric collection override cancellation requested")
+			return
+		case <-ticker.C:
+			continue
+		}
+	}
 }
 
 func readAndLogMetricOverrideYAML(ctx context.Context, reader ConfigFileReader) bool {
@@ -123,12 +138,12 @@ func readAndLogMetricOverrideYAML(ctx context.Context, reader ConfigFileReader) 
 	}
 	defer file.Close()
 
-	log.CtxLogger(ctx).Info("Using override metrics from yaml file")
+	log.CtxLogger(ctx).Infow("Reading override metrics from yaml file", "file", MetricOverridePath)
 	// Create a new scanner
 	scanner := bufio.NewScanner(file)
 	// Loop over each line in the file
 	for scanner.Scan() {
-		log.CtxLogger(ctx).Debug("Override metric line: %s", scanner.Text())
+		log.CtxLogger(ctx).Debug("Override metric line: " + scanner.Text())
 	}
 	if err = scanner.Err(); err != nil {
 		log.CtxLogger(ctx).Warnw("Could not read from the override metrics file", "error", err)
@@ -175,7 +190,7 @@ func (e *metricEmitter) getMetric(ctx context.Context) (WorkloadType, map[string
 		}
 		key, value, found := strings.Cut(line, ":")
 		if !found {
-			log.CtxLogger(ctx).Warnw("Invalid format: " + line)
+			log.CtxLogger(ctx).Warn("Invalid format: " + line)
 			continue
 		}
 
@@ -228,8 +243,6 @@ func sendMetricsToDataWarehouse(ctx context.Context, params sendMetricsParams) {
 
 // SendDataInsight sends a data insight to Data Warehouse.
 func SendDataInsight(ctx context.Context, params SendDataInsightParams) (*wlm.WriteInsightResponse, error) {
-	log.CtxLogger(ctx).Infow("Sending data insight to Data Warehouse", "workload_type", params.WLMetrics.WorkloadType)
-
 	req := createWriteInsightRequest(ctx, params.WLMetrics, params.CloudProps)
 	res, err := params.WLMService.WriteInsightAndGetResponse(params.CloudProps.GetProjectId(), params.CloudProps.GetRegion(), req)
 	if err != nil {

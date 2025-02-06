@@ -33,6 +33,11 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/recovery"
 )
 
+const (
+	discoveryFrequency     = 10 * time.Minute
+	wlmCollectionFrequency = 5 * time.Minute
+)
+
 // Service implements the interfaces for Redis workload agent service.
 type Service struct {
 	Config         *configpb.Configuration
@@ -120,7 +125,7 @@ func runDiscovery(ctx context.Context, a any) {
 		return
 	}
 	log.CtxLogger(ctx).Debugw("Redis discovery args", "args", args)
-	ticker := time.NewTicker(10 * time.Minute)
+	ticker := time.NewTicker(discoveryFrequency)
 	defer ticker.Stop()
 	for {
 		select {
@@ -156,7 +161,7 @@ func runMetricCollection(ctx context.Context, a any) {
 		log.CtxLogger(ctx).Errorf("failed to initialize Redis DB client", "error", err)
 		return
 	}
-	ticker := time.NewTicker(10 * time.Minute)
+	ticker := time.NewTicker(wlmCollectionFrequency)
 	defer ticker.Stop()
 	for {
 		r.CollectMetricsOnce(ctx)

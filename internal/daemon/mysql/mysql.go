@@ -33,6 +33,11 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/recovery"
 )
 
+const (
+	discoveryFrequency = 10 * time.Minute
+	wlmCollectionFrequency = 5 * time.Minute
+)
+
 // Service implements the interfaces for MySQL workload agent service.
 type Service struct {
 	Config         *configpb.Configuration
@@ -120,7 +125,7 @@ func runDiscovery(ctx context.Context, a any) {
 		return
 	}
 	log.CtxLogger(ctx).Debugw("MySQL discovery args", "args", args)
-	ticker := time.NewTicker(10 * time.Minute)
+	ticker := time.NewTicker(discoveryFrequency)
 	defer ticker.Stop()
 	for {
 		select {
@@ -142,7 +147,7 @@ func runMetricCollection(ctx context.Context, a any) {
 		return
 	}
 	log.CtxLogger(ctx).Debugw("MySQL metric collection args", "args", args)
-	ticker := time.NewTicker(10 * time.Minute)
+	ticker := time.NewTicker(wlmCollectionFrequency)
 	defer ticker.Stop()
 	gceService, err := gce.NewGCEClient(ctx)
 	if err != nil {
