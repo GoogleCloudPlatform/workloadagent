@@ -28,8 +28,8 @@ import (
 	"google.golang.org/protobuf/testing/protocmp"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
-	gcefake "github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce/fake"
-	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce/wlm"
+	gcefake "github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/fake"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/wlm"
 )
 
 type testGCE struct {

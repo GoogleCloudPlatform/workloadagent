@@ -25,16 +25,16 @@ import (
 	"time"
 
 	"github.com/shirou/gopsutil/v3/disk"
-	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce/metadataserver"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/metadataserver"
 
 	bo "github.com/cenkalti/backoff/v4"
 	retry "github.com/sethvargo/go-retry"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics/wlm"
-	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce"
 
 	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics/sqlserverutils"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
-	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 )
 
 // instanceProperties represents properties of instance.

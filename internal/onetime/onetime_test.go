@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	"go.uber.org/zap/zapcore"
-	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 )
 
 func TestSetupOneTimeLogging(t *testing.T) {

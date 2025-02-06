@@ -20,7 +20,7 @@ package mysqldiscovery
 import (
 	"context"
 
-	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 )
 
 // Discover runs the MySQL discovery routine.

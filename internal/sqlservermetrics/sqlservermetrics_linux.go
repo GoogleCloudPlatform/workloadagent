@@ -26,8 +26,8 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics/sqlcollector"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics/sqlserverutils"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
-	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/gce"
-	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 )
 
 // osCollection is the linux implementation of OSCollection.

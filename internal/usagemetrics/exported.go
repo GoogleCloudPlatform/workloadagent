@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"github.com/jonboulle/clockwork"
-	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
-	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/usagemetrics"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/usagemetrics"
 
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )

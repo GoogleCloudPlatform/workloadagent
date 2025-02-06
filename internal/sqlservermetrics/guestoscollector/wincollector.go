@@ -28,7 +28,7 @@ import (
 
 	"github.com/StackExchange/wmi"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics/sqlserverutils"
-	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 )
 
 // Additional windows guest os metrics that are used in SQL Server validations.

@@ -24,7 +24,7 @@ import (
 	// Required for loading sqlserver driver.
 	_ "github.com/microsoft/go-mssqldb"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics/sqlserverutils"
-	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 )
 
 // V1 that execute cmd and connect to SQL server.

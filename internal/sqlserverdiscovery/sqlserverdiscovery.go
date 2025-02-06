@@ -20,7 +20,7 @@ package sqlserverdiscovery
 import (
 	"context"
 
-	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 )
 
 // Discover runs the SQL Server discovery routine.

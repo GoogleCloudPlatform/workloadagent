@@ -29,7 +29,7 @@ import (
 
 	"golang.org/x/crypto/ssh/knownhosts"
 	"golang.org/x/crypto/ssh"
-	"github.com/GoogleCloudPlatform/workloadagentplatform/integration/common/shared/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 )
 
 // SSHClientInterface abstracts the client struct from ssh package
