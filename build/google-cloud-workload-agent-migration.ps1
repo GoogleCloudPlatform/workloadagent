@@ -36,10 +36,19 @@ try {
   Copy-Item -Path 'C:\Program Files\Google\google-cloud-sql-server-agent\configuration.json' -Destination 'C:\Program Files\Google\google-cloud-workload-agent\conf\cfg_sqlserver_backup.json'
   Log-Write 'Backup completed'
 
+  Log-Write 'Migrating the old configuration file'
+  # run the migration script
+  Start-Process -FilePath $INSTALL_DIR\google-cloud-workload-agent.exe -ArgumentList 'migrate' -Wait
+  Log-Write 'Migration completed'
+
   Log-Write 'Removing google-cloud-sql-server-agent'
   # uninstall google-cloud-sql-server-agent
   googet -noconfirm remove google-cloud-sql-server-agent
   Log-Write 'google-cloud-sql-server-agent removed'
+
+  Log-Write 'Restarting google-cloud-workload-agent service'
+  Restart-Service -Force 'google-cloud-workload-agent'
+  Log-Write 'Wrokload Agent service restarted'
 }
 catch {
   Log-Write $_.Exception|Format-List -force | Out-String
