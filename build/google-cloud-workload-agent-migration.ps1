@@ -31,6 +31,18 @@ function Log-Write {
   Add-Content -Value ("$time_stamp - $log_message") -path $LOG_FILE
 }
 
+function Log-Migrated {
+  #.DESCRIPTION
+  #  Invokes the service with usage logging enabled to log an migrated action.
+  Start-Process $INSTALL_DIR\$BIN_NAME_EXE -ArgumentList 'logusage','-s','ACTION', '-a', 1 | Wait-Process -Timeout 30
+}
+
+function Migrate-Configuration {
+  #.DESCRIPTION
+  #  Migrates the configuration file from google-cloud-sql-server-agent to google-cloud-workload-agent.
+  Start-Process -FilePath $INSTALL_DIR\$BIN_NAME_EXE -ArgumentList 'migrate' | Wait-Process -Timeout 30
+}
+
 try {
   Log-Write 'Updating google-cloud-sql-server-agent to the latest version'
   # update google-cloud-sql-server-agent to the latest version
@@ -44,7 +56,7 @@ try {
 
   Log-Write 'Migrating the old configuration file'
   # run the migration script
-  Start-Process -FilePath $INSTALL_DIR\google-cloud-workload-agent.exe -ArgumentList 'migrate' -Wait
+  Migrate-Configuration
   Log-Write 'Migration completed'
 
   Log-Write 'Removing google-cloud-sql-server-agent'
@@ -55,6 +67,8 @@ try {
   Log-Write 'Restarting google-cloud-workload-agent service'
   Restart-Service -Force 'google-cloud-workload-agent'
   Log-Write 'Wrokload Agent service restarted'
+
+  Log-Migrated
 }
 catch {
   Log-Write $_.Exception|Format-List -force | Out-String

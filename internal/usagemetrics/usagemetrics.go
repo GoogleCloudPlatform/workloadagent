@@ -66,7 +66,8 @@ const (
 
 // Agent wide action mappings.
 const (
-	UnknownAction = 0
+	UnknownAction                = 0
+	SQLServerAgentConfigMigrated = 1
 )
 
 // projectNumbers contains known project numbers for test instances.

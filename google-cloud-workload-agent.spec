@@ -72,6 +72,10 @@ if `systemctl is-active --quiet google-cloud-sql-server-agent > /dev/null 2>&1`;
   # Backup the configuration file
   if [ -f /etc/google-cloud-sql-server-agent/configuration.json ]; then
     cp /etc/google-cloud-sql-server-agent/configuration.json /etc/google-cloud-workload-agent/cfg_sqlserver_backup.json
+    # Migrate the configuration file
+    timeout 30 %{_bindir}/google_cloud_workload_agent migrate
+    # Log usage metrics for migrated
+    timeout 30 %{_bindir}/google_cloud_workload_agent logusage -s ACTION -a 1 &> /dev/null || true
   fi
 fi
 
