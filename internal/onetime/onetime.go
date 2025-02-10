@@ -75,7 +75,7 @@ func ConfigureUsageMetricsForOTE(cp *cpb.CloudProperties, name, version string) 
 func SetupOneTimeLogging(params log.Parameters, subcommandName string, level zapcore.Level, logFilePath string) log.Parameters {
 	oteLogDir := `/var/log/`
 	if params.OSType == "windows" {
-		oteLogDir = `C:\Program Files\Google\google-cloud-workload-agent\logs\`
+		oteLogDir = fmt.Sprintf(`%s\Google\google-cloud-workload-agent\logs\`, log.CreateWindowsLogBasePath())
 	}
 	if logFilePath != "" {
 		if params.OSType == "windows" && !strings.HasSuffix(logFilePath, `\`) {

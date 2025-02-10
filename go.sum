@@ -26,8 +26,8 @@ github.com/BurntSushi/toml v0.3.1 h1:WXkYYl6Yr3qBf1K79EBnL4mak0OimBfB0XUf9Vl28OQ
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/DATA-DOG/go-sqlmock v1.5.0 h1:Shsta01QNfFxHCfpW6YH2STWB0MudeXXEWMr20OEh60=
 github.com/DATA-DOG/go-sqlmock v1.5.0/go.mod h1:f/Ixk793poVmq4qj/V1dPUg2JEAKC73Q5eFN3EC/SaM=
-github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20250206170227-f24f60073850 h1:PkgZPItj/ANnCyBDTXSEnwvrv8jE/RavfFlpW2o8m08=
-github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20250206170227-f24f60073850/go.mod h1:Ey+Ah6Z12hHLT+gXXS1exogXp454BkCPvZMq/w31nOE=
+github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20250206221940-bfad91c9de36 h1:jtqgyf7G0W1AL3cAwXpgLbaVsgfpGI4UjY5C8WYm2Cc=
+github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20250206221940-bfad91c9de36/go.mod h1:Ey+Ah6Z12hHLT+gXXS1exogXp454BkCPvZMq/w31nOE=
 github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20250206170227-f24f60073850 h1:c4BoYWV/TnoBrBYkqeltLhzgyTDvSaPNJsZxL9NRYrc=
 github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20250206170227-f24f60073850/go.mod h1:SI7fYmbniDIoVITS6rG9iqA2omufwj8GrkFu/EarxkE=
 github.com/StackExchange/wmi v1.2.1 h1:VIkavFPXSjcnS+O8yTq7NI32k0R5Aj+v39y29VYDOSA=

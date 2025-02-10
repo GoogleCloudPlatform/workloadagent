@@ -25,12 +25,13 @@ import (
 
 func TestSetupOneTimeLogging(t *testing.T) {
 	tests := []struct {
-		name             string
-		os               string
-		subCommandName   string
-		logFilePath      string
-		want             string
-		wantcloudlogname string
+		name              string
+		os                string
+		subCommandName    string
+		logFilePath       string
+		ProgramDataEnvVar string
+		want              string
+		wantcloudlogname  string
 	}{
 		{
 			name:             "Windows",
@@ -39,6 +40,24 @@ func TestSetupOneTimeLogging(t *testing.T) {
 			logFilePath:      "",
 			want:             `C:\Program Files\Google\google-cloud-workload-agent\logs\google-cloud-workload-agent-logusage.log`,
 			wantcloudlogname: "google-cloud-workload-agent-logusage",
+		},
+		{
+			name:              "WindowsWithProgramDataEnvVar",
+			os:                "windows",
+			subCommandName:    "logusage",
+			logFilePath:       ``,
+			ProgramDataEnvVar: `C:\ProgramData`,
+			want:              `C:\ProgramData\Google\google-cloud-workload-agent\logs\google-cloud-workload-agent-logusage.log`,
+			wantcloudlogname:  "google-cloud-workload-agent-logusage",
+		},
+		{
+			name:              "WindowsWithEmptyProgramDataEnvVar",
+			os:                "windows",
+			subCommandName:    "logusage",
+			logFilePath:       ``,
+			ProgramDataEnvVar: ``,
+			want:              `C:\Program Files\Google\google-cloud-workload-agent\logs\google-cloud-workload-agent-logusage.log`,
+			wantcloudlogname:  "google-cloud-workload-agent-logusage",
 		},
 		{
 			name:             "WindowsWithPath",
@@ -83,6 +102,8 @@ func TestSetupOneTimeLogging(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("PROGRAMDATA", test.ProgramDataEnvVar)
+			defer t.Setenv("PROGRAMDATA", "")
 			lp := log.Parameters{
 				LogToCloud: false,
 				OSType:     test.os,

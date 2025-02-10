@@ -1,7 +1,13 @@
 
 $ErrorActionPreference = 'Stop'
+if ($env:ProgramData -eq $null -or $env:ProgramData -eq '') {
+  $DATA_DIR = 'C:\Program Files\Google\google-cloud-workload-agent'
+}
+else {
+  $DATA_DIR = $env:ProgramData + '\Google\google-cloud-workload-agent'
+}
 $INSTALL_DIR = 'C:\Program Files\Google\google-cloud-workload-agent'
-$LOGS_DIR = "$INSTALL_DIR\logs"
+$LOGS_DIR = "$DATA_DIR\logs\Google\google-cloud-workload-agent"
 $LOG_FILE ="$LOGS_DIR\google-cloud-workload-agent-migration.log"
 
 function Log-Write {

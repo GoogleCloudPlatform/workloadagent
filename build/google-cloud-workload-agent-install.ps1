@@ -10,12 +10,18 @@
   .
 #>
 $ErrorActionPreference = 'Stop'
+if ($env:ProgramData -eq $null -or $env:ProgramData -eq '') {
+  $DATA_DIR = 'C:\Program Files\Google\google-cloud-workload-agent'
+}
+else {
+  $DATA_DIR = $env:ProgramData + '\Google\google-cloud-workload-agent'
+}
 $INSTALL_DIR = 'C:\Program Files\Google\google-cloud-workload-agent'
 $SVC_NAME = 'google-cloud-workload-agent'
 $BIN_NAME_EXE = 'google-cloud-workload-agent.exe'
 $MONITOR_TASK = 'google-cloud-workload-agent-monitor'
 $MIGRATION_TASK = 'google-cloud-workload-agent-migration'
-$LOGS_DIR = "$INSTALL_DIR\logs"
+$LOGS_DIR = "$DATA_DIR\logs"
 $CONF_DIR = "$INSTALL_DIR\conf"
 $LOG_FILE ="$LOGS_DIR\google-cloud-workload-agent-install.log"
 
@@ -143,7 +149,7 @@ function  StartService-AndTasks {
 }
 
 function MoveFiles-IntoPlace {
-  if (-not (Test-Path "$INSTALL_DIR/conf/configuration.json")) {
+  if (-not (Test-Path "$CONF_DIR/configuration.json")) {
     Move-Item -Force 'C:\Program Files\Google\google-cloud-workload-agent\configuration.json' 'C:\Program Files\Google\google-cloud-workload-agent\conf\configuration.json'
   }
 }

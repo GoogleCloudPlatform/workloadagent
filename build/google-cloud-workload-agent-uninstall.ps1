@@ -10,6 +10,7 @@
   .
 #>
 $ErrorActionPreference = 'Stop'
+$DATA_DIR = $env:ProgramData + '\Google\google-cloud-workload-agent'
 $INSTALL_DIR = 'C:\Program Files\Google\google-cloud-workload-agent'
 $SVC_NAME = 'google-cloud-workload-agent'
 $MONITOR_TASK = 'google-cloud-workload-agent-monitor'
@@ -30,6 +31,9 @@ try {
   # remove the agent directory
   if (Test-Path $INSTALL_DIR) {
     Remove-Item -Recurse -Force $INSTALL_DIR
+  }
+  if (!($env:ProgramData -eq $null) -and !($env:ProgramData -eq '')) {
+    Remove-Item -Recurse -Force $DATA_DIR
   }
 }
 catch {

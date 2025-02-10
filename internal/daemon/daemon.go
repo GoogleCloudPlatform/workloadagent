@@ -91,8 +91,8 @@ func (d *Daemon) Execute(ctx context.Context) error {
 	d.lp.CloudLogName = `google-cloud-workload-agent`
 	d.lp.LogFileName = `/var/log/google-cloud-workload-agent.log`
 	if d.lp.OSType == "windows" {
-		d.lp.LogFileName = `C:\Program Files\Google\google-cloud-workload-agent\logs\google-cloud-workload-agent.log`
-		logDir := `C:\Program Files\Google\google-cloud-workload-agent\logs`
+		logDir := fmt.Sprintf(`%s\Google\google-cloud-workload-agent\logs`, log.CreateWindowsLogBasePath())
+		d.lp.LogFileName = fmt.Sprintf(`%s\google-cloud-workload-agent.log`, logDir)
 		os.MkdirAll(logDir, 0755)
 		os.Chmod(logDir, 0777)
 	}
