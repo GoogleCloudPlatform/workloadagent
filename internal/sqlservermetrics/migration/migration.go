@@ -75,8 +75,9 @@ func migrateSQLServerConfigurations(backupPath, configPath string) error {
 	m.Migrate(backCfg, config)
 	// Save to the config file.
 	configBytes, err := protojson.MarshalOptions{
-		Multiline: true,
-		Indent:    "  ",
+		Multiline:     true,
+		UseProtoNames: true,
+		Indent:        "  ",
 	}.Marshal(config)
 
 	if err != nil {
