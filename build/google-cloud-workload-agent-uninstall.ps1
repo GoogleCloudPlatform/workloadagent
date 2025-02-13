@@ -14,12 +14,17 @@ $DATA_DIR = $env:ProgramData + '\Google\google-cloud-workload-agent'
 $INSTALL_DIR = 'C:\Program Files\Google\google-cloud-workload-agent'
 $SVC_NAME = 'google-cloud-workload-agent'
 $MONITOR_TASK = 'google-cloud-workload-agent-monitor'
+$MIGRATION_TASK = 'google-cloud-workload-agent-migration'
 
 try {
   # stop the service / tasks and remove them
   if ($(Get-ScheduledTask $MONITOR_TASK -ErrorAction Ignore).TaskName) {
     Disable-ScheduledTask $MONITOR_TASK
     Unregister-ScheduledTask -TaskName $MONITOR_TASK -Confirm:$false
+  }
+  if ($(Get-ScheduledTask $MIGRATION_TASK -ErrorAction Ignore).TaskName) {
+    Disable-ScheduledTask $MIGRATION_TASK
+    Unregister-ScheduledTask -TaskName $MIGRATION_TASK -Confirm:$false
   }
   if ($(Get-Service -Name $SVC_NAME -ErrorAction SilentlyContinue).Length -gt 0) {
     Stop-Service $SVC_NAME

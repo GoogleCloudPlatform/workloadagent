@@ -7,7 +7,8 @@ else {
   $DATA_DIR = $env:ProgramData + '\Google\google-cloud-workload-agent'
 }
 $INSTALL_DIR = 'C:\Program Files\Google\google-cloud-workload-agent'
-$LOGS_DIR = "$DATA_DIR\logs\Google\google-cloud-workload-agent"
+$BIN_NAME_EXE = 'google-cloud-workload-agent.exe'
+$LOGS_DIR = "$DATA_DIR\logs"
 $LOG_FILE ="$LOGS_DIR\google-cloud-workload-agent-migration.log"
 
 function Log-Write {
@@ -20,8 +21,6 @@ function Log-Write {
   if (-not (Test-Path $LOGS_DIR)) {
     return
   }
-  #(Write-EventLog -EntryType Info -Source $EVENT_LOG_NAME -LogName Application `
-  # -Message $log_message -EventId 1111) | Out-Null
   $time_stamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
   $logFileSize = $(Get-Item $LOG_FILE -ErrorAction Ignore).Length/1kb
   if ($logFileSize -ge 1024) {
@@ -40,7 +39,7 @@ function Log-Migrated {
 function Migrate-Configuration {
   #.DESCRIPTION
   #  Migrates the configuration file from google-cloud-sql-server-agent to google-cloud-workload-agent.
-  Start-Process -FilePath $INSTALL_DIR\$BIN_NAME_EXE -ArgumentList 'migrate' | Wait-Process -Timeout 30
+  Start-Process $INSTALL_DIR\$BIN_NAME_EXE -ArgumentList 'migrate' | Wait-Process -Timeout 30
 }
 
 try {
@@ -66,7 +65,7 @@ try {
 
   Log-Write 'Restarting google-cloud-workload-agent service'
   Restart-Service -Force 'google-cloud-workload-agent'
-  Log-Write 'Wrokload Agent service restarted'
+  Log-Write 'Workload Agent service restarted'
 
   Log-Migrated
 }
