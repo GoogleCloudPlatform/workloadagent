@@ -20,11 +20,13 @@ import (
 	"context"
 	"embed"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/protobuf/proto"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
@@ -47,6 +49,24 @@ var (
 	DefaultTestReaderErr = ConfigFileReader(func(path string) (io.ReadCloser, error) {
 		return nil, errors.New("failed to read file")
 	})
+	DefaultCloudProperties = &cpb.CloudProperties{
+		ProjectId:    "test-project",
+		Region:       "us-central1",
+		InstanceId:   "test-instance-id",
+		InstanceName: "test-instance-name",
+	}
+	DefaultWriteInsightRequest = &dwpb.WriteInsightRequest{
+		Insight: &dwpb.Insight{
+			InstanceId: "test-instance-id",
+			TorsoValidation: &dwpb.TorsoValidation{
+				WorkloadType:      dwpb.TorsoValidation_WORKLOAD_TYPE_UNSPECIFIED,
+				ValidationDetails: map[string]string{"metric1": "value1"},
+				ProjectId:         "test-project",
+				InstanceName:      "test-instance-name",
+				AgentVersion:      configuration.AgentVersion,
+			},
+		},
+	}
 )
 
 func TestIsMetricOverrideYamlFileExists(t *testing.T) {
@@ -224,12 +244,6 @@ func TestSendMetricsToDataWarehouse(t *testing.T) {
 			if gotCallCount := tt.params.wlmService.(*wlmfake.TestWLM).WriteInsightCallCount; gotCallCount != tt.wantCallCount {
 				t.Errorf("WriteInsight call count mismatch: got %d, want %d", gotCallCount, tt.wantCallCount)
 			}
-
-			// TODO: b/391766041 - Remove panic during argument checks
-			// Assert that the arguments passed to WriteInsight are as expected
-			// if diff := cmp.Diff(tt.wantArgs, tt.params.wlmService.(*wlmfake.TestWLM).WriteInsightArgs, cmpopts.IgnoreUnexported(wlmfake.WriteInsightArgs{}), cmpopts.IgnoreFields(wlmfake.WriteInsightArgs{}, "Req")); diff != "" {
-			// 	t.Errorf("WriteInsight args mismatch (-want +got):\n%s", diff)
-			// }
 		})
 	}
 }
@@ -250,11 +264,7 @@ func TestCreateWriteInsightRequest(t *testing.T) {
 					"metric1":       "value1",
 				},
 			},
-			cp: &cpb.CloudProperties{
-				ProjectId:    "test-project",
-				InstanceId:   "test-instance-id",
-				InstanceName: "test-instance-name",
-			},
+			cp: DefaultCloudProperties,
 			want: &dwpb.WriteInsightRequest{
 				Insight: &dwpb.Insight{
 					InstanceId: "test-instance-id",
@@ -276,23 +286,19 @@ func TestCreateWriteInsightRequest(t *testing.T) {
 					"metric1": "value1",
 				},
 			},
-			cp: &cpb.CloudProperties{
-				ProjectId:    "test-project",
-				InstanceId:   "test-instance-id",
-				InstanceName: "test-instance-name",
-			},
-			want: &dwpb.WriteInsightRequest{
-				Insight: &dwpb.Insight{
-					InstanceId: "test-instance-id",
-					TorsoValidation: &dwpb.TorsoValidation{
-						WorkloadType:      dwpb.TorsoValidation_WORKLOAD_TYPE_UNSPECIFIED,
-						ValidationDetails: map[string]string{"metric1": "value1"},
-						ProjectId:         "test-project",
-						InstanceName:      "test-instance-name",
-						AgentVersion:      configuration.AgentVersion,
-					},
+			cp:   DefaultCloudProperties,
+			want: DefaultWriteInsightRequest,
+		},
+		{
+			name: "Random workload",
+			wm: WorkloadMetrics{
+				WorkloadType: "RANDOM WORKLOAD",
+				Metrics: map[string]string{
+					"metric1": "value1",
 				},
 			},
+			cp:   DefaultCloudProperties,
+			want: DefaultWriteInsightRequest,
 		},
 	}
 	ctx := context.Background()
@@ -301,6 +307,76 @@ func TestCreateWriteInsightRequest(t *testing.T) {
 			got := createWriteInsightRequest(ctx, tt.wm, tt.cp)
 			if !proto.Equal(got, tt.want) {
 				t.Errorf("createWriteInsightRequest() mismatch, got: %v, want: %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSendDataInsight(t *testing.T) {
+	tests := []struct {
+		name         string
+		wlmService   *wlmfake.TestWLM
+		params       SendDataInsightParams
+		wantRespBody *wlm.WriteInsightResponse
+		wantErr      error
+	}{
+		{
+			name: "Success",
+			wlmService: &wlmfake.TestWLM{
+				T: t,
+				WriteInsightResponses: []*wlm.WriteInsightResponse{
+					&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
+				},
+				WriteInsightErrs: []error{nil},
+			},
+			params: SendDataInsightParams{
+				WLMetrics: WorkloadMetrics{
+					WorkloadType: MYSQL,
+					Metrics: map[string]string{
+						"instance_name": "mysql-instance",
+						"metric1":       "value1",
+					},
+				},
+				CloudProps: DefaultCloudProperties,
+			},
+			wantRespBody: &wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
+			wantErr:      nil,
+		},
+		{
+			name: "Error",
+			wlmService: &wlmfake.TestWLM{
+				T: t,
+				WriteInsightResponses: []*wlm.WriteInsightResponse{
+					&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 400}},
+				},
+				WriteInsightErrs: []error{fmt.Errorf("error")},
+			},
+			params: SendDataInsightParams{
+				WLMetrics: WorkloadMetrics{
+					WorkloadType: MYSQL,
+					Metrics: map[string]string{
+						"instance_name": "mysql-instance",
+						"metric1":       "value1",
+					},
+				},
+				CloudProps: DefaultCloudProperties,
+			},
+			wantRespBody: nil,
+			wantErr:      cmpopts.AnyError,
+		},
+	}
+
+	ctx := context.Background()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.params.WLMService = tt.wlmService
+			got, err := SendDataInsight(ctx, tt.params)
+			if !cmp.Equal(err, tt.wantErr, cmpopts.EquateErrors()) {
+				t.Errorf("Error mismatch: got %v, want %v.", err, tt.wantErr)
+			}
+
+			if diff := cmp.Diff(tt.wantRespBody, got); diff != "" {
+				t.Errorf("SendDataInsight(%v) returned an unexpected diff (-want +got): \n%s", tt.params, diff)
 			}
 		})
 	}
