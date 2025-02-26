@@ -3,9 +3,9 @@
 #Requires -Modules ScheduledTasks
 <#
 .SYNOPSIS
-  Google Cloud Workload Agent uninstall script.
+  Google Cloud Agent for Compute Workloads uninstall script.
 .DESCRIPTION
-  This powershell script is used to uninstall the Google Cloud Workload Agent
+  This powershell script is used to uninstall the Google Cloud Agent for Compute Workloads
   on the system and remove a Task Scheduler entry: google-cloud-workload-agent-monitor,
   .
 #>

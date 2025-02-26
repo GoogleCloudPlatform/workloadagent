@@ -14,14 +14,14 @@
 
 %include %build_rpm_options
 
-Summary: Google Cloud Workload Agent
+Summary: Google Cloud Agent for Compute Workloads
 Group: Application
 License: ASL 2.0
 Vendor: Google, Inc.
 Provides: google-cloud-workload-agent
 
 %description
-Google Cloud Workload Agent
+Google Cloud Agent for Compute Workloads
 
 %define _confdir /etc/%{name}
 %define _bindir /usr/bin
@@ -100,7 +100,7 @@ timeout 30 %{_bindir}/google_cloud_workload_agent logusage -s INSTALLED &> /dev/
 # next steps instructions
 echo ""
 echo "##########################################################################"
-echo "Google Cloud Workload Agent has been installed"
+echo "Google Cloud Agent for Compute Workloads has been installed"
 echo ""
 echo "You can view the logs in /var/log/%{name}.log"
 echo ""

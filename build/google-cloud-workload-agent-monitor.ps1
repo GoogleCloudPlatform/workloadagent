@@ -35,9 +35,9 @@ function Log-Write {
 try {
   $status = $(Get-Service -Name $SVC_NAME -ErrorAction Ignore).Status
   if ($status -ne 'Running') {
-    Log-Write "Workload Agent service is not running, status: $status"
+    Log-Write "Agent for Compute Workloads service is not running, status: $status"
     Restart-Service -Force $SVC_NAME
-    Log-Write 'Wrokload Agent service restarted'
+    Log-Write 'Agent for Compute Workloads service restarted'
   }
 }
 catch {

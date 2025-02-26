@@ -31,7 +31,7 @@ timeout 30 /usr/bin/google_cloud_workload_agent logusage -s INSTALLED &> /dev/nu
 # next steps instructions
 echo ""
 echo "##########################################################################"
-echo "Google Cloud Workload Agent has been installed"
+echo "Google Cloud Agent for Compute Workloads has been installed"
 echo ""
 echo "You can view the logs in /var/log/google-cloud-workload-agent.log"
 echo ""

@@ -62,8 +62,8 @@ func main() {
 
 	rootCmd := &cobra.Command{
 		Use:   "google_cloud_workload_agent",
-		Short: "Google Cloud Workload Agent",
-		Long:  "Google Cloud Workload Agent",
+		Short: "Google Cloud Agent for Compute Workloads",
+		Long:  "Google Cloud Agent for Compute Workloads",
 	}
 	rootCmd.AddCommand(version.NewCommand())
 	rootCmd.AddCommand(logusage.NewCommand(lp, cloudProps))

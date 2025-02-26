@@ -3,9 +3,9 @@
 #Requires -Modules ScheduledTasks
 <#
 .SYNOPSIS
-  Google Cloud Workload Agent installation script.
+  Google Cloud Agent for Compute Workloads installation script.
 .DESCRIPTION
-  This powershell script is used to install the Google Cloud Workload Agent
+  This powershell script is used to install the Google Cloud Agent for Compute Workloads
   on the system and a Task Scheduler entry: google-cloud-workload-agent-monitor (runs every min),
   .
 #>
@@ -88,7 +88,7 @@ function ConfigureAgentWindows-Service {
     & sc.exe delete $SVC_NAME
   }
   # Create a new service
-  New-Service -Name $SVC_NAME -BinaryPathName '"C:\Program Files\Google\google-cloud-workload-agent\google-cloud-workload-agent.exe" winservice' -DisplayName 'Google Cloud Workload Agent' -Description 'Google Cloud Workload Agent' -StartupType Automatic
+  New-Service -Name $SVC_NAME -BinaryPathName '"C:\Program Files\Google\google-cloud-workload-agent\google-cloud-workload-agent.exe" winservice' -DisplayName 'Google Cloud Agent for Compute Workloads' -Description 'Google Cloud Agent for Compute Workloads' -StartupType Automatic
   Start-Service $SVC_NAME
 }
 
@@ -157,7 +157,7 @@ function MoveFiles-IntoPlace {
 $Success = $false
 $Processing=$false
 try {
-  Log-Write 'Installing the Google Cloud Workload Agent'
+  Log-Write 'Installing the Google Cloud Agent for Compute Workloads'
   CreateInstall-Dirs
   $Processing = $true;
 
@@ -184,7 +184,7 @@ try {
   }
 
   $Success = $true
-  Log-Write 'Successuflly installed the Google Cloud Workload Agent'
+  Log-Write 'Successuflly installed the Google Cloud Agent for Compute Workloads'
   # log usage metrics for install
   Log-Install
 }

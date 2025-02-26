@@ -65,7 +65,7 @@ try {
 
   Log-Write 'Restarting google-cloud-workload-agent service'
   Restart-Service -Force 'google-cloud-workload-agent'
-  Log-Write 'Workload Agent service restarted'
+  Log-Write 'Agent for Compute Workloads service restarted'
 
   Log-Migrated
 }

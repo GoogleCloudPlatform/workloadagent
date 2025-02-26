@@ -1,5 +1,5 @@
 [Unit]
-Description=Google Cloud Workload Agent
+Description=Google Cloud Agent for Compute Workloads
 After=network-online.target
 Wants=network-online.target systemd-networkd-wait-online.service
 StartLimitIntervalSec=60

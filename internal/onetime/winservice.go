@@ -74,8 +74,8 @@ func (w *Winservice) Execute(cmd *cobra.Command, args []string) error {
 	fmt.Println("Winservice Execute - starting the workload agent service")
 	config := &winsvc.Config{
 		Name:        "google-cloud-workload-agent",
-		DisplayName: "Google Cloud Workload Agent",
-		Description: "Google Cloud Workload Agent",
+		DisplayName: "Google Cloud Agent for Compute Workloads",
+		Description: "Google Cloud Agent for Compute Workloads",
 	}
 	s, err := winsvc.New(w, config)
 	if err != nil {
