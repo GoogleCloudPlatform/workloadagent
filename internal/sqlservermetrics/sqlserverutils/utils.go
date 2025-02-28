@@ -36,6 +36,7 @@ type SQLConfig struct {
 	Username   string
 	SecretName string
 	PortNumber int32
+	ProjectID  string
 }
 
 // GuestConfig .
@@ -46,4 +47,5 @@ type GuestConfig struct {
 	GuestPortNumber        int32
 	LinuxRemote            bool
 	LinuxSSHPrivateKeyPath string
+	ProjectID              string
 }

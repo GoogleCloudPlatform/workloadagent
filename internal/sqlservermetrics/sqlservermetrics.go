@@ -295,6 +295,7 @@ func sqlConfigFromCredential(cred *configpb.SQLServerConfiguration_CredentialCon
 			Username:   sqlCfg.GetUsername(),
 			SecretName: sqlCfg.GetSecret().GetSecretName(),
 			PortNumber: sqlCfg.GetPort(),
+			ProjectID:  sqlCfg.GetSecret().GetProjectId(),
 		})
 	}
 	return sqlConfigs
@@ -308,6 +309,7 @@ func guestConfigFromCredential(cred *configpb.SQLServerConfiguration_CredentialC
 			ServerName:      cred.GetRemoteWin().GetConnectionParameters().GetHost(),
 			GuestUserName:   cred.GetRemoteWin().GetConnectionParameters().GetUsername(),
 			GuestSecretName: cred.GetRemoteWin().GetConnectionParameters().GetSecret().GetSecretName(),
+			ProjectID:       cred.GetRemoteWin().GetConnectionParameters().GetSecret().GetProjectId(),
 		}
 	case *configpb.SQLServerConfiguration_CredentialConfiguration_RemoteLinux:
 		return &sqlserverutils.GuestConfig{
@@ -316,6 +318,7 @@ func guestConfigFromCredential(cred *configpb.SQLServerConfiguration_CredentialC
 			GuestPortNumber:        cred.GetRemoteLinux().GetConnectionParameters().GetPort(),
 			LinuxRemote:            true,
 			LinuxSSHPrivateKeyPath: cred.GetRemoteLinux().GetLinuxSshPrivateKeyPath(),
+			ProjectID:              cred.GetRemoteLinux().GetConnectionParameters().GetSecret().GetProjectId(),
 		}
 	}
 	return &sqlserverutils.GuestConfig{}

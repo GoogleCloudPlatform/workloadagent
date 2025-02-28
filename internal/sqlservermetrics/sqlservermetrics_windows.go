@@ -72,7 +72,11 @@ func (s *SQLServerMetrics) osCollection(ctx context.Context) error {
 			username := guestCfg.GuestUserName
 			if !guestCfg.LinuxRemote {
 				log.Logger.Debug("Starting remote win guest collection for ip " + host)
-				pswd, err := secretValue(ctx, sip.ProjectID, guestCfg.GuestSecretName)
+				projectID := guestCfg.ProjectID
+				if projectID == "" {
+					projectID = sip.ProjectID
+				}
+				pswd, err := secretValue(ctx, projectID, guestCfg.GuestSecretName)
 				if err != nil {
 					usagemetrics.Error(usagemetrics.SecretManagerValueError)
 					log.Logger.Errorw("Collection failed", "target", guestCfg.ServerName, "error", fmt.Errorf("failed to get secret value: %v", err))
@@ -137,7 +141,11 @@ func (s *SQLServerMetrics) sqlCollection(ctx context.Context) error {
 				log.Logger.Errorw("Invalid credential configuration", "error", err)
 				continue
 			}
-			pswd, err := secretValue(ctx, sip.ProjectID, sqlCfg.SecretName)
+			projectID := sqlCfg.ProjectID
+			if projectID == "" {
+				projectID = sip.ProjectID
+			}
+			pswd, err := secretValue(ctx, projectID, sqlCfg.SecretName)
 			if err != nil {
 				usagemetrics.Error(usagemetrics.SecretManagerValueError)
 				log.Logger.Errorw("Failed to get secret value", "error", err)
