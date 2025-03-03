@@ -68,6 +68,10 @@ const (
 const (
 	UnknownAction                = 0
 	SQLServerAgentConfigMigrated = 1
+	// SQL Server deployment status codes.
+	SQLServerDeploymentSuccess       = 2
+	SQLServerDeploymentGlobalTimeout = 3
+	SQLServerDeploymentTimeout       = 4
 )
 
 // projectNumbers contains known project numbers for test instances.
