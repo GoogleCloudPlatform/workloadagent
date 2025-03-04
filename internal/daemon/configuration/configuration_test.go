@@ -235,6 +235,142 @@ func TestLoad(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "OverrideDefaultConfigWithMissingFields",
+			readFunc: func(p string) ([]byte, error) {
+				fileContent := `{
+					"log_level": "DEBUG",
+					"log_to_cloud": false,
+					"cloud_properties": {
+						"project_id": "config-project-id",
+						"instance_id": "config-instance-id",
+						"zone": "config-zone",
+						"image": "config-image"
+					},
+					"oracle_configuration": {
+						"enabled": true,
+						"oracle_discovery": {
+							"enabled": true,
+							"update_frequency": "240s"
+						},
+						"oracle_metrics": {
+							"enabled": true,
+							"connection_parameters": [
+								{
+									"username": "testuser",
+									"service_name": "orcl",
+									"secret": {
+										"project_id": "testproject",
+										"secret_name": "testsecret"
+									}
+								}
+							],
+							"collection_frequency": "120s",
+							"query_timeout": "10s",
+							"max_execution_threads": 20,
+							"queries": [
+								{
+									"name": "pga_memory_queries",
+									"disabled": true
+								}
+							]
+						}
+					},
+					"sqlserver_configuration": {
+						"enabled": true,
+						"collection_configuration": {
+							"collect_guest_os_metrics":true,
+							"collect_sql_metrics":true
+						},
+						"credential_configurations": [
+							{
+								"connection_parameters": [
+									{
+										"host":"test-host",
+										"username":"test-user",
+										"secret": {
+											"project_id":"test-project",
+											"secret_name":"test-secret"
+										},
+										"port":1433
+									}
+								],
+								"local_collection":true
+							}
+						],
+						"max_retries":5
+					}
+				}`
+				return []byte(fileContent), nil
+			},
+			want: &cpb.Configuration{
+				CloudProperties: &cpb.CloudProperties{
+					ProjectId:        "config-project-id",
+					InstanceId:       "config-instance-id",
+					Zone:             "config-zone",
+					Image:            "config-image",
+					NumericProjectId: "123456789",
+					InstanceName:     "test-instance-name",
+				},
+				DataWarehouseEndpoint: "https://workloadmanager-datawarehouse.googleapis.com/",
+				AgentProperties:       &cpb.AgentProperties{Name: AgentName, Version: AgentVersion},
+				LogLevel:              cpb.Configuration_DEBUG,
+				LogToCloud:            proto.Bool(false),
+				OracleConfiguration: &cpb.OracleConfiguration{
+					Enabled: proto.Bool(true),
+					OracleDiscovery: &cpb.OracleDiscovery{
+						Enabled:         proto.Bool(true),
+						UpdateFrequency: &dpb.Duration{Seconds: 240},
+					},
+					OracleMetrics: &cpb.OracleMetrics{
+						Enabled: proto.Bool(true),
+						ConnectionParameters: []*cpb.ConnectionParameters{
+							&cpb.ConnectionParameters{
+								Username:    "testuser",
+								ServiceName: "orcl",
+								Secret: &cpb.SecretRef{
+									ProjectId:  "testproject",
+									SecretName: "testsecret",
+								},
+							},
+						},
+						CollectionFrequency: &dpb.Duration{Seconds: 120},
+						QueryTimeout:        &dpb.Duration{Seconds: 10},
+						MaxExecutionThreads: 20,
+						Queries: append(defaultCfg.GetOracleConfiguration().GetOracleMetrics().GetQueries(), &cpb.Query{
+							Name:     "pga_memory_queries",
+							Disabled: proto.Bool(true),
+						}),
+					},
+				},
+				SqlserverConfiguration: &cpb.SQLServerConfiguration{
+					Enabled: proto.Bool(true),
+					CollectionConfiguration: &cpb.SQLServerConfiguration_CollectionConfiguration{
+						CollectionFrequency:   &dpb.Duration{Seconds: 3600},
+						CollectGuestOsMetrics: true,
+						CollectSqlMetrics:     true,
+					},
+					CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{
+						&cpb.SQLServerConfiguration_CredentialConfiguration{
+							GuestConfigurations: &cpb.SQLServerConfiguration_CredentialConfiguration_LocalCollection{
+								LocalCollection: true,
+							},
+							ConnectionParameters: []*cpb.ConnectionParameters{
+								&cpb.ConnectionParameters{
+									Host:     "test-host",
+									Username: "test-user",
+									Secret: &cpb.SecretRef{
+										ProjectId:  "test-project",
+										SecretName: "test-secret",
+									},
+									Port: 1433,
+								}}}},
+					CollectionTimeout: &dpb.Duration{Seconds: 10},
+					MaxRetries:        5,
+					RetryFrequency:    &dpb.Duration{Seconds: 3600},
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -491,21 +627,20 @@ func TestValidateSQLServerConfiguration(t *testing.T) {
 			want: sqlServerConfigurationErrors["errInvalidCollectionFrequency"],
 		},
 		{
-			name: "invalid collection frequency with other fields set",
+			name: "unset collection frequency with other fields set",
 			config: &cpb.Configuration{
 				SqlserverConfiguration: &cpb.SQLServerConfiguration{
 					Enabled: proto.Bool(true),
 					CollectionConfiguration: &cpb.SQLServerConfiguration_CollectionConfiguration{
 						CollectGuestOsMetrics: true,
 						CollectSqlMetrics:     true,
-						CollectionFrequency:   &dpb.Duration{Seconds: -1},
 					},
 					CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{},
 					CollectionTimeout:        &dpb.Duration{Seconds: 10},
 					RetryFrequency:           &dpb.Duration{Seconds: 3600},
 				},
 			},
-			want: sqlServerConfigurationErrors["errInvalidCollectionFrequency"],
+			want: nil,
 		},
 		{
 			name: "Credential configurations not provided",
