@@ -59,8 +59,10 @@ var (
 	sqlServerConfigurationErrors = map[string]error{
 		"errMissingCollectionConfiguration":  errors.New("collection_configuration is required"),
 		"errMissingCredentialConfigurations": errors.New("credential_configurations are required"),
-		"errMissingCollectionTimeout":        errors.New("collection_timeout is required"),
-		"errMissingRetryFrequency":           errors.New("retry_frequency is required"),
+		"errInvalidCollectionFrequency":      errors.New("collection_frequency is invalid"),
+		"errInvalidCollectionTimeout":        errors.New("collection_timeout is invalid"),
+		"errInvalidRetryFrequency":           errors.New("retry_frequency is invalid"),
+		"errInvalidMaxRetries":               errors.New("max_retries is invalid"),
 	}
 )
 
@@ -159,14 +161,22 @@ func validateSQLServerConfiguration(config *cpb.Configuration) error {
 	if config.GetSqlserverConfiguration().GetCollectionConfiguration() == nil {
 		return sqlServerConfigurationErrors["errMissingCollectionConfiguration"]
 	}
+
+	if config.GetSqlserverConfiguration().GetCollectionConfiguration().GetCollectionFrequency() != nil && config.GetSqlserverConfiguration().GetCollectionConfiguration().GetCollectionFrequency().GetSeconds() <= 0 {
+		return sqlServerConfigurationErrors["errInvalidCollectionFrequency"]
+	}
+
 	if config.GetSqlserverConfiguration().GetCredentialConfigurations() == nil {
 		return sqlServerConfigurationErrors["errMissingCredentialConfigurations"]
 	}
-	if config.GetSqlserverConfiguration().GetCollectionTimeout() == nil {
-		return sqlServerConfigurationErrors["errMissingCollectionTimeout"]
+	if config.GetSqlserverConfiguration().GetCollectionTimeout() != nil && config.GetSqlserverConfiguration().GetCollectionTimeout().GetSeconds() <= 0 {
+		return sqlServerConfigurationErrors["errInvalidCollectionTimeout"]
 	}
-	if config.GetSqlserverConfiguration().GetRetryFrequency() == nil {
-		return sqlServerConfigurationErrors["errMissingRetryFrequency"]
+	if config.GetSqlserverConfiguration().GetRetryFrequency() != nil && config.GetSqlserverConfiguration().GetRetryFrequency().GetSeconds() <= 0 {
+		return sqlServerConfigurationErrors["errInvalidRetryFrequency"]
+	}
+	if config.GetSqlserverConfiguration().GetMaxRetries() < 0 {
+		return sqlServerConfigurationErrors["errInvalidMaxRetries"]
 	}
 	return nil
 }
@@ -197,6 +207,16 @@ func defaultConfig(cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) 
 				MaxExecutionThreads: 10,
 				Queries:             oracleQueries,
 			},
+		},
+		SqlserverConfiguration: &cpb.SQLServerConfiguration{
+			Enabled: proto.Bool(false),
+			CollectionConfiguration: &cpb.SQLServerConfiguration_CollectionConfiguration{
+				CollectionFrequency: dpb.New(time.Duration(time.Hour)),
+			},
+			CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{},
+			CollectionTimeout:        dpb.New(time.Duration(10 * time.Second)),
+			MaxRetries:               3,
+			RetryFrequency:           dpb.New(time.Duration(3600 * time.Second)),
 		},
 	}, nil
 }

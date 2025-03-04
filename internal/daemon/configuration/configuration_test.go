@@ -81,11 +81,12 @@ func TestLoad(t *testing.T) {
 					NumericProjectId: "123456789",
 					InstanceName:     "test-instance-name",
 				},
-				DataWarehouseEndpoint: "https://workloadmanager-datawarehouse.googleapis.com/",
-				AgentProperties:       &cpb.AgentProperties{Name: AgentName, Version: AgentVersion},
-				LogLevel:              cpb.Configuration_INFO,
-				LogToCloud:            proto.Bool(false),
-				OracleConfiguration:   defaultCfg.OracleConfiguration,
+				DataWarehouseEndpoint:  "https://workloadmanager-datawarehouse.googleapis.com/",
+				AgentProperties:        &cpb.AgentProperties{Name: AgentName, Version: AgentVersion},
+				LogLevel:               cpb.Configuration_INFO,
+				LogToCloud:             proto.Bool(false),
+				OracleConfiguration:    defaultCfg.OracleConfiguration,
+				SqlserverConfiguration: defaultCfg.SqlserverConfiguration,
 			},
 		},
 		{
@@ -136,6 +137,33 @@ func TestLoad(t *testing.T) {
 								}
 							]
 						}
+					},
+					"sqlserver_configuration": {
+						"enabled": true,
+						"collection_configuration": {
+							"collect_guest_os_metrics":true,
+							"collect_sql_metrics":true,
+							"collection_frequency": "600s"
+						},
+						"credential_configurations": [
+							{
+								"connection_parameters": [
+									{
+										"host":"test-host",
+										"username":"test-user",
+										"secret": {
+											"project_id":"test-project",
+											"secret_name":"test-secret"
+										},
+										"port":1433
+									}
+								],
+								"local_collection":true
+							}
+						],
+						"collection_timeout":"5s",
+						"max_retries":5,
+						"retry_frequency":"600s"
 					}
 				}`
 				return []byte(fileContent), nil
@@ -179,6 +207,31 @@ func TestLoad(t *testing.T) {
 							Disabled: proto.Bool(true),
 						}),
 					},
+				},
+				SqlserverConfiguration: &cpb.SQLServerConfiguration{
+					Enabled: proto.Bool(true),
+					CollectionConfiguration: &cpb.SQLServerConfiguration_CollectionConfiguration{
+						CollectionFrequency:   &dpb.Duration{Seconds: 600},
+						CollectGuestOsMetrics: true, CollectSqlMetrics: true,
+					},
+					CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{
+						&cpb.SQLServerConfiguration_CredentialConfiguration{
+							GuestConfigurations: &cpb.SQLServerConfiguration_CredentialConfiguration_LocalCollection{
+								LocalCollection: true,
+							},
+							ConnectionParameters: []*cpb.ConnectionParameters{
+								&cpb.ConnectionParameters{
+									Host:     "test-host",
+									Username: "test-user",
+									Secret: &cpb.SecretRef{
+										ProjectId:  "test-project",
+										SecretName: "test-secret",
+									},
+									Port: 1433,
+								}}}},
+					CollectionTimeout: &dpb.Duration{Seconds: 5},
+					MaxRetries:        5,
+					RetryFrequency:    &dpb.Duration{Seconds: 600},
 				},
 			},
 		},
@@ -398,8 +451,11 @@ func TestValidateSQLServerConfiguration(t *testing.T) {
 			name: "Valid configuration",
 			config: &cpb.Configuration{
 				SqlserverConfiguration: &cpb.SQLServerConfiguration{
-					Enabled:                  proto.Bool(true),
-					CollectionConfiguration:  &cpb.SQLServerConfiguration_CollectionConfiguration{},
+					Enabled: proto.Bool(true),
+					CollectionConfiguration: &cpb.SQLServerConfiguration_CollectionConfiguration{
+						CollectionFrequency: &dpb.Duration{
+							Seconds: 3600,
+						}},
 					CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{},
 					CollectionTimeout:        &dpb.Duration{Seconds: 10},
 					RetryFrequency:           &dpb.Duration{Seconds: 3600},
@@ -420,6 +476,38 @@ func TestValidateSQLServerConfiguration(t *testing.T) {
 			want: sqlServerConfigurationErrors["errMissingCollectionConfiguration"],
 		},
 		{
+			name: "invalid collection frequency",
+			config: &cpb.Configuration{
+				SqlserverConfiguration: &cpb.SQLServerConfiguration{
+					Enabled: proto.Bool(true),
+					CollectionConfiguration: &cpb.SQLServerConfiguration_CollectionConfiguration{
+						CollectionFrequency: &dpb.Duration{Seconds: -1},
+					},
+					CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{},
+					CollectionTimeout:        &dpb.Duration{Seconds: 10},
+					RetryFrequency:           &dpb.Duration{Seconds: 3600},
+				},
+			},
+			want: sqlServerConfigurationErrors["errInvalidCollectionFrequency"],
+		},
+		{
+			name: "invalid collection frequency with other fields set",
+			config: &cpb.Configuration{
+				SqlserverConfiguration: &cpb.SQLServerConfiguration{
+					Enabled: proto.Bool(true),
+					CollectionConfiguration: &cpb.SQLServerConfiguration_CollectionConfiguration{
+						CollectGuestOsMetrics: true,
+						CollectSqlMetrics:     true,
+						CollectionFrequency:   &dpb.Duration{Seconds: -1},
+					},
+					CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{},
+					CollectionTimeout:        &dpb.Duration{Seconds: 10},
+					RetryFrequency:           &dpb.Duration{Seconds: 3600},
+				},
+			},
+			want: sqlServerConfigurationErrors["errInvalidCollectionFrequency"],
+		},
+		{
 			name: "Credential configurations not provided",
 			config: &cpb.Configuration{
 				SqlserverConfiguration: &cpb.SQLServerConfiguration{
@@ -432,28 +520,50 @@ func TestValidateSQLServerConfiguration(t *testing.T) {
 			want: sqlServerConfigurationErrors["errMissingCredentialConfigurations"],
 		},
 		{
-			name: "Collection timeout not provided",
+			name: "invalid collection timeout",
 			config: &cpb.Configuration{
 				SqlserverConfiguration: &cpb.SQLServerConfiguration{
-					Enabled:                  proto.Bool(true),
-					CollectionConfiguration:  &cpb.SQLServerConfiguration_CollectionConfiguration{},
+					Enabled: proto.Bool(true),
+					CollectionConfiguration: &cpb.SQLServerConfiguration_CollectionConfiguration{
+						CollectionFrequency: &dpb.Duration{Seconds: 3600},
+					},
 					CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{},
+					CollectionTimeout:        &dpb.Duration{Seconds: -1},
 					RetryFrequency:           &dpb.Duration{Seconds: 3600},
 				},
 			},
-			want: sqlServerConfigurationErrors["errMissingCollectionTimeout"],
+			want: sqlServerConfigurationErrors["errInvalidCollectionTimeout"],
 		},
 		{
-			name: "Retry frequency not provided",
+			name: "invalid retry frequency",
 			config: &cpb.Configuration{
 				SqlserverConfiguration: &cpb.SQLServerConfiguration{
-					Enabled:                  proto.Bool(true),
-					CollectionConfiguration:  &cpb.SQLServerConfiguration_CollectionConfiguration{},
+					Enabled: proto.Bool(true),
+					CollectionConfiguration: &cpb.SQLServerConfiguration_CollectionConfiguration{
+						CollectionFrequency: &dpb.Duration{Seconds: 3600},
+					},
 					CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{},
 					CollectionTimeout:        &dpb.Duration{Seconds: 10},
+					RetryFrequency:           &dpb.Duration{Seconds: -1},
 				},
 			},
-			want: sqlServerConfigurationErrors["errMissingRetryFrequency"],
+			want: sqlServerConfigurationErrors["errInvalidRetryFrequency"],
+		},
+		{
+			name: "invalid max retries",
+			config: &cpb.Configuration{
+				SqlserverConfiguration: &cpb.SQLServerConfiguration{
+					Enabled: proto.Bool(true),
+					CollectionConfiguration: &cpb.SQLServerConfiguration_CollectionConfiguration{
+						CollectionFrequency: &dpb.Duration{Seconds: 3600},
+					},
+					CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{},
+					CollectionTimeout:        &dpb.Duration{Seconds: 10},
+					RetryFrequency:           &dpb.Duration{Seconds: 3600},
+					MaxRetries:               -1,
+				},
+			},
+			want: sqlServerConfigurationErrors["errInvalidMaxRetries"],
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
