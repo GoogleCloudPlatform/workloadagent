@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package main serves as the Main entry point for the workload Agent.
+// Package main serves as the main entry point for the workload Agent.
 package main
 
 import (
@@ -27,6 +27,7 @@ import (
 	"github.com/spf13/pflag"
 	"go.uber.org/zap/zapcore"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/configure"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/logusage"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/migrate"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime"
@@ -68,6 +69,7 @@ func main() {
 	rootCmd.AddCommand(version.NewCommand())
 	rootCmd.AddCommand(logusage.NewCommand(lp, cloudProps))
 	rootCmd.AddCommand(migrate.NewCommand())
+	rootCmd.AddCommand(configure.NewConfigureCmd())
 	d := daemon.NewDaemon(lp, cloudProps)
 	daemonCmd := daemon.NewDaemonSubCommand(d)
 
