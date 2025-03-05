@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	basePath = "https://autopush-workloadmanager-datawarehouse.sandbox.googleapis.com/"
+	basePath = "https://workloadmanager-datawarehouse.googleapis.com/"
 )
 
 // WorkloadManagerService the interface of WLM.
