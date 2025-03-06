@@ -38,7 +38,7 @@ import (
 	gcefake "github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/fake"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/metadataserver"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
-	"github.com/GoogleCloudPlatform/workloadagent/internal/secret"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/secret"
 
 	mpb "google.golang.org/genproto/googleapis/api/metric"
 	mrespb "google.golang.org/genproto/googleapis/api/monitoredres"

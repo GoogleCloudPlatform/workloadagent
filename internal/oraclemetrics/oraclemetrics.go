@@ -37,7 +37,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/metadataserver"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/recovery"
-	"github.com/GoogleCloudPlatform/workloadagent/internal/secret"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/secret"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/timeseries"
 
 	mpb "google.golang.org/genproto/googleapis/api/metric"
