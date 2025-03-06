@@ -24,10 +24,10 @@ import (
 	"strings"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/GoogleCloudPlatform/workloadagent/internal/secret"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/secret"
 )
 
 const (

@@ -26,11 +26,11 @@ import (
 	"strings"
 
 	"github.com/go-sql-driver/mysql"
-	"github.com/GoogleCloudPlatform/workloadagent/internal/secret"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/secret"
 )
 
 const (

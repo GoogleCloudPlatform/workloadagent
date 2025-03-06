@@ -31,13 +31,13 @@ import (
 
 	"golang.org/x/exp/maps"
 	"github.com/gammazero/workerpool"
-	"github.com/GoogleCloudPlatform/workloadagent/internal/secret"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/cloudmonitoring"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/metadataserver"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/recovery"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/secret"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/timeseries"
 
 	mpb "google.golang.org/genproto/googleapis/api/metric"
