@@ -9,7 +9,11 @@ replace github.com/GoogleCloudPlatform/workloadagent/protos => ./protos
 require (
   cloud.google.com/go/monitoring v1.23.0
   github.com/DATA-DOG/go-sqlmock v1.5.0
+# Get the version by running:
+# go list -m -json github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries@main
   github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20250306064828-137d9d83d976
+# Get the version by running:
+# go list -m -json github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos@main
   github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20250206170227-f24f60073850
   github.com/StackExchange/wmi v1.2.1
   github.com/cenkalti/backoff/v4 v4.3.0
