@@ -19,21 +19,12 @@ package oracle
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/spf13/cobra"
 )
 
 var (
-	enabled             bool
-	enableDiscovery     bool
-	discoveryFrequency  time.Duration
-	enableMetrics       bool
-	metricsFrequency    time.Duration
-	metricsConnections  []string
-	metricsQueries      []string
-	metricsMaxThreads   int64
-	metricsQueryTimeout time.Duration
+	enabled bool
 )
 
 // NewCommand creates a new 'oracle' command.
@@ -68,6 +59,9 @@ for monitoring Oracle databases, including discovery and metrics collection.`,
 		},
 	}
 	oracleCmd.Flags().BoolVarP(&enabled, "enabled", "e", false, "Enable Oracle configuration")
+
+	oracleCmd.AddCommand(DiscoveryCommand())
+	oracleCmd.AddCommand(MetricsCommand())
 
 	return oracleCmd
 }
