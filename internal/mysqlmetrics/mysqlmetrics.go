@@ -273,13 +273,16 @@ func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmanager
 		log.CtxLogger(ctx).Warnf("Failed to get total RAM: %v", err)
 		return nil, err
 	}
-
 	isInnoDBDefault, err := m.isInnoDBStorageEngine(ctx)
 	if err != nil {
 		log.CtxLogger(ctx).Warnf("Failed to get InnoDB default status: %v", err)
 		return nil, err
 	}
-	log.CtxLogger(ctx).Debugw("Finished collecting MySQL metrics once. Next step is to send to WLM (DW).", "bufferPoolSize", bufferPoolSize, "totalRAM", totalRAM, "isInnoDBDefault", isInnoDBDefault)
+	log.CtxLogger(ctx).Debugw("Finished collecting MySQL metrics once. Next step is to send to WLM (DW).",
+		bufferPoolKey, bufferPoolSize,
+		totalRAMKey, totalRAM,
+		innoDBKey, isInnoDBDefault,
+	)
 	metrics := workloadmanager.WorkloadMetrics{
 		WorkloadType: workloadmanager.MYSQL,
 		Metrics: map[string]string{

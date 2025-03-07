@@ -24,6 +24,7 @@ import (
 
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/osinfo"
 )
 
 // Stub is a no-op test double for psutil.Process.
@@ -103,6 +104,7 @@ func TestIdentifyRedisProcesses(t *testing.T) {
 		{
 			name: "MixedProcesses",
 			s: &Service{
+				OSData: osinfo.Data{OSName: "linux", OSVendor: "debian", OSVersion: "12"},
 				processes: servicecommunication.DiscoveryResult{
 					Processes: []servicecommunication.ProcessWrapper{
 						processStub{
@@ -123,6 +125,7 @@ func TestIdentifyRedisProcesses(t *testing.T) {
 		{
 			name: "OneRedisProcess",
 			s: &Service{
+				OSData: osinfo.Data{OSName: "linux", OSVendor: "rhel", OSVersion: "9.4"},
 				processes: servicecommunication.DiscoveryResult{
 					Processes: []servicecommunication.ProcessWrapper{
 						processStub{
@@ -138,6 +141,7 @@ func TestIdentifyRedisProcesses(t *testing.T) {
 		{
 			name: "OneNotRedisProcess",
 			s: &Service{
+				OSData: osinfo.Data{OSName: "linux", OSVendor: "sles", OSVersion: "15-SP4"},
 				processes: servicecommunication.DiscoveryResult{
 					Processes: []servicecommunication.ProcessWrapper{
 						processStub{
