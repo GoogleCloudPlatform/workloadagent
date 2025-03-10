@@ -26,25 +26,33 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/osinfo"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/secret"
 )
 
 const (
-	redisMain        = "master"
-	redisWorker      = "slave"
-	main             = "main"
-	worker           = "worker"
-	connectedWorkers = "connected_slaves:"
-	linkStatus       = "master_link_status:"
-	role             = "role:"
-	save             = "save"
-	appendonly       = "appendonly"
-	yes              = "yes"
-	up               = "up"
-	defaultPort      = 6379
-	persistenceKey   = "persistence_enabled"
-	replicationKey   = "replication_enabled"
+	// RedisProcessName is the systemd process name for Redis on RHEL and SLES.
+	RedisProcessName = "redis"
+	// RedisServerProcessName is the systemd process name for Redis on Debian.
+	RedisServerProcessName = "redis-server"
+	redisMain              = "master"
+	redisWorker            = "slave"
+	main                   = "main"
+	worker                 = "worker"
+	connectedWorkers       = "connected_slaves:"
+	linkStatus             = "master_link_status:"
+	role                   = "role:"
+	save                   = "save"
+	appendonly             = "appendonly"
+	yes                    = "yes"
+	up                     = "up"
+	defaultPort            = 6379
+	persistenceKey         = "persistence_enabled"
+	replicationKey         = "replication_enabled"
+	serviceEnabledKey      = "service_enabled"
+	serviceRestartKey      = "service_restart"
 )
 
 type gceInterface interface {
@@ -61,7 +69,19 @@ type dbInterface interface {
 type RedisMetrics struct {
 	Config    *configpb.Configuration
 	db        dbInterface
+	execute   commandlineexecutor.Execute
 	WLMClient workloadmanager.WLMWriter
+	OSData    osinfo.Data
+}
+
+// New creates a new RedisMetrics object initialized with default values.
+func New(ctx context.Context, config *configpb.Configuration, wlmClient workloadmanager.WLMWriter, osData osinfo.Data) *RedisMetrics {
+	return &RedisMetrics{
+		Config:    config,
+		execute:   commandlineexecutor.ExecuteCommand,
+		WLMClient: wlmClient,
+		OSData:    osData,
+	}
 }
 
 // password gets the password for the Redis database.
@@ -85,7 +105,7 @@ func (r *RedisMetrics) password(ctx context.Context, gceService gceInterface) (s
 }
 
 // InitDB initializes the Redis database client.
-func (r *RedisMetrics) InitDB(ctx context.Context, gceService gceInterface, wlmClient workloadmanager.WLMWriter) error {
+func (r *RedisMetrics) InitDB(ctx context.Context, gceService gceInterface) error {
 	pw, err := r.password(ctx, gceService)
 	if err != nil {
 		return fmt.Errorf("failed to get password: %v", err)
@@ -98,7 +118,6 @@ func (r *RedisMetrics) InitDB(ctx context.Context, gceService gceInterface, wlmC
 		Addr:     fmt.Sprintf("localhost:%d", port),
 		Password: pw.SecretValue(),
 	})
-	r.WLMClient = wlmClient
 	return nil
 }
 
@@ -170,16 +189,61 @@ func (r *RedisMetrics) persistenceEnabled(ctx context.Context) bool {
 	return false
 }
 
+func (r *RedisMetrics) serviceEnabled(ctx context.Context) bool {
+	processName := RedisProcessName
+	if r.OSData.OSVendor == "debian" {
+		processName = RedisServerProcessName
+	}
+	res := r.execute(ctx, commandlineexecutor.Params{
+		Executable: "systemctl",
+		Args:       []string{"is-enabled", processName},
+	})
+	// is-enabled returns an exit code of 0 if the service is enabled,
+	// and non-zero otherwise. Since the commandlineexecutor folds in non-zero
+	// exit codes into the error, assume that the service is enabled if
+	// the error is nil.
+	if res.Error != nil {
+		log.CtxLogger(ctx).Debugw("Redis service is not enabled", "error", res.Error)
+		return false
+	}
+	return true
+}
+
+func (r *RedisMetrics) serviceRestart(ctx context.Context) bool {
+	processName := RedisProcessName
+	if r.OSData.OSVendor == "debian" {
+		processName = RedisServerProcessName
+	}
+	res := r.execute(ctx, commandlineexecutor.Params{
+		Executable: "systemctl",
+		Args:       []string{"show", processName, "-p", "Restart"},
+	})
+	if res.Error != nil {
+		log.CtxLogger(ctx).Debugw("Failed to check Redis service restart policy", "error", res.Error)
+		return false
+	}
+	return strings.TrimSpace(res.StdOut) != "Restart=no"
+}
+
 // CollectMetricsOnce collects metrics for Redis databases running on the host.
 func (r *RedisMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmanager.WorkloadMetrics, error) {
 	replicationOn := r.replicationModeActive(ctx)
 	persistenceOn := r.persistenceEnabled(ctx)
-	log.CtxLogger(ctx).Debugw("Finished collecting metrics once. Next step is to send to WLM (DW).", "replicationOn", replicationOn, "persistenceOn", persistenceOn)
+	serviceEnabled := r.serviceEnabled(ctx)
+	serviceRestart := r.serviceRestart(ctx)
+	log.CtxLogger(ctx).Debugw("Finished collecting metrics once. Next step is to send to WLM (DW).",
+		replicationKey, replicationOn,
+		persistenceKey, persistenceOn,
+		serviceEnabledKey, serviceEnabled,
+		serviceRestartKey, serviceRestart,
+	)
 	metrics := workloadmanager.WorkloadMetrics{
 		WorkloadType: workloadmanager.REDIS,
 		Metrics: map[string]string{
-			replicationKey: strconv.FormatBool(replicationOn),
-			persistenceKey: strconv.FormatBool(persistenceOn),
+			replicationKey:    strconv.FormatBool(replicationOn),
+			persistenceKey:    strconv.FormatBool(persistenceOn),
+			serviceEnabledKey: strconv.FormatBool(serviceEnabled),
+			serviceRestartKey: strconv.FormatBool(serviceRestart),
 		},
 	}
 	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{

@@ -28,8 +28,10 @@ import (
 	"google.golang.org/protobuf/testing/protocmp"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
 	gcefake "github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/fake"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/wlm"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/osinfo"
 )
 
 type testGCE struct {
@@ -171,14 +173,16 @@ func TestInitPassword(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		got, err := tc.r.password(context.Background(), tc.gce)
-		gotErr := err != nil
-		if gotErr != tc.wantErr {
-			t.Errorf("password() = %v, wantErr %v", err, tc.wantErr)
-		}
-		if got.SecretValue() != tc.want {
-			t.Errorf("password() = %v, want %v", got, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := tc.r.password(context.Background(), tc.gce)
+			gotErr := err != nil
+			if gotErr != tc.wantErr {
+				t.Errorf("password() = %v, wantErr %v", err, tc.wantErr)
+			}
+			if got.SecretValue() != tc.want {
+				t.Errorf("password() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -201,6 +205,17 @@ func TestCollectMetricsOnce(t *testing.T) {
 						ProjectId: "fake-project-id",
 					},
 				},
+				OSData: osinfo.Data{OSName: "linux", OSVendor: "rhel", OSVersion: "9.4"},
+				execute: func(ctx context.Context, p commandlineexecutor.Params) commandlineexecutor.Result {
+					switch p.Args[0] {
+					case "is-enabled":
+						return commandlineexecutor.Result{StdOut: "enabled"}
+					case "show":
+						return commandlineexecutor.Result{StdOut: "Restart=always"}
+					default:
+						return commandlineexecutor.Result{Error: errors.New("unknown command")}
+					}
+				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
 					WriteInsightResponses: []*wlm.WriteInsightResponse{
@@ -218,8 +233,10 @@ func TestCollectMetricsOnce(t *testing.T) {
 			want: &workloadmanager.WorkloadMetrics{
 				WorkloadType: workloadmanager.REDIS,
 				Metrics: map[string]string{
-					replicationKey: "true",
-					persistenceKey: "true",
+					replicationKey:    "true",
+					persistenceKey:    "true",
+					serviceEnabledKey: "true",
+					serviceRestartKey: "true",
 				},
 			},
 			wantErr: false,
@@ -231,6 +248,10 @@ func TestCollectMetricsOnce(t *testing.T) {
 					CloudProperties: &configpb.CloudProperties{
 						ProjectId: "fake-project-id",
 					},
+				},
+				OSData: osinfo.Data{OSName: "linux", OSVendor: "rhel", OSVersion: "9.4"},
+				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{}
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{errors.New("fake-error")},
@@ -257,6 +278,10 @@ func TestCollectMetricsOnce(t *testing.T) {
 						ProjectId: "fake-project-id",
 					},
 				},
+				OSData: osinfo.Data{OSName: "linux", OSVendor: "rhel", OSVersion: "9.4"},
+				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{}
+				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs:      []error{nil},
 					WriteInsightResponses: []*wlm.WriteInsightResponse{nil},
@@ -272,8 +297,10 @@ func TestCollectMetricsOnce(t *testing.T) {
 			want: &workloadmanager.WorkloadMetrics{
 				WorkloadType: workloadmanager.REDIS,
 				Metrics: map[string]string{
-					replicationKey: "true",
-					persistenceKey: "true",
+					replicationKey:    "true",
+					persistenceKey:    "true",
+					serviceEnabledKey: "true",
+					serviceRestartKey: "true",
 				},
 			},
 			wantErr: false,
@@ -283,26 +310,28 @@ func TestCollectMetricsOnce(t *testing.T) {
 	ctx := context.Background()
 
 	for _, tc := range tests {
-		testDB := &testDB{
-			info:         &redis.StringCmd{},
-			saveConfig:   &redis.MapStringStringCmd{},
-			appendConfig: &redis.MapStringStringCmd{},
-		}
-		testDB.info.SetVal(tc.stringCmdValue)
-		testDB.saveConfig.SetVal(tc.saveMapContent)
-		testDB.appendConfig.SetVal(tc.appendMapContent)
-		tc.r.db = testDB
-
-		got, err := tc.r.CollectMetricsOnce(ctx)
-		if tc.wantErr {
-			if err == nil {
-				t.Errorf("CollectMetricsOnce(%v) returned no error, want error", tc.name)
+		t.Run(tc.name, func(t *testing.T) {
+			testDB := &testDB{
+				info:         &redis.StringCmd{},
+				saveConfig:   &redis.MapStringStringCmd{},
+				appendConfig: &redis.MapStringStringCmd{},
 			}
-			continue
-		}
-		if diff := cmp.Diff(tc.want, got, protocmp.Transform()); diff != "" {
-			t.Errorf("CollectMetricsOnce(%v) = %v, want %v", tc.name, got, tc.want)
-		}
+			testDB.info.SetVal(tc.stringCmdValue)
+			testDB.saveConfig.SetVal(tc.saveMapContent)
+			testDB.appendConfig.SetVal(tc.appendMapContent)
+			tc.r.db = testDB
+
+			got, err := tc.r.CollectMetricsOnce(ctx)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("CollectMetricsOnce(%v) returned no error, want error", tc.name)
+				}
+				return
+			}
+			if diff := cmp.Diff(tc.want, got, protocmp.Transform()); diff != "" {
+				t.Errorf("CollectMetricsOnce(%v) = %v, want %v", tc.name, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -349,16 +378,18 @@ func TestReplicationModeActive(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		testDB := &testDB{info: &redis.StringCmd{}}
-		testDB.info.SetVal(tc.stringCmdValue)
-		r := RedisMetrics{
-			db: testDB,
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			testDB := &testDB{info: &redis.StringCmd{}}
+			testDB.info.SetVal(tc.stringCmdValue)
+			r := RedisMetrics{
+				db: testDB,
+			}
 
-		got := r.replicationModeActive(context.Background())
-		if got != tc.want {
-			t.Errorf("replicationModeActive() test %v = %v, want %v", tc.name, got, tc.want)
-		}
+			got := r.replicationModeActive(context.Background())
+			if got != tc.want {
+				t.Errorf("replicationModeActive() test %v = %v, want %v", tc.name, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -407,19 +438,123 @@ func TestPersistenceEnabled(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		testDB := &testDB{
-			saveConfig:   &redis.MapStringStringCmd{},
-			appendConfig: &redis.MapStringStringCmd{},
-		}
-		testDB.saveConfig.SetVal(tc.saveMapContent)
-		testDB.appendConfig.SetVal(tc.appendMapContent)
-		r := RedisMetrics{
-			db: testDB,
-		}
-		got := r.persistenceEnabled(context.Background())
-		if got != tc.want {
-			t.Errorf("persistenceEnabled() test %v = %v, want %v", tc.name, got, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			testDB := &testDB{
+				saveConfig:   &redis.MapStringStringCmd{},
+				appendConfig: &redis.MapStringStringCmd{},
+			}
+			testDB.saveConfig.SetVal(tc.saveMapContent)
+			testDB.appendConfig.SetVal(tc.appendMapContent)
+			r := RedisMetrics{
+				db: testDB,
+			}
+			got := r.persistenceEnabled(context.Background())
+			if got != tc.want {
+				t.Errorf("persistenceEnabled() test %v = %v, want %v", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestServiceEnabled(t *testing.T) {
+	tests := []struct {
+		name string
+		r    RedisMetrics
+		want bool
+	}{
+		{
+			name: "Success",
+			r: RedisMetrics{
+				OSData: osinfo.Data{OSName: "linux", OSVendor: "debian", OSVersion: "12"},
+				execute: func(ctx context.Context, p commandlineexecutor.Params) commandlineexecutor.Result {
+					if p.Args[0] == "is-enabled" {
+						return commandlineexecutor.Result{StdOut: "enabled"}
+					}
+					return commandlineexecutor.Result{StdOut: "disabled"}
+				},
+			},
+			want: true,
+		},
+		{
+			name: "Error",
+			r: RedisMetrics{
+				OSData: osinfo.Data{OSName: "linux", OSVendor: "rhel", OSVersion: "9.4"},
+				execute: func(ctx context.Context, p commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{Error: errors.New("systemctl is-enabled error")}
+				},
+			},
+			want: false,
+		},
+		{
+			name: "Disabled",
+			r: RedisMetrics{
+				OSData: osinfo.Data{OSName: "linux", OSVendor: "sles", OSVersion: "15-SP4"},
+				execute: func(ctx context.Context, p commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{Error: errors.New("Non-zero exit code"), ExitCode: 1, StdOut: "disabled"}
+				},
+			},
+			want: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.r.serviceEnabled(context.Background())
+			if got != tc.want {
+				t.Errorf("serviceEnabled() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestServiceRestart(t *testing.T) {
+	tests := []struct {
+		name string
+		r    RedisMetrics
+		want bool
+	}{
+		{
+			name: "Success",
+			r: RedisMetrics{
+				OSData: osinfo.Data{OSName: "linux", OSVendor: "debian", OSVersion: "12"},
+				execute: func(ctx context.Context, p commandlineexecutor.Params) commandlineexecutor.Result {
+					if p.Args[0] == "show" {
+						return commandlineexecutor.Result{StdOut: "Restart=always\n"}
+					}
+					return commandlineexecutor.Result{StdOut: "Restart=no"}
+				},
+			},
+			want: true,
+		},
+		{
+			name: "Error",
+			r: RedisMetrics{
+				OSData: osinfo.Data{OSName: "linux", OSVendor: "rhel", OSVersion: "9.4"},
+				execute: func(ctx context.Context, p commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{Error: errors.New("systemctl show error")}
+				},
+			},
+			want: false,
+		},
+		{
+			name: "NoRestart",
+			r: RedisMetrics{
+				OSData: osinfo.Data{OSName: "linux", OSVendor: "sles", OSVersion: "15-SP4"},
+				execute: func(ctx context.Context, p commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{StdOut: "Restart=no\n"}
+				},
+			},
+			want: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.r.serviceRestart(context.Background())
+			if got != tc.want {
+				t.Errorf("serviceRestart() = %t, want %t", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -503,13 +638,15 @@ func TestInitDB(t *testing.T) {
 	ctx := context.Background()
 
 	for _, tc := range tests {
-		err := tc.r.InitDB(ctx, tc.gceService, &gcefake.TestWLM{})
-		gotErr := err != nil
-		if gotErr != tc.wantErr {
-			t.Errorf("InitDB(%v) = %v, wantErr %v", tc.name, err, tc.wantErr)
-		}
-		if !gotErr && (tc.r.db.String() != tc.want || tc.r.WLMClient == nil) {
-			t.Errorf("InitDB(%v) = %v, want %v", tc.name, tc.r.db.String(), tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.r.InitDB(ctx, tc.gceService)
+			gotErr := err != nil
+			if gotErr != tc.wantErr {
+				t.Errorf("InitDB(%v) = %v, wantErr %v", tc.name, err, tc.wantErr)
+			}
+			if !gotErr && (tc.r.db.String() != tc.want) {
+				t.Errorf("InitDB(%v) = %v, want %v", tc.name, tc.r.db.String(), tc.want)
+			}
+		})
 	}
 }

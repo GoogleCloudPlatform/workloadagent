@@ -30,6 +30,7 @@ import (
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/osinfo"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/recovery"
 )
 
@@ -47,6 +48,7 @@ type Service struct {
 	redisProcesses []servicecommunication.ProcessWrapper
 	dwActivated    bool
 	WLMClient      workloadmanager.WLMWriter
+	OSData         osinfo.Data
 }
 
 type runDiscoveryArgs struct {
@@ -153,10 +155,8 @@ func runMetricCollection(ctx context.Context, a any) {
 		log.CtxLogger(ctx).Errorf("initializing GCE services: %w", err)
 		return
 	}
-	r := &redismetrics.RedisMetrics{
-		Config: args.s.Config,
-	}
-	err = r.InitDB(ctx, gceService, args.s.WLMClient)
+	r := redismetrics.New(ctx, args.s.Config, args.s.WLMClient, args.s.OSData)
+	err = r.InitDB(ctx, gceService)
 	if err != nil {
 		log.CtxLogger(ctx).Errorf("failed to initialize Redis DB client", "error", err)
 		return

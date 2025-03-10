@@ -9,12 +9,12 @@ replace github.com/GoogleCloudPlatform/workloadagent/protos => ./protos
 require (
   cloud.google.com/go/monitoring v1.23.0
   github.com/DATA-DOG/go-sqlmock v1.5.0
-# Get the version by running:
-# go list -m -json github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries@main
-  github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20250306064828-137d9d83d976
-# Get the version by running:
-# go list -m -json github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos@main
-  github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20250206170227-f24f60073850
+  // Get the version by running:
+  // go list -m -json github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries@main
+  github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20250306152918-ad26afc273a3
+  // Get the version by running:
+  // go list -m -json github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos@main
+  github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20250306152918-ad26afc273a3
   github.com/StackExchange/wmi v1.2.1
   github.com/cenkalti/backoff/v4 v4.3.0
   github.com/gammazero/workerpool v1.1.3
@@ -30,6 +30,7 @@ require (
   github.com/sijms/go-ora v1.3.2
   github.com/spf13/cobra v1.8.1
   github.com/spf13/pflag v1.0.5
+  github.com/zieckey/goini v0.0.0-20240615065340-08ee21c836fb // indirect
   go.uber.org/zap v1.27.0
   golang.org/x/crypto v0.32.0
   golang.org/x/exp v0.0.0-20230321023759-10a507213a29

@@ -19,6 +19,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"os"
 	"runtime"
 	"time"
@@ -33,8 +34,17 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/version"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/metadataserver"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/osinfo"
 
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
+)
+
+var (
+	configFileReader = func(path string) (io.ReadCloser, error) {
+		file, err := os.Open(path)
+		var f io.ReadCloser = file
+		return f, err
+	}
 )
 
 func main() {
@@ -60,6 +70,11 @@ func main() {
 	}
 	lp.CloudLoggingClient = log.CloudLoggingClient(ctx, cloudProps.GetProjectId())
 
+	osData, err := osinfo.ReadData(ctx, osinfo.FileReadCloser(configFileReader), osinfo.OSName, osinfo.OSReleaseFilePath)
+	if err != nil {
+		log.Logger.Errorw("Unable to read OS data. Agent services may be impacted.", "error", err)
+	}
+
 	rootCmd := &cobra.Command{
 		Use:   "google_cloud_workload_agent",
 		Short: "Google Cloud Agent for Compute Workloads",
@@ -68,7 +83,7 @@ func main() {
 	rootCmd.AddCommand(version.NewCommand())
 	rootCmd.AddCommand(logusage.NewCommand(lp, cloudProps))
 	rootCmd.AddCommand(migrate.NewCommand())
-	d := daemon.NewDaemon(lp, cloudProps)
+	d := daemon.NewDaemon(lp, cloudProps, osData)
 	daemonCmd := daemon.NewDaemonSubCommand(d)
 
 	// When running on windows, the daemon is started using the winservice subcommand.

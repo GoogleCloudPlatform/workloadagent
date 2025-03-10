@@ -37,6 +37,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/osinfo"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/recovery"
 
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
@@ -48,6 +49,7 @@ type Daemon struct {
 	lp             log.Parameters
 	config         *cpb.Configuration
 	cloudProps     *cpb.CloudProperties
+	osData         osinfo.Data
 	services       []Service
 }
 
@@ -63,10 +65,11 @@ type (
 )
 
 // NewDaemon creates a new Daemon.
-func NewDaemon(lp log.Parameters, cloudProps *cpb.CloudProperties) *Daemon {
+func NewDaemon(lp log.Parameters, cloudProps *cpb.CloudProperties, osData osinfo.Data) *Daemon {
 	return &Daemon{
 		lp:         lp,
 		cloudProps: cloudProps,
+		osData:     osData,
 	}
 }
 
@@ -137,6 +140,11 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 		"instancename", d.cloudProps.GetInstanceName(),
 		"machinetype", d.cloudProps.GetMachineType(),
 		"image", d.cloudProps.GetImage(),
+	)
+	log.Logger.Infow("OS Data",
+		"name", d.osData.OSName,
+		"vendor", d.osData.OSVendor,
+		"version", d.osData.OSVersion,
 	)
 
 	configureUsageMetricsForDaemon(d.cloudProps)
@@ -210,7 +218,7 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 	d.services = []Service{
 		&oracle.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: oracleCh},
 		&mysql.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: mySQLCh, WLMClient: wlmClient},
-		&redis.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: redisCh, WLMClient: wlmClient},
+		&redis.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: redisCh, WLMClient: wlmClient, OSData: d.osData},
 		&sqlserver.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: sqlserverCh},
 	}
 	for _, service := range d.services {
