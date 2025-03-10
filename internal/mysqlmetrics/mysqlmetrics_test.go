@@ -426,10 +426,11 @@ func TestIsInnoDBStorageEngine(t *testing.T) {
 
 func TestTotalRAM(t *testing.T) {
 	tests := []struct {
-		name    string
-		m       MySQLMetrics
-		want    int
-		wantErr bool
+		name        string
+		m           MySQLMetrics
+		isWindowsOS bool
+		want        int
+		wantErr     bool
 	}{
 		{
 			name: "HappyPath",
@@ -444,16 +445,43 @@ func TestTotalRAM(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "TooManyLines",
+			name: "HappyPathWindows",
 			m: MySQLMetrics{
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
-						StdOut: "MemTotal:        4025040 kB\ntesttext\ntesttext\n",
+						StdOut: "TotalPhysicalMemory\n134876032413 ",
 					}
 				},
 			},
-			want:    0,
-			wantErr: true,
+			isWindowsOS: true,
+			want:        134876032413,
+			wantErr:     false,
+		},
+		{
+			name: "SingleLineWindows",
+			m: MySQLMetrics{
+				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{
+						StdOut: "TotalPhysicalMemory: 134876032413 ",
+					}
+				},
+			},
+			isWindowsOS: true,
+			want:        0,
+			wantErr:     true,
+		},
+		{
+			name: "NonIntWindows",
+			m: MySQLMetrics{
+				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{
+						StdOut: "TotalPhysicalMemory\ntesttext ",
+					}
+				},
+			},
+			isWindowsOS: true,
+			want:        0,
+			wantErr:     true,
 		},
 		{
 			name: "TooManyFields",
@@ -481,13 +509,13 @@ func TestTotalRAM(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		got, err := tc.m.totalRAM(context.Background())
+		got, err := tc.m.totalRAM(context.Background(), tc.isWindowsOS)
 		gotErr := err != nil
 		if gotErr != tc.wantErr {
-			t.Errorf("totalRAM() = %v, wantErr %v", err, tc.wantErr)
+			t.Errorf("totalRAM(%s) = %v, wantErr %v", tc.name, err, tc.wantErr)
 		}
 		if got != tc.want {
-			t.Errorf("totalRAM() = %v, want %v", got, tc.want)
+			t.Errorf("totalRAM(%s) = %v, want %v", tc.name, got, tc.want)
 		}
 	}
 }
@@ -707,6 +735,8 @@ func TestCollectMetricsOnce(t *testing.T) {
 		wantErr     bool
 	}{
 		{
+			// This is the HappyPath test for running on Linux. It will fail if run on Windows.
+			// Windows specific functionality is tested in TestTotalRAM.
 			name: "HappyPath",
 			m: MySQLMetrics{
 				db: &testDB{

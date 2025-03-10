@@ -22,6 +22,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -231,10 +232,30 @@ func (m *MySQLMetrics) bufferPoolSize(ctx context.Context) (int64, error) {
 	return bufferPoolSize, nil
 }
 
-func (m *MySQLMetrics) totalRAM(ctx context.Context) (int, error) {
+func windowsTotalRAM(ctx context.Context, output string) (int, error) {
+	// Expected to be something like "TotalPhysicalMemory\n134876032413"
+	lines := strings.Split(output, "\n")
+	if len(lines) < 2 {
+		return 0, fmt.Errorf("not enough lines found in output for windows total RAM: %d", len(lines))
+	}
+	ramString := strings.TrimSpace(lines[1])
+	ram, err := strconv.Atoi(ramString)
+	if err != nil {
+		return 0, fmt.Errorf("failed to convert total RAM to integer: %v", err)
+	}
+	return ram, nil
+}
+
+func (m *MySQLMetrics) totalRAM(ctx context.Context, isWindowsOS bool) (int, error) {
 	cmd := commandlineexecutor.Params{
 		Executable: "grep",
 		Args:       []string{"MemTotal", "/proc/meminfo"},
+	}
+	if isWindowsOS {
+		cmd = commandlineexecutor.Params{
+			Executable: "cmd",
+			Args:       []string{"/C", "wmic", "computersystem", "get", "totalphysicalmemory"},
+		}
 	}
 	log.CtxLogger(ctx).Debugw("getTotalRAM command", "command", cmd)
 	res := m.execute(ctx, cmd)
@@ -242,10 +263,11 @@ func (m *MySQLMetrics) totalRAM(ctx context.Context) (int, error) {
 	if res.Error != nil {
 		return 0, fmt.Errorf("failed to execute command: %v", res.Error)
 	}
-	lines := strings.Split(res.StdOut, "\n")
-	if len(lines) != 2 {
-		return 0, fmt.Errorf("found wrong number of lines in total RAM: %d", len(lines))
+	if isWindowsOS {
+		return windowsTotalRAM(ctx, res.StdOut)
 	}
+	// Expected to be something like "MemTotal:       1348760 kB"
+	lines := strings.Split(res.StdOut, "\n")
 	fields := strings.Fields(lines[0])
 	if len(fields) != 3 {
 		return 0, fmt.Errorf("found wrong number of fields in total RAM: %d", len(fields))
@@ -268,7 +290,8 @@ func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmanager
 		log.CtxLogger(ctx).Warnf("Failed to get buffer pool size: %v", err)
 		return nil, err
 	}
-	totalRAM, err := m.totalRAM(ctx)
+	isWindowsOS := runtime.GOOS == "windows"
+	totalRAM, err := m.totalRAM(ctx, isWindowsOS)
 	if err != nil {
 		log.CtxLogger(ctx).Warnf("Failed to get total RAM: %v", err)
 		return nil, err
