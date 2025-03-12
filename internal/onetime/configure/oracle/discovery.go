@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"time"
 
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	"github.com/spf13/cobra"
 )
 
@@ -31,7 +32,7 @@ var (
 )
 
 // DiscoveryCommand creates a new 'discovery' subcommand for Oracle.
-func DiscoveryCommand() *cobra.Command {
+func DiscoveryCommand(ocfg *Config) *cobra.Command {
 	discoveryCmd := &cobra.Command{
 		Use:   "discovery",
 		Short: "Configure Oracle discovery",
@@ -42,15 +43,19 @@ This command allows you to enable or disable Oracle discovery and set the update
 			if enableDiscovery {
 				fmt.Println("Oracle Discovery is Enabled.")
 				fmt.Printf("  Update Frequency: %s\n", discoveryFrequency)
-				fmt.Println("  Performing Oracle discovery...")
+				// Modify the oracle discovery configuration only when enabled.
+				ocfg.OracleConfiguration.OracleDiscovery.UpdateFrequency = durationpb.New(discoveryFrequency)
 			} else {
 				fmt.Println("Oracle Discovery is Disabled.")
 			}
 		},
 	}
 
-	discoveryCmd.Flags().BoolVarP(&enableDiscovery, "enabled", "e", false, "Enable Oracle discovery")
-	discoveryCmd.Flags().DurationVar(&discoveryFrequency, "frequency", 3*time.Hour, "Discovery update frequency (e.g., 5m, 1h)")
+	// Set the default values for the flags from the configuration.
+	ed := ocfg.OracleConfiguration.GetOracleDiscovery().GetEnabled()
+	df := ocfg.OracleConfiguration.GetOracleDiscovery().GetUpdateFrequency().AsDuration()
+	discoveryCmd.Flags().BoolVarP(&enableDiscovery, "enabled", "e", ed, "Enable Oracle discovery")
+	discoveryCmd.Flags().DurationVar(&discoveryFrequency, "frequency", df, "Discovery update frequency (e.g., 5m, 1h)")
 
 	return discoveryCmd
 }
