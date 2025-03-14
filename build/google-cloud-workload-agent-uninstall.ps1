@@ -12,10 +12,20 @@
 $ErrorActionPreference = 'Stop'
 $DATA_DIR = $env:ProgramData + '\Google\google-cloud-workload-agent'
 $INSTALL_DIR = 'C:\Program Files\Google\google-cloud-workload-agent'
+$BIN_NAME_EXE = 'google-cloud-workload-agent.exe'
 $SVC_NAME = 'google-cloud-workload-agent'
 $MONITOR_TASK = 'google-cloud-workload-agent-monitor'
 $MIGRATION_TASK = 'google-cloud-workload-agent-migration'
 
+function Log-Uninstall {
+  #.DESCRIPTION
+  #  Invokes the service with usage logging enabled to log an uninstall event
+  try {
+    Start-Process $INSTALL_DIR\$BIN_NAME_EXE -ArgumentList 'logusage','-s','UNINSTALLED' | Wait-Process -Timeout 30
+  } catch {}
+}
+
+Log-Uninstall
 try {
   # stop the service / tasks and remove them
   if ($(Get-ScheduledTask $MONITOR_TASK -ErrorAction Ignore).TaskName) {

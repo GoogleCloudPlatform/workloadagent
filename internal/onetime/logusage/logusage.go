@@ -91,18 +91,13 @@ func NewCommand(lp log.Parameters, cloudProps *cpb.CloudProperties) *cobra.Comma
 		},
 	}
 
-	logUsageCmd.Flags().StringVar(&l.name, "name", configuration.AgentName, "Agent or Tool name")
-	logUsageCmd.Flags().StringVar(&l.name, "n", configuration.AgentName, "Agent or Tool name")
+	logUsageCmd.Flags().StringVarP(&l.name, "name", "n", configuration.AgentName, "Agent or Tool name")
 	logUsageCmd.Flags().StringVar(&l.agentVersion, "agent-version", configuration.AgentVersion, "Agent or Tool version")
 	logUsageCmd.Flags().StringVar(&l.agentVersion, "av", configuration.AgentVersion, "Agent or Tool version")
-	logUsageCmd.Flags().StringVar(&l.status, "status", "", "usage status value")
-	logUsageCmd.Flags().StringVar(&l.status, "s", "", "usage status value")
-	logUsageCmd.Flags().IntVar(&l.action, "action", 0, "usage action code")
-	logUsageCmd.Flags().IntVar(&l.action, "a", 0, "usage action code")
-	logUsageCmd.Flags().IntVar(&l.usageError, "error", 0, "usage error code")
-	logUsageCmd.Flags().IntVar(&l.usageError, "e", 0, "usage error code")
-	logUsageCmd.Flags().StringVar(&l.image, "image", "", "the image url of the compute instance(optional), default value is retrieved from metadata)")
-	logUsageCmd.Flags().StringVar(&l.image, "i", "", "the image url of the compute instance(optional), default value is retrieved from metadata)")
+	logUsageCmd.Flags().StringVarP(&l.status, "status", "s", "", "usage status value")
+	logUsageCmd.Flags().IntVarP(&l.action, "action", "a", 0, "usage action code")
+	logUsageCmd.Flags().IntVarP(&l.usageError, "error", "e", 0, "usage error code")
+	logUsageCmd.Flags().StringVarP(&l.image, "image", "i", "", "the image url of the compute instance(optional), default value is retrieved from metadata)")
 
 	return logUsageCmd
 }
