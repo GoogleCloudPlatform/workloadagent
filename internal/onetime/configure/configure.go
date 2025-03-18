@@ -22,10 +22,12 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/configure/oracle"
+
+	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
 
 // NewCommand creates a new 'configure' command.
-func NewCommand() *cobra.Command {
+func NewCommand(cloudProps *cpb.CloudProperties) *cobra.Command {
 	configureCmd := &cobra.Command{
 		Use:   "configure",
 		Short: "Configure the Google Cloud Agent for Compute Workloads",
@@ -60,7 +62,7 @@ func NewCommand() *cobra.Command {
 		return nil
 	})
 
-	configureCmd.AddCommand(oracle.NewCommand())
+	configureCmd.AddCommand(oracle.NewCommand(cloudProps))
 
 	return configureCmd
 }
