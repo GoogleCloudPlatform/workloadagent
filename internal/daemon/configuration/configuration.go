@@ -82,28 +82,17 @@ const (
 	WindowsConfigPath = `C:\Program Files\Google\google-cloud-workload-agent\conf\configuration.json`
 )
 
-// Load loads the configuration from a JSON file and applies defaults for missing fields.
-func Load(path string, read ReadConfigFile, cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) {
-	if path == "" {
-		path = LinuxConfigPath
-		if runtime.GOOS == "windows" {
-			path = WindowsConfigPath
-		}
-	}
-
-	cfg, err := defaultConfig(cloudProps)
-	if err != nil {
-		return nil, fmt.Errorf("generating default configuration: %w", err)
-	}
-
+// ConfigFromFile returns the configuration from the given file path.
+func ConfigFromFile(path string, read ReadConfigFile) (*cpb.Configuration, error) {
+	emptyConfig := &cpb.Configuration{}
 	content, err := read(path)
 	if err != nil {
 		log.Logger.Warnw("Configuration file cannot be read; Using defaults", "error", err)
-		return cfg, nil
+		return emptyConfig, nil
 	}
 	if len(content) == 0 {
 		log.Logger.Warnw("Configuration file is empty; Using defaults", "path", path)
-		return cfg, nil
+		return emptyConfig, nil
 	}
 
 	cfgFromFile := &cpb.Configuration{}
@@ -118,6 +107,27 @@ func Load(path string, read ReadConfigFile, cloudProps *cpb.CloudProperties) (*c
 
 	if err := validateSQLServerConfiguration(cfgFromFile); err != nil {
 		return nil, fmt.Errorf("validating SQL Server configuration: %w", err)
+	}
+	return cfgFromFile, nil
+}
+
+// Load loads the configuration from a JSON file and applies defaults for missing fields.
+func Load(path string, read ReadConfigFile, cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) {
+	if path == "" {
+		path = LinuxConfigPath
+		if runtime.GOOS == "windows" {
+			path = WindowsConfigPath
+		}
+	}
+
+	cfg, err := defaultConfig(cloudProps)
+	if err != nil {
+		return nil, fmt.Errorf("generating default configuration: %w", err)
+	}
+
+	cfgFromFile, err := ConfigFromFile(path, read)
+	if err != nil {
+		return nil, fmt.Errorf("gathering configuration from file: %w", err)
 	}
 
 	proto.Merge(cfg, cfgFromFile)
