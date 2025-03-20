@@ -80,6 +80,20 @@ const (
 	LinuxConfigPath = `/etc/google-cloud-workload-agent/configuration.json`
 	// WindowsConfigPath is the default path to agent configuration file on linux.
 	WindowsConfigPath = `C:\Program Files\Google\google-cloud-workload-agent\conf\configuration.json`
+	// DefaultOracleDiscoveryFrequency is the default frequency for Oracle discovery.
+	DefaultOracleDiscoveryFrequency = 3600 * time.Second
+	// DefaultOracleMetricsFrequency is the default frequency for Oracle metrics collection.
+	DefaultOracleMetricsFrequency = 60 * time.Second
+	// DefaultOracleMetricsMaxThreads is the default maximum number of threads for Oracle metrics collection.
+	DefaultOracleMetricsMaxThreads = 10
+	// DefaultOracleMetricsQueryTimeout is the default timeout for Oracle metrics queries.
+	DefaultOracleMetricsQueryTimeout = 10 * time.Second
+	// DefaultSQLServerCollectionTimeout is the default timeout for SQL Server Configuration.
+	DefaultSQLServerCollectionTimeout = 10 * time.Second
+	// DefaultSQLServerMaxRetries is the default maximum number of retries for SQL Server Configuration.
+	DefaultSQLServerMaxRetries = 3
+	// DefaultSQLServerRetryFrequency is the default frequency for retrying SQL Server Configuration.
+	DefaultSQLServerRetryFrequency = 3600 * time.Second
 )
 
 // ConfigFromFile returns the configuration from the given file path.
@@ -208,13 +222,13 @@ func defaultConfig(cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) 
 			Enabled: proto.Bool(false),
 			OracleDiscovery: &cpb.OracleDiscovery{
 				Enabled:         proto.Bool(true),
-				UpdateFrequency: dpb.New(time.Duration(3 * 60 * 60 * time.Second)),
+				UpdateFrequency: dpb.New(time.Duration(DefaultOracleDiscoveryFrequency)),
 			},
 			OracleMetrics: &cpb.OracleMetrics{
 				Enabled:             proto.Bool(false),
-				CollectionFrequency: dpb.New(time.Duration(time.Minute)),
-				QueryTimeout:        dpb.New(time.Duration(10 * time.Second)),
-				MaxExecutionThreads: 10,
+				CollectionFrequency: dpb.New(time.Duration(DefaultOracleMetricsFrequency)),
+				QueryTimeout:        dpb.New(time.Duration(DefaultOracleMetricsQueryTimeout)),
+				MaxExecutionThreads: DefaultOracleMetricsMaxThreads,
 				Queries:             oracleQueries,
 			},
 		},
@@ -224,9 +238,9 @@ func defaultConfig(cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) 
 				CollectionFrequency: dpb.New(time.Duration(time.Hour)),
 			},
 			CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{},
-			CollectionTimeout:        dpb.New(time.Duration(10 * time.Second)),
-			MaxRetries:               3,
-			RetryFrequency:           dpb.New(time.Duration(3600 * time.Second)),
+			CollectionTimeout:        dpb.New(time.Duration(DefaultSQLServerCollectionTimeout)),
+			MaxRetries:               DefaultSQLServerMaxRetries,
+			RetryFrequency:           dpb.New(time.Duration(DefaultSQLServerRetryFrequency)),
 		},
 	}, nil
 }
