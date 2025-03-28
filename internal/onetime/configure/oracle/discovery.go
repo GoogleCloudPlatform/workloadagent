@@ -17,23 +17,19 @@ limitations under the License.
 package oracle
 
 import (
-	"fmt"
 	"time"
 
-	durationpb "google.golang.org/protobuf/types/known/durationpb"
+	dpb "google.golang.org/protobuf/types/known/durationpb"
 	"github.com/spf13/cobra"
-)
-
-// NOTE: These variables value is derived from command-line flags and may be
-// subject to modification by other functions within this package.
-// TODO: Remove this global variable.
-var (
-	enableDiscovery    bool
-	discoveryFrequency time.Duration
+	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
 )
 
 // DiscoveryCommand creates a new 'discovery' subcommand for Oracle.
 func DiscoveryCommand(ocfg *Config) *cobra.Command {
+	var (
+		enableDiscovery    bool
+		discoveryFrequency time.Duration
+	)
 	discoveryCmd := &cobra.Command{
 		Use:   "discovery",
 		Short: "Configure Oracle discovery",
@@ -41,26 +37,21 @@ func DiscoveryCommand(ocfg *Config) *cobra.Command {
 
 This command allows you to enable or disable Oracle discovery and set the update frequency.`,
 		Run: func(cmd *cobra.Command, args []string) {
-			if enableDiscovery {
-				fmt.Println("Oracle Discovery is Enabled.")
-				fmt.Printf("  Update Frequency: %s\n", discoveryFrequency)
-				// Modify the oracle discovery configuration only when enabled.
-				ocfg.OracleConfiguration.OracleDiscovery.UpdateFrequency = durationpb.New(discoveryFrequency)
-			} else {
-				fmt.Println("Oracle Discovery is Disabled.")
+			if cmd.Flags().Changed("enabled") {
+				ocfg.OracleConfiguration.OracleDiscovery.Enabled = &enableDiscovery
+				ocfg.ConfigModified = true
+			}
+
+			if cmd.Flags().Changed("frequency") {
+				ocfg.OracleConfiguration.OracleDiscovery.UpdateFrequency = dpb.New(discoveryFrequency)
+				ocfg.ConfigModified = true
 			}
 		},
 	}
 
-	var ed = false
-	var df = time.Duration(3 * time.Hour)
-	if ocfg != nil && ocfg.OracleConfiguration.GetOracleDiscovery() != nil {
-		// Set the default values for the flags from the configuration.
-		ed = ocfg.OracleConfiguration.GetOracleDiscovery().GetEnabled()
-		df = ocfg.OracleConfiguration.GetOracleDiscovery().GetUpdateFrequency().AsDuration()
-	}
-	discoveryCmd.Flags().BoolVarP(&enableDiscovery, "enabled", "e", ed, "Enable Oracle discovery")
-	discoveryCmd.Flags().DurationVar(&discoveryFrequency, "frequency", df, "Update discovery frequency (e.g., 5m, 1h)")
+	// Add flags for the discovery
+	discoveryCmd.Flags().BoolVar(&enableDiscovery, "enabled", false, "Enable Oracle discovery")
+	discoveryCmd.Flags().DurationVar(&discoveryFrequency, "frequency", time.Duration(configuration.DefaultOracleDiscoveryFrequency), "Update discovery frequency (e.g., 5m, 1h)")
 
 	return discoveryCmd
 }

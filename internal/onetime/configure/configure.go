@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 // Package configure implements the configure subcommand.
+// TODO: Setup Logging for configure OTE.
 package configure
 
 import (

@@ -24,7 +24,9 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"time"
 
+	dpb "google.golang.org/protobuf/types/known/durationpb"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -39,12 +41,8 @@ type Config struct {
 	OracleConfiguration *cpb.OracleConfiguration
 	CloudProperties     *cpb.CloudProperties
 	Path                string
+	ConfigModified      bool
 }
-
-// TODO: Remove this global variable.
-var (
-	enabled bool
-)
 
 // LoadWAConfig creates a new Configuration.
 func LoadWAConfig(cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) {
@@ -62,6 +60,7 @@ func NewCommand(cloudProps *cpb.CloudProperties) *cobra.Command {
 		Path:            configPath(),
 	}
 	var waConfig *cpb.Configuration
+	var enabled bool
 
 	oracleCmd := &cobra.Command{
 		Use:   "oracle",
@@ -71,7 +70,10 @@ func NewCommand(cloudProps *cpb.CloudProperties) *cobra.Command {
 This command allows you to enable and configure various features
 for monitoring Oracle databases, including discovery and metrics collection.`,
 		Run: func(cmd *cobra.Command, args []string) {
-			ocfg.OracleConfiguration.Enabled = &enabled
+			if cmd.Flags().Changed("enabled") {
+				ocfg.OracleConfiguration.Enabled = &enabled
+				ocfg.ConfigModified = true
+			}
 			// TODO: We'll add/remove this logic once we have a clearer design.
 			if enabled {
 				fmt.Println("Oracle Configuration is Enabled.  Performing Oracle-specific tasks...")
@@ -87,25 +89,51 @@ for monitoring Oracle databases, including discovery and metrics collection.`,
 			if err != nil {
 				return err
 			}
+			// Set default values for Oracle configuration if file is empty.
+			if waConfig == nil {
+				waConfig = &cpb.Configuration{
+					CloudProperties: cloudProps,
+					OracleConfiguration: &cpb.OracleConfiguration{
+						Enabled: &enabled,
+						OracleDiscovery: &cpb.OracleDiscovery{
+							Enabled:         proto.Bool(true),
+							UpdateFrequency: dpb.New(time.Duration(configuration.DefaultOracleDiscoveryFrequency)),
+						},
+						OracleMetrics: &cpb.OracleMetrics{
+							Enabled:             proto.Bool(false),
+							CollectionFrequency: dpb.New(time.Duration(configuration.DefaultOracleMetricsFrequency)),
+							QueryTimeout:        dpb.New(time.Duration(configuration.DefaultOracleMetricsQueryTimeout)),
+							MaxExecutionThreads: configuration.DefaultOracleMetricsMaxThreads,
+							Queries:             []*cpb.Query{},
+						},
+					},
+				}
+			}
 
 			ocfg.OracleConfiguration = waConfig.GetOracleConfiguration()
 			return nil
 		},
 		// PersistentPostRunE is called after each cli command is run.
 		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+			if !ocfg.ConfigModified {
+				log.CtxLogger(cmd.Context()).Info("No Oracle configuration changes to save.")
+				return nil
+			}
+			// TODO: Display Modified Configuration on Console.
 			ctx := cmd.Context()
 			return ocfg.writeFile(ctx, waConfig)
 		},
 	}
 
-	oracleCmd.Flags().BoolVarP(&enabled, "enabled", "e", false, "Enable Oracle configuration")
+	oracleCmd.Flags().BoolVar(&enabled, "enabled", false, "Enable Oracle configuration")
 
 	oracleCmd.AddCommand(DiscoveryCommand(ocfg))
-	oracleCmd.AddCommand(MetricsCommand())
+	oracleCmd.AddCommand(MetricsCommand(ocfg))
 
 	return oracleCmd
 }
 
+// writeFile writes the modified configuration to the configuration file.
 func (c *Config) writeFile(ctx context.Context, wac *cpb.Configuration) error {
 	// Create a clone of the input configuration
 	clonedWac := proto.Clone(wac).(*cpb.Configuration)
