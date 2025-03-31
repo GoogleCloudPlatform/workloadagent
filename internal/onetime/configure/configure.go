@@ -20,19 +20,45 @@ package configure
 
 import (
 	"fmt"
+	"os"
+	"runtime"
 
 	"github.com/spf13/cobra"
-	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/configure/oracle"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/configure/cliconfig"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
 
+// LoadFunc abstracts the configuration.Load function signature for testability.
+type loadFunc func(path string, readFile configuration.ReadConfigFile, cloudProps *cpb.CloudProperties) (*cpb.Configuration, error)
+
 // NewCommand creates a new 'configure' command.
 func NewCommand(cloudProps *cpb.CloudProperties) *cobra.Command {
+	cfg := cliconfig.NewConfigure(configPath(runtime.GOOS), nil, nil)
+
 	configureCmd := &cobra.Command{
 		Use:   "configure",
 		Short: "Configure the Google Cloud Agent for Compute Workloads",
-		// We don't set a custom Run/RunE here.  We only want to customize the usage.
+		// PersistentPreRunE is called before each cli command is run.
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			var err error
+			cfg.Configuration, err = loadWAConfiguration(cloudProps, os.ReadFile, configuration.Load)
+			if err != nil {
+				return err
+			}
+			return nil
+		},
+		// PersistentPostRunE is called after each cli command is run.
+		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+			if !cfg.SQLServerConfigModified && !cfg.OracleConfigModified {
+				log.CtxLogger(cmd.Context()).Info("No configuration changes to save.")
+				return nil
+			}
+			// TODO: Display Modified Configuration on Console.
+			return cfg.WriteFile(cmd.Context())
+		},
 	}
 
 	// Custom Usage Function
@@ -63,7 +89,24 @@ func NewCommand(cloudProps *cpb.CloudProperties) *cobra.Command {
 		return nil
 	})
 
-	configureCmd.AddCommand(oracle.NewCommand(cloudProps))
+	// TODO: Add subcommands for each workload.
 
 	return configureCmd
+}
+
+// loadWAConfiguration creates a new Configuration.
+func loadWAConfiguration(cloudProps *cpb.CloudProperties, rf configuration.ReadConfigFile, lf loadFunc) (*cpb.Configuration, error) {
+	config, err := lf(configPath(runtime.GOOS), rf, cloudProps)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load configuration: %w", err)
+	}
+	return config, nil
+}
+
+// configPath determines the configuration path based on the OS.
+func configPath(goos string) string {
+	if goos == "windows" {
+		return configuration.WindowsConfigPath
+	}
+	return configuration.LinuxConfigPath
 }
