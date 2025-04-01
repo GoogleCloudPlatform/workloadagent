@@ -22,13 +22,14 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/configure/cliconfig"
 
 	dpb "google.golang.org/protobuf/types/known/durationpb"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
 
 // MetricsCommand creates a new 'metrics' subcommand for Oracle.
-func MetricsCommand(ocfg *Config) *cobra.Command {
+func MetricsCommand(configure *cliconfig.Configure) *cobra.Command {
 	var (
 		enableMetrics       bool
 		metricsFrequency    time.Duration
@@ -45,27 +46,31 @@ This includes enabling metrics, setting the collection frequency,
 managing connection parameters, and adding/removing SQL queries.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			if cmd.Flags().Changed("frequency") {
-				ocfg.OracleConfiguration.OracleMetrics.CollectionFrequency = dpb.New(metricsFrequency)
-				ocfg.ConfigModified = true
+				fmt.Println("Metrics Frequency: ", metricsFrequency)
+				configure.Configuration.OracleConfiguration.OracleMetrics.CollectionFrequency = dpb.New(metricsFrequency)
+				configure.OracleConfigModified = true
 			}
 			if cmd.Flags().Changed("max-threads") {
-				ocfg.OracleConfiguration.OracleMetrics.MaxExecutionThreads = metricsMaxThreads
-				ocfg.ConfigModified = true
+				fmt.Println("Metrics Max Threads: ", metricsMaxThreads)
+				configure.Configuration.OracleConfiguration.OracleMetrics.MaxExecutionThreads = metricsMaxThreads
+				configure.OracleConfigModified = true
 			}
 			if cmd.Flags().Changed("query-timeout") {
-				ocfg.OracleConfiguration.OracleMetrics.QueryTimeout = dpb.New(metricsQueryTimeout)
-				ocfg.ConfigModified = true
+				fmt.Println("Metrics Query Timeout: ", metricsQueryTimeout)
+				configure.Configuration.OracleConfiguration.OracleMetrics.QueryTimeout = dpb.New(metricsQueryTimeout)
+				configure.OracleConfigModified = true
 			}
 
 			if cmd.Flags().Changed("enabled") {
 				// If metrics are enabled, but there are no connection parameters, disable metrics.
-				if enableMetrics && (ocfg.OracleConfiguration.GetOracleMetrics().GetConnectionParameters() == nil ||
-					len(ocfg.OracleConfiguration.GetOracleMetrics().GetConnectionParameters()) == 0) {
+				if enableMetrics && (configure.Configuration.OracleConfiguration.GetOracleMetrics().GetConnectionParameters() == nil ||
+					len(configure.Configuration.OracleConfiguration.GetOracleMetrics().GetConnectionParameters()) == 0) {
 					fmt.Println("Metrics remained disabled because connection parameters are not set.")
 					enableMetrics = false
 				}
-				ocfg.OracleConfiguration.OracleMetrics.Enabled = &enableMetrics
-				ocfg.ConfigModified = true
+				fmt.Println("Metrics Enabled: ", enableMetrics)
+				configure.Configuration.OracleConfiguration.OracleMetrics.Enabled = &enableMetrics
+				configure.OracleConfigModified = true
 			}
 		},
 	}
@@ -77,13 +82,13 @@ managing connection parameters, and adding/removing SQL queries.`,
 	metricsCmd.Flags().DurationVar(&metricsQueryTimeout, "query-timeout", time.Duration(configuration.DefaultOracleMetricsQueryTimeout), "Query timeout")
 
 	// Add subcommands for managing connections and queries
-	metricsCmd.AddCommand(newMetricsConnectionAddCmd(ocfg))
+	metricsCmd.AddCommand(newMetricsConnectionAddCmd(configure))
 
 	return metricsCmd
 }
 
 // newMetricsConnectionAddCmd adds a new database connection
-func newMetricsConnectionAddCmd(ocfg *Config) *cobra.Command {
+func newMetricsConnectionAddCmd(configure *cliconfig.Configure) *cobra.Command {
 	connectionAddCmd := &cobra.Command{
 		Use:   "connection-add",
 		Short: "Add a database connection",
@@ -113,7 +118,7 @@ func newMetricsConnectionAddCmd(ocfg *Config) *cobra.Command {
 				return fmt.Errorf("error getting secret-name: %w", err)
 			}
 
-			newConn := cpb.ConnectionParameters{
+			newConn := &cpb.ConnectionParameters{
 				Username:    username,
 				Host:        host,
 				Port:        int32(port),
@@ -124,8 +129,9 @@ func newMetricsConnectionAddCmd(ocfg *Config) *cobra.Command {
 				},
 			}
 
-			ocfg.OracleConfiguration.OracleMetrics.ConnectionParameters = append(ocfg.OracleConfiguration.OracleMetrics.ConnectionParameters, &newConn)
-			ocfg.ConfigModified = true
+			fmt.Println("Adding New connection: ", newConn)
+			configure.Configuration.OracleConfiguration.OracleMetrics.ConnectionParameters = append(configure.Configuration.OracleConfiguration.OracleMetrics.ConnectionParameters, newConn)
+			configure.OracleConfigModified = true
 			return nil
 		},
 	}

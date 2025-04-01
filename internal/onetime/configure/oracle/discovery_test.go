@@ -23,9 +23,11 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/configure/cliconfig"
 
 	dpb "google.golang.org/protobuf/types/known/durationpb"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
@@ -36,131 +38,154 @@ func TestDiscoveryCommand_Flags(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    string
-		got     *Config
+		got     *cliconfig.Configure
 		wantErr string
-		want    *Config
+		want    *cliconfig.Configure
 	}{
 		{
 			name: "Enable discovery",
 			args: "--enabled=true",
-			got: &Config{
-				OracleConfiguration: &cpb.OracleConfiguration{
-					OracleDiscovery: &cpb.OracleDiscovery{
-						UpdateFrequency: dpb.New(defaultFrequency),
+			got: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					OracleConfiguration: &cpb.OracleConfiguration{
+						OracleDiscovery: &cpb.OracleDiscovery{
+							UpdateFrequency: dpb.New(defaultFrequency),
+						},
 					},
 				},
 			},
-			want: &Config{
-				ConfigModified: true,
-				OracleConfiguration: &cpb.OracleConfiguration{
-					OracleDiscovery: &cpb.OracleDiscovery{
-						Enabled:         proto.Bool(true),
-						UpdateFrequency: dpb.New(defaultFrequency),
+			want: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					OracleConfiguration: &cpb.OracleConfiguration{
+						OracleDiscovery: &cpb.OracleDiscovery{
+							Enabled:         proto.Bool(true),
+							UpdateFrequency: dpb.New(defaultFrequency),
+						},
 					},
 				},
+				OracleConfigModified: true,
 			},
 		},
 		{
 			name: "Disable discovery",
 			args: "--enabled=false",
-			got: &Config{
-				OracleConfiguration: &cpb.OracleConfiguration{
-					OracleDiscovery: &cpb.OracleDiscovery{
-						Enabled:         proto.Bool(true),
-						UpdateFrequency: dpb.New(defaultFrequency),
+			got: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					OracleConfiguration: &cpb.OracleConfiguration{
+						OracleDiscovery: &cpb.OracleDiscovery{
+							Enabled:         proto.Bool(true),
+							UpdateFrequency: dpb.New(defaultFrequency),
+						},
 					},
 				},
 			},
-			want: &Config{
-				ConfigModified: true,
-				OracleConfiguration: &cpb.OracleConfiguration{
-					OracleDiscovery: &cpb.OracleDiscovery{
-						Enabled:         proto.Bool(false),
-						UpdateFrequency: dpb.New(defaultFrequency),
+			want: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					OracleConfiguration: &cpb.OracleConfiguration{
+						OracleDiscovery: &cpb.OracleDiscovery{
+							Enabled:         proto.Bool(false),
+							UpdateFrequency: dpb.New(defaultFrequency),
+						},
 					},
 				},
+				OracleConfigModified: true,
 			},
 		},
 		{
 			name: "Change frequency",
 			args: "--frequency=5m",
-			got: &Config{
-				OracleConfiguration: &cpb.OracleConfiguration{
-					OracleDiscovery: &cpb.OracleDiscovery{
-						UpdateFrequency: dpb.New(defaultFrequency),
+			got: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					OracleConfiguration: &cpb.OracleConfiguration{
+						OracleDiscovery: &cpb.OracleDiscovery{
+							UpdateFrequency: dpb.New(defaultFrequency),
+						},
 					},
 				},
 			},
-			want: &Config{
-				ConfigModified: true,
-				OracleConfiguration: &cpb.OracleConfiguration{
-					OracleDiscovery: &cpb.OracleDiscovery{
-						UpdateFrequency: dpb.New(5 * time.Minute),
+			want: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					OracleConfiguration: &cpb.OracleConfiguration{
+						OracleDiscovery: &cpb.OracleDiscovery{
+							UpdateFrequency: dpb.New(5 * time.Minute),
+						},
 					},
 				},
+				OracleConfigModified: true,
 			},
 		},
 		{
 			name: "Enable discovery and change frequency",
 			args: "--enabled=true --frequency=10m",
-			got: &Config{
-				OracleConfiguration: &cpb.OracleConfiguration{
-					OracleDiscovery: &cpb.OracleDiscovery{},
-				},
-			},
-			want: &Config{
-				ConfigModified: true,
-				OracleConfiguration: &cpb.OracleConfiguration{
-					OracleDiscovery: &cpb.OracleDiscovery{
-						Enabled:         proto.Bool(true),
-						UpdateFrequency: dpb.New(10 * time.Minute),
+			got: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					OracleConfiguration: &cpb.OracleConfiguration{
+						OracleDiscovery: &cpb.OracleDiscovery{},
 					},
 				},
+			},
+			want: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					OracleConfiguration: &cpb.OracleConfiguration{
+						OracleDiscovery: &cpb.OracleDiscovery{
+							Enabled:         proto.Bool(true),
+							UpdateFrequency: dpb.New(10 * time.Minute),
+						},
+					},
+				},
+				OracleConfigModified: true,
 			},
 		},
 		{
 			name: "No flags provided",
 			args: "",
-			got: &Config{
-				ConfigModified: false,
-				OracleConfiguration: &cpb.OracleConfiguration{
-					OracleDiscovery: &cpb.OracleDiscovery{
-						Enabled:         proto.Bool(true),
-						UpdateFrequency: dpb.New(defaultFrequency),
+			got: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					OracleConfiguration: &cpb.OracleConfiguration{
+						OracleDiscovery: &cpb.OracleDiscovery{
+							Enabled:         proto.Bool(true),
+							UpdateFrequency: dpb.New(defaultFrequency),
+						},
 					},
 				},
 			},
-			want: &Config{
-				ConfigModified: false,
-				OracleConfiguration: &cpb.OracleConfiguration{
-					OracleDiscovery: &cpb.OracleDiscovery{
-						Enabled:         proto.Bool(true),
-						UpdateFrequency: dpb.New(defaultFrequency),
+			want: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					OracleConfiguration: &cpb.OracleConfiguration{
+						OracleDiscovery: &cpb.OracleDiscovery{
+							Enabled:         proto.Bool(true),
+							UpdateFrequency: dpb.New(defaultFrequency),
+						},
 					},
 				},
+				OracleConfigModified: false,
 			},
 		},
 		{
 			name: "Wrong flags provided",
 			args: "--wrong_flag=true",
-			got: &Config{
-				ConfigModified: false,
-				OracleConfiguration: &cpb.OracleConfiguration{
-					OracleDiscovery: &cpb.OracleDiscovery{
-						Enabled:         proto.Bool(true),
-						UpdateFrequency: dpb.New(defaultFrequency),
+			got: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					OracleConfiguration: &cpb.OracleConfiguration{
+						OracleDiscovery: &cpb.OracleDiscovery{
+							Enabled:         proto.Bool(true),
+							UpdateFrequency: dpb.New(defaultFrequency),
+						},
 					},
 				},
+				OracleConfigModified: false,
 			},
 			wantErr: "unknown flag: --wrong_flag",
-			want: &Config{
-				ConfigModified: false,
-				OracleConfiguration: &cpb.OracleConfiguration{
-					OracleDiscovery: &cpb.OracleDiscovery{
-						Enabled:         proto.Bool(true),
-						UpdateFrequency: dpb.New(defaultFrequency),
+			want: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					OracleConfiguration: &cpb.OracleConfiguration{
+						OracleDiscovery: &cpb.OracleDiscovery{
+							Enabled:         proto.Bool(true),
+							UpdateFrequency: dpb.New(defaultFrequency),
+						},
 					},
 				},
+				OracleConfigModified: false,
 			},
 		},
 	}
@@ -180,7 +205,7 @@ func TestDiscoveryCommand_Flags(t *testing.T) {
 			}
 
 			// Compare the configurations
-			if diff := cmp.Diff(test.want, test.got, protocmp.Transform()); diff != "" {
+			if diff := cmp.Diff(test.want, test.got, protocmp.Transform(), cmpopts.IgnoreUnexported(cliconfig.Configure{})); diff != "" {
 				t.Errorf("DiscoveryCommand() mismatch (-want +got):\n%s", diff)
 			}
 		})

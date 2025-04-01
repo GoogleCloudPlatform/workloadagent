@@ -17,15 +17,18 @@ limitations under the License.
 package oracle
 
 import (
+	"fmt"
 	"time"
 
-	dpb "google.golang.org/protobuf/types/known/durationpb"
 	"github.com/spf13/cobra"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/configure/cliconfig"
+
+	dpb "google.golang.org/protobuf/types/known/durationpb"
 )
 
 // DiscoveryCommand creates a new 'discovery' subcommand for Oracle.
-func DiscoveryCommand(ocfg *Config) *cobra.Command {
+func DiscoveryCommand(configure *cliconfig.Configure) *cobra.Command {
 	var (
 		enableDiscovery    bool
 		discoveryFrequency time.Duration
@@ -38,13 +41,15 @@ func DiscoveryCommand(ocfg *Config) *cobra.Command {
 This command allows you to enable or disable Oracle discovery and set the update frequency.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			if cmd.Flags().Changed("enabled") {
-				ocfg.OracleConfiguration.OracleDiscovery.Enabled = &enableDiscovery
-				ocfg.ConfigModified = true
+				fmt.Println("Discovery Enabled: ", enableDiscovery)
+				configure.Configuration.OracleConfiguration.OracleDiscovery.Enabled = &enableDiscovery
+				configure.OracleConfigModified = true
 			}
 
 			if cmd.Flags().Changed("frequency") {
-				ocfg.OracleConfiguration.OracleDiscovery.UpdateFrequency = dpb.New(discoveryFrequency)
-				ocfg.ConfigModified = true
+				fmt.Println("Discovery Frequency: ", discoveryFrequency)
+				configure.Configuration.OracleConfiguration.OracleDiscovery.UpdateFrequency = dpb.New(discoveryFrequency)
+				configure.OracleConfigModified = true
 			}
 		},
 	}
