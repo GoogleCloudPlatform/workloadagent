@@ -18,27 +18,37 @@ package remote
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"testing"
 
+	"golang.org/x/crypto/ssh/knownhosts"
 	"golang.org/x/crypto/ssh"
 )
 
-const (
-	DummyKey = `-----BEGIN RSA PRIVATE KEY-----
-MIIBOgIBAAJBAKj34GkxFhD90vcNLYLInFEX6Ppy1tPf9Cnzj4p4WGeKLs1Pt8Qu
-KUpRKfFLfRYC9AIKjbJTWit+CqvjWYzvQwECAwEAAQJAIJLixBy2qpFoS4DSmoEm
-o3qGy0t6z09AIJtH+5OeRV1be+N4cDYJKffGzDa88vQENZiRm0GRq6a+HPGQMd2k
-TQIhAKMSvzIBnni7ot/OSie2TmJLY4SwTQAevXysE2RbFDYdAiEBCUEaRQnMnbp7
-9mxDXDf6AU0cN/RPBjb9qSHDcWZHGzUCIG2Es59z8ugGrDY+pxLQnwfotadxd+Uy
-v/Ow5T0q5gIJAiEAyS4RaI9YG8EWx/2w0T67ZUVAw8eOMB6BIUg0Xcu+3okCIBOs
-/5OiPgoTdSy7bcF9IGpSE8ZgGKzgYQVZeN97YE00
------END RSA PRIVATE KEY-----`
+var (
+	dummyKey, dummyKnownHost = func() (string, string) {
+		privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			return "", ""
+		}
 
-	DummyKnownHost = `127.0.0.1 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAAQQCo9+BpMRYQ/dL3DS2CyJxRF+j6ctbT3/Qp84+KeFhnii7NT7fELilKUSnxS30WAvQCCo2yU1orfgqr41mM70MB phpseclib-generated-key`
+		publicKey, err := ssh.NewPublicKey(&privateKey.PublicKey)
+		if err != nil {
+			return "", ""
+		}
+
+		return string(pem.EncodeToMemory(&pem.Block{
+			Type:  "RSA PRIVATE KEY",
+			Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
+		})), knownhosts.Line([]string{net.JoinHostPort("127.0.0.1", "22")}, publicKey)
+	}()
 )
 
 type mockClient struct {
@@ -173,7 +183,7 @@ func TestPrivateKey(t *testing.T) {
 					t.Fatalf("Failed to write file: %v", err)
 				}
 				if tc.keyFileValid {
-					if err := os.WriteFile(tmpKeyPath, []byte(DummyKey), 0666); err != nil {
+					if err := os.WriteFile(tmpKeyPath, []byte(dummyKey), 0666); err != nil {
 						t.Fatalf("Failed to write file: %v", err)
 					}
 				}
@@ -227,13 +237,13 @@ func TestSetupKeys(t *testing.T) {
 			}
 			tmpKeyPath := tempDir + "/privatekey"
 			if !tc.privateKeyError {
-				if err := os.WriteFile(tmpKeyPath, []byte(DummyKey), 0666); err != nil {
+				if err := os.WriteFile(tmpKeyPath, []byte(dummyKey), 0666); err != nil {
 					t.Fatalf("Failed to write file: %v", err)
 				}
 			}
 
 			if !tc.publicKeyError {
-				if err := os.WriteFile(tmpKnownHostPath, []byte(DummyKnownHost), 0666); err != nil {
+				if err := os.WriteFile(tmpKnownHostPath, []byte(dummyKnownHost), 0666); err != nil {
 					t.Fatalf("Failed to write file: %v", err)
 				}
 			}
@@ -275,14 +285,14 @@ func TestCreateClient(t *testing.T) {
 			}
 			if !tc.nilPrivateKey {
 				tmpKeyPath := t.TempDir() + "/privatekey"
-				if err := os.WriteFile(tmpKeyPath, []byte(DummyKey), 0666); err != nil {
+				if err := os.WriteFile(tmpKeyPath, []byte(dummyKey), 0666); err != nil {
 					t.Fatalf("Failed to write file: %v", err)
 				}
 				r.privateKey(tmpKeyPath)
 			}
 			if !tc.nilPublicKey {
 				tmpKeyPath := t.TempDir() + "/privatekey"
-				if err := os.WriteFile(tmpKeyPath, []byte(DummyKey), 0666); err != nil {
+				if err := os.WriteFile(tmpKeyPath, []byte(dummyKey), 0666); err != nil {
 					t.Fatalf("Failed to write file: %v", err)
 				}
 				r.privateKey(tmpKeyPath)
@@ -301,7 +311,7 @@ func TestCreateClient(t *testing.T) {
 
 func TestPublicKey(t *testing.T) {
 	tmpKnownHostPath := t.TempDir() + "/knownhost"
-	if err := os.WriteFile(tmpKnownHostPath, []byte(DummyKnownHost), 0666); err != nil {
+	if err := os.WriteFile(tmpKnownHostPath, []byte(dummyKnownHost), 0666); err != nil {
 		t.Fatalf("Failed to write file: %v", err)
 	}
 	testcases := []struct {
