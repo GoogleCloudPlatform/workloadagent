@@ -33,8 +33,10 @@ import (
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
 
-func TestDiscoveryCommand(t *testing.T) {
-	defaultFrequency := time.Duration(configuration.DefaultOracleDiscoveryFrequency)
+func TestMetricsCommand(t *testing.T) {
+	defaultFrequency := time.Duration(configuration.DefaultOracleMetricsFrequency)
+	defaultMaxThreads := int64(configuration.DefaultOracleMetricsMaxThreads)
+	defaultQueryTimeout := time.Duration(configuration.DefaultOracleMetricsQueryTimeout)
 	tests := []struct {
 		name    string
 		args    string
@@ -43,13 +45,16 @@ func TestDiscoveryCommand(t *testing.T) {
 		want    *cliconfig.Configure
 	}{
 		{
-			name: "Enable discovery",
-			args: "--enabled=true",
+			name: "UpdateAllFlags",
+			args: "--frequency=10m --max-threads=10 --query-timeout=10s",
 			got: &cliconfig.Configure{
 				Configuration: &cpb.Configuration{
 					OracleConfiguration: &cpb.OracleConfiguration{
-						OracleDiscovery: &cpb.OracleDiscovery{
-							UpdateFrequency: dpb.New(defaultFrequency),
+						OracleMetrics: &cpb.OracleMetrics{
+							Enabled:             proto.Bool(true),
+							CollectionFrequency: dpb.New(defaultFrequency),
+							MaxExecutionThreads: defaultMaxThreads,
+							QueryTimeout:        dpb.New(defaultQueryTimeout),
 						},
 					},
 				},
@@ -57,9 +62,11 @@ func TestDiscoveryCommand(t *testing.T) {
 			want: &cliconfig.Configure{
 				Configuration: &cpb.Configuration{
 					OracleConfiguration: &cpb.OracleConfiguration{
-						OracleDiscovery: &cpb.OracleDiscovery{
-							Enabled:         proto.Bool(true),
-							UpdateFrequency: dpb.New(defaultFrequency),
+						OracleMetrics: &cpb.OracleMetrics{
+							Enabled:             proto.Bool(true),
+							CollectionFrequency: dpb.New(10 * time.Minute),
+							MaxExecutionThreads: 10,
+							QueryTimeout:        dpb.New(10 * time.Second),
 						},
 					},
 				},
@@ -67,125 +74,93 @@ func TestDiscoveryCommand(t *testing.T) {
 			},
 		},
 		{
-			name: "Disable discovery",
-			args: "--enabled=false",
+			name: "EnableMetricsEmptyConnectionParams",
+			args: "--enabled",
 			got: &cliconfig.Configure{
 				Configuration: &cpb.Configuration{
 					OracleConfiguration: &cpb.OracleConfiguration{
-						OracleDiscovery: &cpb.OracleDiscovery{
-							Enabled:         proto.Bool(true),
-							UpdateFrequency: dpb.New(defaultFrequency),
-						},
-					},
-				},
-			},
-			want: &cliconfig.Configure{
-				Configuration: &cpb.Configuration{
-					OracleConfiguration: &cpb.OracleConfiguration{
-						OracleDiscovery: &cpb.OracleDiscovery{
-							Enabled:         proto.Bool(false),
-							UpdateFrequency: dpb.New(defaultFrequency),
-						},
-					},
-				},
-				OracleConfigModified: true,
-			},
-		},
-		{
-			name: "Change frequency",
-			args: "--frequency=5m",
-			got: &cliconfig.Configure{
-				Configuration: &cpb.Configuration{
-					OracleConfiguration: &cpb.OracleConfiguration{
-						OracleDiscovery: &cpb.OracleDiscovery{
-							UpdateFrequency: dpb.New(defaultFrequency),
-						},
-					},
-				},
-			},
-			want: &cliconfig.Configure{
-				Configuration: &cpb.Configuration{
-					OracleConfiguration: &cpb.OracleConfiguration{
-						OracleDiscovery: &cpb.OracleDiscovery{
-							UpdateFrequency: dpb.New(5 * time.Minute),
-						},
-					},
-				},
-				OracleConfigModified: true,
-			},
-		},
-		{
-			name: "Enable discovery and change frequency",
-			args: "--enabled=true --frequency=10m",
-			got: &cliconfig.Configure{
-				Configuration: &cpb.Configuration{
-					OracleConfiguration: &cpb.OracleConfiguration{
-						OracleDiscovery: &cpb.OracleDiscovery{},
-					},
-				},
-			},
-			want: &cliconfig.Configure{
-				Configuration: &cpb.Configuration{
-					OracleConfiguration: &cpb.OracleConfiguration{
-						OracleDiscovery: &cpb.OracleDiscovery{
-							Enabled:         proto.Bool(true),
-							UpdateFrequency: dpb.New(10 * time.Minute),
-						},
-					},
-				},
-				OracleConfigModified: true,
-			},
-		},
-		{
-			name: "No flags provided",
-			args: "",
-			got: &cliconfig.Configure{
-				Configuration: &cpb.Configuration{
-					OracleConfiguration: &cpb.OracleConfiguration{
-						OracleDiscovery: &cpb.OracleDiscovery{
-							Enabled:         proto.Bool(true),
-							UpdateFrequency: dpb.New(defaultFrequency),
-						},
-					},
-				},
-			},
-			want: &cliconfig.Configure{
-				Configuration: &cpb.Configuration{
-					OracleConfiguration: &cpb.OracleConfiguration{
-						OracleDiscovery: &cpb.OracleDiscovery{
-							Enabled:         proto.Bool(true),
-							UpdateFrequency: dpb.New(defaultFrequency),
+						OracleMetrics: &cpb.OracleMetrics{
+							Enabled: proto.Bool(false),
 						},
 					},
 				},
 				OracleConfigModified: false,
 			},
+			want: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					OracleConfiguration: &cpb.OracleConfiguration{
+						OracleMetrics: &cpb.OracleMetrics{
+							Enabled: proto.Bool(false),
+						},
+					},
+				},
+				OracleConfigModified: true,
+			},
 		},
 		{
-			name: "Wrong flags provided",
-			args: "--wrong_flag=true",
+			name: "EnableMetricsNonEmptyConnectionParams",
+			args: "--enabled",
 			got: &cliconfig.Configure{
 				Configuration: &cpb.Configuration{
 					OracleConfiguration: &cpb.OracleConfiguration{
-						OracleDiscovery: &cpb.OracleDiscovery{
-							Enabled:         proto.Bool(true),
-							UpdateFrequency: dpb.New(defaultFrequency),
+						OracleMetrics: &cpb.OracleMetrics{
+							Enabled: proto.Bool(false),
+							ConnectionParameters: []*cpb.ConnectionParameters{
+								&cpb.ConnectionParameters{},
+							},
 						},
 					},
 				},
 				OracleConfigModified: false,
 			},
-			wantErr: "unknown flag: --wrong_flag",
 			want: &cliconfig.Configure{
 				Configuration: &cpb.Configuration{
 					OracleConfiguration: &cpb.OracleConfiguration{
-						OracleDiscovery: &cpb.OracleDiscovery{
-							Enabled:         proto.Bool(true),
-							UpdateFrequency: dpb.New(defaultFrequency),
+						OracleMetrics: &cpb.OracleMetrics{
+							Enabled: proto.Bool(true),
+							ConnectionParameters: []*cpb.ConnectionParameters{
+								&cpb.ConnectionParameters{},
+							},
+						},
+					},
+				},
+				OracleConfigModified: true,
+			},
+		},
+		{
+			name: "AddNewConnectionParams",
+			args: "connection-add --username=test-user --host=127.0.0.1 --port=1521 --service-name=test-service --project-id=test-project --secret-name=test-secret",
+			got: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					OracleConfiguration: &cpb.OracleConfiguration{
+						OracleMetrics: &cpb.OracleMetrics{
+							Enabled: proto.Bool(true),
 						},
 					},
 				},
 				OracleConfigModified: false,
+			},
+			want: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					OracleConfiguration: &cpb.OracleConfiguration{
+						OracleMetrics: &cpb.OracleMetrics{
+							Enabled: proto.Bool(true),
+							ConnectionParameters: []*cpb.ConnectionParameters{
+								&cpb.ConnectionParameters{
+									Username:    "test-user",
+									Host:        "127.0.0.1",
+									Port:        1521,
+									ServiceName: "test-service",
+									Secret: &cpb.SecretRef{
+										ProjectId:  "test-project",
+										SecretName: "test-secret",
+									},
+								},
+							},
+						},
+					},
+				},
+				OracleConfigModified: true,
 			},
 		},
 	}
@@ -193,20 +168,20 @@ func TestDiscoveryCommand(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			// 'got' is the configuration that will be modified by the command.
-			cmd := DiscoveryCommand(tc.got)
-			// Set the args for the command
+			cmd := MetricsCommand(tc.got)
+			// Set the args for the command.
 			cmd.SetArgs(strings.Split(tc.args, " "))
-			// Capture stdout to avoid printing during tests
+			// Capture stdout to avoid printing during tests.
 			cmd.SetOut(bytes.NewBufferString(""))
-			// Execute the command
+			// Execute the command.
 			err := cmd.Execute()
 			if err != nil && err.Error() != tc.wantErr {
-				t.Errorf("Error mismatch: %v, want error presence = %v", err, tc.wantErr)
+				t.Errorf("MetricsCommand().Execute() = %v, want: %v", err, tc.wantErr)
 			}
 
-			// Compare the configurations
+			// Compare the configurations.
 			if diff := cmp.Diff(tc.want, tc.got, protocmp.Transform(), cmpopts.IgnoreUnexported(cliconfig.Configure{})); diff != "" {
-				t.Errorf("DiscoveryCommand() mismatch (-want +got):\n%s", diff)
+				t.Errorf("MetricsCommand().Execute() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
