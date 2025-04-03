@@ -78,6 +78,55 @@ func TestNewCommand(t *testing.T) {
 				MySQLConfigModified: false,
 			},
 		},
+		{
+			name: "AddConnectionParams",
+			args: "connection-params --username=test-user --password=test-password --project-id=test-project --secret-name=test-secret",
+			got: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					MysqlConfiguration: &cpb.MySQLConfiguration{
+						Enabled: proto.Bool(true),
+					},
+				},
+				MySQLConfigModified: false,
+			},
+			want: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					MysqlConfiguration: &cpb.MySQLConfiguration{
+						Enabled: proto.Bool(true),
+						ConnectionParameters: &cpb.ConnectionParameters{
+							Username: "test-user",
+							Password: "test-password",
+							Secret: &cpb.SecretRef{
+								ProjectId:  "test-project",
+								SecretName: "test-secret",
+							},
+						},
+					},
+				},
+				MySQLConfigModified: true,
+			},
+		},
+		{
+			name: "AddConnectionParamsWithoutUsername",
+			args: "connection-params --password=test-password --project-id=test-project --secret-name=test-secret",
+			got: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					MysqlConfiguration: &cpb.MySQLConfiguration{
+						Enabled: proto.Bool(true),
+					},
+				},
+				MySQLConfigModified: false,
+			},
+			wantErr: "required flag(s) \"username\" not set",
+			want: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					MysqlConfiguration: &cpb.MySQLConfiguration{
+						Enabled: proto.Bool(true),
+					},
+				},
+				MySQLConfigModified: false,
+			},
+		},
 	}
 
 	for _, tc := range tests {
