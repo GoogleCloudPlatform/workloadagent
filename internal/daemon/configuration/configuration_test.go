@@ -17,6 +17,7 @@ limitations under the License.
 package configuration
 
 import (
+	_ "embed"
 	"errors"
 	"testing"
 
@@ -38,13 +39,18 @@ var (
 		InstanceName:     "test-instance-name",
 		Image:            "test-image",
 	}
+
+	//go:embed testdata/default_oracle_queries.json
+	testDefaultOracleQueriesContent []byte
 )
 
 func TestLoad(t *testing.T) {
+	defaultOracleQueriesContent = testDefaultOracleQueriesContent
 	defaultCfg, err := defaultConfig(defaultCloudProps)
 	if err != nil {
 		t.Fatalf("Failed to get default config: %v", err)
 	}
+
 	tests := []struct {
 		name     string
 		path     string
@@ -129,13 +135,7 @@ func TestLoad(t *testing.T) {
 							],
 							"collection_frequency": "120s",
 							"query_timeout": "10s",
-							"max_execution_threads": 20,
-							"queries": [
-								{
-									"name": "pga_memory_queries",
-									"disabled": true
-								}
-							]
+							"max_execution_threads": 20
 						}
 					},
 					"sqlserver_configuration": {
@@ -202,10 +202,18 @@ func TestLoad(t *testing.T) {
 						CollectionFrequency: &dpb.Duration{Seconds: 120},
 						QueryTimeout:        &dpb.Duration{Seconds: 10},
 						MaxExecutionThreads: 20,
-						Queries: append(defaultCfg.GetOracleConfiguration().GetOracleMetrics().GetQueries(), &cpb.Query{
-							Name:     "pga_memory_queries",
-							Disabled: proto.Bool(true),
-						}),
+						Queries: []*cpb.Query{
+							&cpb.Query{
+								Name:     "pga_memory_queries",
+								Disabled: proto.Bool(false),
+								Sql:      "SELECT 1",
+							},
+							&cpb.Query{
+								Name:     "sga_memory_queries",
+								Disabled: proto.Bool(false),
+								Sql:      "SELECT 2",
+							},
+						},
 					},
 				},
 				SqlserverConfiguration: &cpb.SQLServerConfiguration{
@@ -271,7 +279,13 @@ func TestLoad(t *testing.T) {
 							"queries": [
 								{
 									"name": "pga_memory_queries",
-									"disabled": true
+									"disabled": true,
+									"sql": "test query"
+								},
+								{
+									"name": "custom_queries",
+									"disabled": false,
+									"sql": "SELECT 3"
 								}
 							]
 						}
@@ -337,10 +351,23 @@ func TestLoad(t *testing.T) {
 						CollectionFrequency: &dpb.Duration{Seconds: 120},
 						QueryTimeout:        &dpb.Duration{Seconds: 10},
 						MaxExecutionThreads: 20,
-						Queries: append(defaultCfg.GetOracleConfiguration().GetOracleMetrics().GetQueries(), &cpb.Query{
-							Name:     "pga_memory_queries",
-							Disabled: proto.Bool(true),
-						}),
+						Queries: []*cpb.Query{
+							&cpb.Query{
+								Name:     "pga_memory_queries",
+								Disabled: proto.Bool(true),
+								Sql:      "test query",
+							},
+							&cpb.Query{
+								Name:     "sga_memory_queries",
+								Disabled: proto.Bool(false),
+								Sql:      "SELECT 2",
+							},
+							&cpb.Query{
+								Name:     "custom_queries",
+								Disabled: proto.Bool(false),
+								Sql:      "SELECT 3",
+							},
+						},
 					},
 				},
 				SqlserverConfiguration: &cpb.SQLServerConfiguration{
@@ -379,7 +406,11 @@ func TestLoad(t *testing.T) {
 			if (err != nil) != test.wantErr {
 				t.Fatalf("Read(%s) returned error: %v, want error: %v", test.path, err, test.wantErr)
 			}
-			if diff := cmp.Diff(test.want, got, protocmp.Transform()); diff != "" {
+			opts := []cmp.Option{
+				protocmp.Transform(),
+				protocmp.SortRepeatedFields(&cpb.OracleMetrics{}, "queries"),
+			}
+			if diff := cmp.Diff(test.want, got, opts...); diff != "" {
 				t.Errorf("Load(%s) returned unexpected diff (-want +got):\n%s", test.path, diff)
 			}
 		})
@@ -705,6 +736,57 @@ func TestValidateSQLServerConfiguration(t *testing.T) {
 			err := validateSQLServerConfiguration(tc.config)
 			if !errors.Is(err, tc.want) {
 				t.Errorf("validateSQLServerConfiguration() got %v, want: %v", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestMergeQueries(t *testing.T) {
+	tests := []struct {
+		name string
+		dst  []*cpb.Query
+		src  []*cpb.Query
+		want []*cpb.Query
+	}{
+		{
+			name: "MergeQueries",
+			dst: []*cpb.Query{
+				&cpb.Query{
+					Name: "query1",
+					Sql:  "query1",
+				},
+				&cpb.Query{
+					Name: "query2",
+					Sql:  "query2",
+				},
+			},
+			src: []*cpb.Query{
+				&cpb.Query{
+					Name: "query1",
+					Sql:  "query1_updated",
+				},
+			},
+			want: []*cpb.Query{
+				&cpb.Query{
+					Name: "query1",
+					Sql:  "query1_updated",
+				},
+				&cpb.Query{
+					Name: "query2",
+					Sql:  "query2",
+				},
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := mergeQueries(test.dst, test.src)
+			opts := []cmp.Option{
+				protocmp.Transform(),
+				cmpopts.SortSlices(func(m1, m2 *cpb.Query) bool { return m1.GetName() < m2.GetName() }),
+			}
+			if diff := cmp.Diff(test.want, got, opts...); diff != "" {
+				t.Errorf("mergeQueries() returned unexpected diff (-want +got):\n%s", diff)
 			}
 		})
 	}

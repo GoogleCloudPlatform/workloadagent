@@ -1,0 +1,14 @@
+{
+  "queries": [
+    {
+        "name": "pga_memory_queries",
+        "sql": "SELECT 1",
+        "disabled": false
+    },
+    {
+        "name": "sga_memory_queries",
+        "sql": "SELECT 2",
+        "disabled": false
+    }
+  ]
+}

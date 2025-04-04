@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"sort"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -134,18 +135,24 @@ func Load(path string, read ReadConfigFile, cloudProps *cpb.CloudProperties) (*c
 		}
 	}
 
-	cfg, err := defaultConfig(cloudProps)
+	defaultCfg, err := defaultConfig(cloudProps)
 	if err != nil {
 		return nil, fmt.Errorf("generating default configuration: %w", err)
 	}
 
-	cfgFromFile, err := ConfigFromFile(path, read)
+	userCfg, err := ConfigFromFile(path, read)
 	if err != nil {
 		return nil, fmt.Errorf("gathering configuration from file: %w", err)
 	}
 
-	proto.Merge(cfg, cfgFromFile)
-	return cfg, nil
+	defaultOracleQueries := defaultCfg.GetOracleConfiguration().GetOracleMetrics().GetQueries()
+	userOracleQueries := userCfg.GetOracleConfiguration().GetOracleMetrics().GetQueries()
+	mergedOracleQueries := mergeQueries(defaultOracleQueries, userOracleQueries)
+
+	proto.Merge(defaultCfg, userCfg)
+
+	defaultCfg.GetOracleConfiguration().GetOracleMetrics().Queries = mergedOracleQueries
+	return defaultCfg, nil
 }
 
 func validateOracleConfiguration(config *cpb.Configuration) error {
@@ -212,6 +219,9 @@ func defaultConfig(cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) 
 		usagemetrics.Error(usagemetrics.MalformedDefaultOracleQueriesFile)
 		return nil, fmt.Errorf("parsing JSON content containing Oracle queries from the embedded default_queries.json file: %w", err)
 	}
+	sort.Slice(oracleQueries, func(i, j int) bool {
+		return oracleQueries[i].GetName() < oracleQueries[j].GetName()
+	})
 	return &cpb.Configuration{
 		AgentProperties:       &cpb.AgentProperties{Name: AgentName, Version: AgentVersion},
 		LogToCloud:            proto.Bool(true),
@@ -243,6 +253,28 @@ func defaultConfig(cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) 
 			RetryFrequency:           dpb.New(time.Duration(DefaultSQLServerRetryFrequency)),
 		},
 	}, nil
+}
+
+// mergeQueries merges default queries with user-provided queries based on Query.name
+// If a query with the same name exists in both defaultQueries and userQueries,
+// the userQuery will overwrite the defaultQuery.
+func mergeQueries(defaultQueries, userQueries []*cpb.Query) []*cpb.Query {
+	queryMap := make(map[string]*cpb.Query)
+
+	for _, q := range defaultQueries {
+		queryMap[q.GetName()] = q
+	}
+
+	for _, userQuery := range userQueries {
+		queryMap[userQuery.GetName()] = userQuery
+	}
+
+	mergedQueries := make([]*cpb.Query, 0, len(queryMap))
+	for _, q := range queryMap {
+		mergedQueries = append(mergedQueries, q)
+	}
+
+	return mergedQueries
 }
 
 func defaultOracleQueries() ([]*cpb.Query, error) {
