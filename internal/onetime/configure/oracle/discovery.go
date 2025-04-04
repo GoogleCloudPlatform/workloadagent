@@ -28,7 +28,7 @@ import (
 )
 
 // DiscoveryCommand creates a new 'discovery' subcommand for Oracle.
-func DiscoveryCommand(configure *cliconfig.Configure) *cobra.Command {
+func DiscoveryCommand(cfg *cliconfig.Configure) *cobra.Command {
 	var (
 		enableDiscovery    bool
 		discoveryFrequency time.Duration
@@ -42,14 +42,14 @@ This command allows you to enable or disable Oracle discovery and set the update
 		Run: func(cmd *cobra.Command, args []string) {
 			if cmd.Flags().Changed("enabled") {
 				fmt.Println("Discovery Enabled: ", enableDiscovery)
-				configure.Configuration.OracleConfiguration.OracleDiscovery.Enabled = &enableDiscovery
-				configure.OracleConfigModified = true
+				cfg.Configuration.OracleConfiguration.OracleDiscovery.Enabled = &enableDiscovery
+				cfg.OracleConfigModified = true
 			}
 
 			if cmd.Flags().Changed("frequency") {
 				fmt.Println("Discovery Frequency: ", discoveryFrequency)
-				configure.Configuration.OracleConfiguration.OracleDiscovery.UpdateFrequency = dpb.New(discoveryFrequency)
-				configure.OracleConfigModified = true
+				cfg.Configuration.OracleConfiguration.OracleDiscovery.UpdateFrequency = dpb.New(discoveryFrequency)
+				cfg.OracleConfigModified = true
 			}
 		},
 	}

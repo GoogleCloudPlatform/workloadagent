@@ -25,7 +25,7 @@ import (
 )
 
 // NewCommand creates a new 'oracle' command.
-func NewCommand(configure *cliconfig.Configure) *cobra.Command {
+func NewCommand(cfg *cliconfig.Configure) *cobra.Command {
 	var enabled bool
 
 	oracleCmd := &cobra.Command{
@@ -38,8 +38,8 @@ for monitoring Oracle databases, including discovery and metrics collection.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			if cmd.Flags().Changed("enabled") {
 				fmt.Println("Oracle Enabled: ", enabled)
-				configure.Configuration.OracleConfiguration.Enabled = &enabled
-				configure.OracleConfigModified = true
+				cfg.Configuration.OracleConfiguration.Enabled = &enabled
+				cfg.OracleConfigModified = true
 			}
 			// TODO: We'll add/remove this logic once we have a clearer design.
 			if enabled {
@@ -52,8 +52,8 @@ for monitoring Oracle databases, including discovery and metrics collection.`,
 
 	oracleCmd.Flags().BoolVar(&enabled, "enabled", false, "Enable Oracle configuration")
 
-	oracleCmd.AddCommand(DiscoveryCommand(configure))
-	oracleCmd.AddCommand(MetricsCommand(configure))
+	oracleCmd.AddCommand(DiscoveryCommand(cfg))
+	oracleCmd.AddCommand(MetricsCommand(cfg))
 
 	return oracleCmd
 }

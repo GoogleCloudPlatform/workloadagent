@@ -29,7 +29,7 @@ import (
 )
 
 // MetricsCommand creates a new 'metrics' subcommand for Oracle.
-func MetricsCommand(configure *cliconfig.Configure) *cobra.Command {
+func MetricsCommand(cfg *cliconfig.Configure) *cobra.Command {
 	var (
 		enableMetrics       bool
 		metricsFrequency    time.Duration
@@ -47,30 +47,30 @@ managing connection parameters, and adding/removing SQL queries.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			if cmd.Flags().Changed("frequency") {
 				fmt.Println("Metrics Frequency: ", metricsFrequency)
-				configure.Configuration.OracleConfiguration.OracleMetrics.CollectionFrequency = dpb.New(metricsFrequency)
-				configure.OracleConfigModified = true
+				cfg.Configuration.OracleConfiguration.OracleMetrics.CollectionFrequency = dpb.New(metricsFrequency)
+				cfg.OracleConfigModified = true
 			}
 			if cmd.Flags().Changed("max-threads") {
 				fmt.Println("Metrics Max Threads: ", metricsMaxThreads)
-				configure.Configuration.OracleConfiguration.OracleMetrics.MaxExecutionThreads = metricsMaxThreads
-				configure.OracleConfigModified = true
+				cfg.Configuration.OracleConfiguration.OracleMetrics.MaxExecutionThreads = metricsMaxThreads
+				cfg.OracleConfigModified = true
 			}
 			if cmd.Flags().Changed("query-timeout") {
 				fmt.Println("Metrics Query Timeout: ", metricsQueryTimeout)
-				configure.Configuration.OracleConfiguration.OracleMetrics.QueryTimeout = dpb.New(metricsQueryTimeout)
-				configure.OracleConfigModified = true
+				cfg.Configuration.OracleConfiguration.OracleMetrics.QueryTimeout = dpb.New(metricsQueryTimeout)
+				cfg.OracleConfigModified = true
 			}
 
 			if cmd.Flags().Changed("enabled") {
 				// If metrics are enabled, but there are no connection parameters, disable metrics.
-				if enableMetrics && (configure.Configuration.OracleConfiguration.GetOracleMetrics().GetConnectionParameters() == nil ||
-					len(configure.Configuration.OracleConfiguration.GetOracleMetrics().GetConnectionParameters()) == 0) {
+				if enableMetrics && (cfg.Configuration.OracleConfiguration.GetOracleMetrics().GetConnectionParameters() == nil ||
+					len(cfg.Configuration.OracleConfiguration.GetOracleMetrics().GetConnectionParameters()) == 0) {
 					fmt.Println("Metrics remained disabled because connection parameters are not set.")
 					enableMetrics = false
 				}
 				fmt.Println("Metrics Enabled: ", enableMetrics)
-				configure.Configuration.OracleConfiguration.OracleMetrics.Enabled = &enableMetrics
-				configure.OracleConfigModified = true
+				cfg.Configuration.OracleConfiguration.OracleMetrics.Enabled = &enableMetrics
+				cfg.OracleConfigModified = true
 			}
 		},
 	}
@@ -82,13 +82,13 @@ managing connection parameters, and adding/removing SQL queries.`,
 	metricsCmd.Flags().DurationVar(&metricsQueryTimeout, "query-timeout", time.Duration(configuration.DefaultOracleMetricsQueryTimeout), "Query timeout")
 
 	// Add subcommands for managing connections and queries
-	metricsCmd.AddCommand(newMetricsConnectionAddCmd(configure))
+	metricsCmd.AddCommand(newMetricsConnectionAddCmd(cfg))
 
 	return metricsCmd
 }
 
 // newMetricsConnectionAddCmd adds a new database connection
-func newMetricsConnectionAddCmd(configure *cliconfig.Configure) *cobra.Command {
+func newMetricsConnectionAddCmd(cfg *cliconfig.Configure) *cobra.Command {
 	connectionAddCmd := &cobra.Command{
 		Use:   "connection-add",
 		Short: "Add a database connection",
@@ -130,8 +130,8 @@ func newMetricsConnectionAddCmd(configure *cliconfig.Configure) *cobra.Command {
 			}
 
 			fmt.Println("Adding New connection: ", newConn)
-			configure.Configuration.OracleConfiguration.OracleMetrics.ConnectionParameters = append(configure.Configuration.OracleConfiguration.OracleMetrics.ConnectionParameters, newConn)
-			configure.OracleConfigModified = true
+			cfg.Configuration.OracleConfiguration.OracleMetrics.ConnectionParameters = append(cfg.Configuration.OracleConfiguration.OracleMetrics.ConnectionParameters, newConn)
+			cfg.OracleConfigModified = true
 			return nil
 		},
 	}

@@ -28,7 +28,7 @@ import (
 )
 
 // CollectionConfigCommand creates a new 'collection-config' subcommand for SQL Server.
-func CollectionConfigCommand(configure *cliconfig.Configure) *cobra.Command {
+func CollectionConfigCommand(cfg *cliconfig.Configure) *cobra.Command {
 	var (
 		collectGuestOSMetrics bool
 		collectSQLMetrics     bool
@@ -40,18 +40,18 @@ func CollectionConfigCommand(configure *cliconfig.Configure) *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			if cmd.Flags().Changed("collect-guest-os-metrics") {
 				fmt.Println("Collect Guest OS Metrics: ", collectGuestOSMetrics)
-				configure.Configuration.SqlserverConfiguration.CollectionConfiguration.CollectGuestOsMetrics = collectGuestOSMetrics
-				configure.SQLServerConfigModified = true
+				cfg.Configuration.SqlserverConfiguration.CollectionConfiguration.CollectGuestOsMetrics = collectGuestOSMetrics
+				cfg.SQLServerConfigModified = true
 			}
 			if cmd.Flags().Changed("collect-sql-metrics") {
 				fmt.Println("Collect SQL Metrics: ", collectSQLMetrics)
-				configure.Configuration.SqlserverConfiguration.CollectionConfiguration.CollectSqlMetrics = collectSQLMetrics
-				configure.SQLServerConfigModified = true
+				cfg.Configuration.SqlserverConfiguration.CollectionConfiguration.CollectSqlMetrics = collectSQLMetrics
+				cfg.SQLServerConfigModified = true
 			}
 			if cmd.Flags().Changed("collection-frequency") {
 				fmt.Println("Collection Frequency: ", collectionFrequency)
-				configure.Configuration.SqlserverConfiguration.CollectionConfiguration.CollectionFrequency = dpb.New(collectionFrequency)
-				configure.SQLServerConfigModified = true
+				cfg.Configuration.SqlserverConfiguration.CollectionConfiguration.CollectionFrequency = dpb.New(collectionFrequency)
+				cfg.SQLServerConfigModified = true
 			}
 		},
 	}
