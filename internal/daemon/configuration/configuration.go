@@ -82,9 +82,9 @@ const (
 	// WindowsConfigPath is the default path to agent configuration file on linux.
 	WindowsConfigPath = `C:\Program Files\Google\google-cloud-workload-agent\conf\configuration.json`
 	// DefaultOracleDiscoveryFrequency is the default frequency for Oracle discovery.
-	DefaultOracleDiscoveryFrequency = 3600 * time.Second
+	DefaultOracleDiscoveryFrequency = time.Hour
 	// DefaultOracleMetricsFrequency is the default frequency for Oracle metrics collection.
-	DefaultOracleMetricsFrequency = 60 * time.Second
+	DefaultOracleMetricsFrequency = time.Minute
 	// DefaultOracleMetricsMaxThreads is the default maximum number of threads for Oracle metrics collection.
 	DefaultOracleMetricsMaxThreads = 10
 	// DefaultOracleMetricsQueryTimeout is the default timeout for Oracle metrics queries.
@@ -94,7 +94,9 @@ const (
 	// DefaultSQLServerMaxRetries is the default maximum number of retries for SQL Server Configuration.
 	DefaultSQLServerMaxRetries = 3
 	// DefaultSQLServerRetryFrequency is the default frequency for retrying SQL Server Configuration.
-	DefaultSQLServerRetryFrequency = 3600 * time.Second
+	DefaultSQLServerRetryFrequency = time.Hour
+	// DefaultSQLServerCollectionFrequency is the default frequency for SQL Server collection.
+	DefaultSQLServerCollectionFrequency = time.Hour
 )
 
 // ConfigFromFile returns the configuration from the given file path.
@@ -245,7 +247,7 @@ func defaultConfig(cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) 
 		SqlserverConfiguration: &cpb.SQLServerConfiguration{
 			Enabled: proto.Bool(false),
 			CollectionConfiguration: &cpb.SQLServerConfiguration_CollectionConfiguration{
-				CollectionFrequency: dpb.New(time.Duration(time.Hour)),
+				CollectionFrequency: dpb.New(time.Duration(DefaultSQLServerCollectionFrequency)),
 			},
 			CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{},
 			CollectionTimeout:        dpb.New(time.Duration(DefaultSQLServerCollectionTimeout)),

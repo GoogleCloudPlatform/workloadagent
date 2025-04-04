@@ -29,7 +29,8 @@ import (
 )
 
 // NewCommand creates a new 'sqlserver' command.
-func NewCommand(cfg *cliconfig.Configure) *cobra.Command {
+// TODO: Modify variable name.
+func NewCommand(configure *cliconfig.Configure) *cobra.Command {
 	var (
 		enabled           bool
 		collectionTimeout time.Duration
@@ -47,28 +48,28 @@ This command allows you to enable and configure various features for monitoring 
 		Run: func(cmd *cobra.Command, args []string) {
 			if cmd.Flags().Changed("enabled") {
 				fmt.Println("SQL Server Enabled: ", enabled)
-				cfg.Configuration.SqlserverConfiguration.Enabled = &enabled
-				cfg.SQLServerConfigModified = true
+				configure.Configuration.SqlserverConfiguration.Enabled = &enabled
+				configure.SQLServerConfigModified = true
 			}
 			if cmd.Flags().Changed("collection-timeout") {
 				fmt.Println("SQL Server Collection Timeout: ", collectionTimeout)
-				cfg.Configuration.SqlserverConfiguration.CollectionTimeout = dpb.New(collectionTimeout)
-				cfg.SQLServerConfigModified = true
+				configure.Configuration.SqlserverConfiguration.CollectionTimeout = dpb.New(collectionTimeout)
+				configure.SQLServerConfigModified = true
 			}
 			if cmd.Flags().Changed("max-retries") {
 				fmt.Println("SQL Server Max Retries: ", maxRetries)
-				cfg.Configuration.SqlserverConfiguration.MaxRetries = maxRetries
-				cfg.SQLServerConfigModified = true
+				configure.Configuration.SqlserverConfiguration.MaxRetries = maxRetries
+				configure.SQLServerConfigModified = true
 			}
 			if cmd.Flags().Changed("retry-frequency") {
 				fmt.Println("SQL Server Retry Frequency: ", retryFrequency)
-				cfg.Configuration.SqlserverConfiguration.RetryFrequency = dpb.New(retryFrequency)
-				cfg.SQLServerConfigModified = true
+				configure.Configuration.SqlserverConfiguration.RetryFrequency = dpb.New(retryFrequency)
+				configure.SQLServerConfigModified = true
 			}
 			if cmd.Flags().Changed("remote-collection") {
 				fmt.Println("SQL Server Remote Collection: ", remoteCollection)
-				cfg.Configuration.SqlserverConfiguration.RemoteCollection = remoteCollection
-				cfg.SQLServerConfigModified = true
+				configure.Configuration.SqlserverConfiguration.RemoteCollection = remoteCollection
+				configure.SQLServerConfigModified = true
 			}
 		},
 	}
@@ -80,5 +81,6 @@ This command allows you to enable and configure various features for monitoring 
 	sqlserverCmd.Flags().DurationVar(&retryFrequency, "retry-frequency", time.Duration(configuration.DefaultSQLServerRetryFrequency), "Duration to wait before retrying metrics submission to Workload Manager in the event of a failure")
 	sqlserverCmd.Flags().BoolVar(&remoteCollection, "remote-collection", false, "Enable remote collection")
 
+	sqlserverCmd.AddCommand(CollectionConfigCommand(configure))
 	return sqlserverCmd
 }
