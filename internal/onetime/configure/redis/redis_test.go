@@ -76,6 +76,70 @@ func TestNewCommand(t *testing.T) {
 				RedisConfigModified: false,
 			},
 		},
+		{
+			name: "AddConnectionParams",
+			args: "connection-params --port=1234 --password=test-password --project-id=test-project --secret-name=test-secret",
+			got: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					RedisConfiguration: &cpb.RedisConfiguration{
+						Enabled: proto.Bool(true),
+					},
+				},
+				RedisConfigModified: false,
+			},
+			want: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					RedisConfiguration: &cpb.RedisConfiguration{
+						Enabled: proto.Bool(true),
+						ConnectionParameters: &cpb.ConnectionParameters{
+							Port: 1234,
+							Secret: &cpb.SecretRef{
+								ProjectId:  "test-project",
+								SecretName: "test-secret",
+							},
+							Password: "test-password",
+						},
+					},
+				},
+				RedisConfigModified: true,
+			},
+		},
+		{
+			name: "UpdateConnectionParams",
+			args: "connection-params --password=new-password --project-id=new-project",
+			got: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					RedisConfiguration: &cpb.RedisConfiguration{
+						Enabled: proto.Bool(true),
+						ConnectionParameters: &cpb.ConnectionParameters{
+							Port:     6379,
+							Password: "old-password",
+							Secret: &cpb.SecretRef{
+								ProjectId:  "old-project",
+								SecretName: "old-secret",
+							},
+						},
+					},
+				},
+				RedisConfigModified: false,
+			},
+			want: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					RedisConfiguration: &cpb.RedisConfiguration{
+						Enabled: proto.Bool(true),
+						ConnectionParameters: &cpb.ConnectionParameters{
+							Port:     6379,
+							Password: "new-password",
+							Secret: &cpb.SecretRef{
+								ProjectId:  "new-project",
+								SecretName: "old-secret",
+							},
+						},
+					},
+				},
+				RedisConfigModified: true,
+			},
+		},
 	}
 
 	for _, tc := range tests {
