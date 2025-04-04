@@ -231,7 +231,7 @@ func defaultConfig(cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) 
 		CloudProperties:       cloudProps,
 		DataWarehouseEndpoint: "https://workloadmanager-datawarehouse.googleapis.com/",
 		OracleConfiguration: &cpb.OracleConfiguration{
-			Enabled: proto.Bool(false),
+			Enabled: proto.Bool(true),
 			OracleDiscovery: &cpb.OracleDiscovery{
 				Enabled:         proto.Bool(true),
 				UpdateFrequency: dpb.New(time.Duration(DefaultOracleDiscoveryFrequency)),
@@ -245,7 +245,7 @@ func defaultConfig(cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) 
 			},
 		},
 		SqlserverConfiguration: &cpb.SQLServerConfiguration{
-			Enabled: proto.Bool(false),
+			Enabled: proto.Bool(true),
 			CollectionConfiguration: &cpb.SQLServerConfiguration_CollectionConfiguration{
 				CollectionFrequency: dpb.New(time.Duration(DefaultSQLServerCollectionFrequency)),
 			},
