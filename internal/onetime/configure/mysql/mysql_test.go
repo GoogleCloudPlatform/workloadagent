@@ -32,16 +32,16 @@ import (
 
 func TestNewCommand(t *testing.T) {
 	tests := []struct {
-		name    string
-		args    string
-		got     *cliconfig.Configure
-		wantErr string
-		want    *cliconfig.Configure
+		name           string
+		args           string
+		configToModify *cliconfig.Configure
+		wantErr        string
+		want           *cliconfig.Configure
 	}{
 		{
 			name: "EnableMySQL",
 			args: "--enabled",
-			got: &cliconfig.Configure{
+			configToModify: &cliconfig.Configure{
 				Configuration: &cpb.Configuration{
 					MysqlConfiguration: &cpb.MySQLConfiguration{
 						Enabled: proto.Bool(false),
@@ -60,7 +60,7 @@ func TestNewCommand(t *testing.T) {
 		{
 			name: "WrongFlag",
 			args: "--wrong_flag=true",
-			got: &cliconfig.Configure{
+			configToModify: &cliconfig.Configure{
 				Configuration: &cpb.Configuration{
 					MysqlConfiguration: &cpb.MySQLConfiguration{
 						Enabled: proto.Bool(true),
@@ -78,12 +78,76 @@ func TestNewCommand(t *testing.T) {
 				MySQLConfigModified: false,
 			},
 		},
+		{
+			name: "AddNewConnectionParams",
+			args: "connection-params --username=test-user --password=test-password --project-id=test-project --secret-name=test-secret",
+			configToModify: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					MysqlConfiguration: &cpb.MySQLConfiguration{
+						Enabled: proto.Bool(true),
+					},
+				},
+				MySQLConfigModified: false,
+			},
+			want: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					MysqlConfiguration: &cpb.MySQLConfiguration{
+						Enabled: proto.Bool(true),
+						ConnectionParameters: &cpb.ConnectionParameters{
+							Username: "test-user",
+							Password: "test-password",
+							Secret: &cpb.SecretRef{
+								ProjectId:  "test-project",
+								SecretName: "test-secret",
+							},
+						},
+					},
+				},
+				MySQLConfigModified: true,
+			},
+		},
+		{
+			name: "UpdateConnectionParams",
+			args: "connection-params --username=new-user --secret-name=new-secret",
+			configToModify: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					MysqlConfiguration: &cpb.MySQLConfiguration{
+						Enabled: proto.Bool(true),
+						ConnectionParameters: &cpb.ConnectionParameters{
+							Username: "old-user",
+							Password: "old-password",
+							Secret: &cpb.SecretRef{
+								ProjectId:  "old-project",
+								SecretName: "old-secret",
+							},
+						},
+					},
+				},
+				MySQLConfigModified: false,
+			},
+			want: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					MysqlConfiguration: &cpb.MySQLConfiguration{
+						Enabled: proto.Bool(true),
+						ConnectionParameters: &cpb.ConnectionParameters{
+							Username: "new-user",
+							Password: "old-password",
+							Secret: &cpb.SecretRef{
+								ProjectId:  "old-project",
+								SecretName: "new-secret",
+							},
+						},
+					},
+				},
+				MySQLConfigModified: true,
+			},
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// 'got' is the configuration that will be modified by the command.
-			cmd := NewCommand(tc.got)
+			// 'configToModify' is the configuration that will be modified by the command.
+			cmd := NewCommand(tc.configToModify)
 			// Set the args for the command.
 			cmd.SetArgs(strings.Split(tc.args, " "))
 			// Capture stdout to avoid printing during tests.
@@ -95,7 +159,7 @@ func TestNewCommand(t *testing.T) {
 			}
 
 			// Compare the configurations.
-			if diff := cmp.Diff(tc.want, tc.got, protocmp.Transform(), cmpopts.IgnoreUnexported(cliconfig.Configure{})); diff != "" {
+			if diff := cmp.Diff(tc.want, tc.configToModify, protocmp.Transform(), cmpopts.IgnoreUnexported(cliconfig.Configure{})); diff != "" {
 				t.Errorf("NewCommand().Execute() mismatch (-want +got):\n%s", diff)
 			}
 		})

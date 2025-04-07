@@ -22,6 +22,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/configure/cliconfig"
+
+	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
 
 // NewCommand creates a new 'mysql' command.
@@ -46,5 +48,66 @@ for monitoring MySQL databases, including discovery and metrics collection.`,
 
 	mysqlCmd.Flags().BoolVar(&enabled, "enabled", false, "Enable MySQL configuration")
 
+	mysqlCmd.AddCommand(newConnectionParamsCmd(cfg))
+
 	return mysqlCmd
+}
+
+// newConnectionParamsCmd adds connection parameters for a MySQL database.
+func newConnectionParamsCmd(cfg *cliconfig.Configure) *cobra.Command {
+	var username, projectID, secretName, password string
+	cpCmd := &cobra.Command{
+		Use:   "connection-params",
+		Short: "Add connection parameters for a MySQL database.",
+		Long: `Sets the username, password, and Secret Manager details
+for connecting to the MySQL database specified in the main configuration.
+
+Existing connection parameters will be overwritten by the provided flags.
+
+WARNING: Using the --password flag is not recommended for security reasons
+as it can expose the password in shell history or logs. Please prefer storing
+the password in Google Cloud Secret Manager and using the --project-id and
+--secret-name flags instead.`,
+		Run: func(cmd *cobra.Command, args []string) {
+			if cfg.Configuration.MysqlConfiguration.ConnectionParameters == nil {
+				cfg.Configuration.MysqlConfiguration.ConnectionParameters = &cpb.ConnectionParameters{}
+			}
+			cp := cfg.Configuration.MysqlConfiguration.ConnectionParameters
+
+			if cmd.Flags().Changed("username") {
+				fmt.Println("Setting MySQL Username:", username)
+				cp.Username = username
+				cfg.MySQLConfigModified = true
+			}
+			if cmd.Flags().Changed("password") {
+				fmt.Println("Setting MySQL Password:", password)
+				cp.Password = password
+				cfg.MySQLConfigModified = true
+			}
+
+			spChanged := cmd.Flags().Changed("project-id")
+			snChanged := cmd.Flags().Changed("secret-name")
+			if (spChanged || snChanged) && (cp.Secret == nil) {
+				cp.Secret = &cpb.SecretRef{}
+			}
+			if spChanged {
+				fmt.Println("Setting MySQL Project ID:", projectID)
+				cp.Secret.ProjectId = projectID
+				cfg.MySQLConfigModified = true
+			}
+			if snChanged {
+				fmt.Println("Setting MySQL Secret Name:", secretName)
+				cp.Secret.SecretName = secretName
+				cfg.MySQLConfigModified = true
+			}
+		},
+	}
+
+	// Add flags for the connection
+	cpCmd.Flags().StringVar(&username, "username", "", "Database username")
+	cpCmd.Flags().StringVar(&projectID, "project-id", "", "Project ID")
+	cpCmd.Flags().StringVar(&secretName, "secret-name", "", "Secret name")
+	cpCmd.Flags().StringVar(&password, "password", "", "Password")
+
+	return cpCmd
 }
