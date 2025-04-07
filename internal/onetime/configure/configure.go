@@ -26,7 +26,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/configure/cliconfig"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/configure/mysql"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/configure/oracle"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/configure/redis"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/configure/sqlserver"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
@@ -90,8 +93,10 @@ func NewCommand(cloudProps *cpb.CloudProperties) *cobra.Command {
 		return nil
 	})
 
-	// TODO: Add subcommands for each workload.
 	configureCmd.AddCommand(oracle.NewCommand(cfg))
+	configureCmd.AddCommand(sqlserver.NewCommand(cfg))
+	configureCmd.AddCommand(mysql.NewCommand(cfg))
+	configureCmd.AddCommand(redis.NewCommand(cfg))
 
 	return configureCmd
 }
