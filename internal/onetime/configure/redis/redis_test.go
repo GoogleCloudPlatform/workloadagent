@@ -25,23 +25,25 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/configure/cliconfig"
 
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
 
 func TestNewCommand(t *testing.T) {
+	defaultPort := int32(configuration.DefaultRedisPort)
 	tests := []struct {
-		name    string
-		args    string
-		got     *cliconfig.Configure
-		wantErr string
-		want    *cliconfig.Configure
+		name           string
+		args           string
+		configToModify *cliconfig.Configure
+		wantErr        string
+		want           *cliconfig.Configure
 	}{
 		{
 			name: "EnableRedis",
 			args: "--enabled",
-			got: &cliconfig.Configure{
+			configToModify: &cliconfig.Configure{
 				Configuration: &cpb.Configuration{
 					RedisConfiguration: &cpb.RedisConfiguration{},
 				},
@@ -58,7 +60,7 @@ func TestNewCommand(t *testing.T) {
 		{
 			name: "WrongFlag",
 			args: "--wrong_flag=true",
-			got: &cliconfig.Configure{
+			configToModify: &cliconfig.Configure{
 				Configuration: &cpb.Configuration{
 					RedisConfiguration: &cpb.RedisConfiguration{
 						Enabled: proto.Bool(true),
@@ -76,12 +78,76 @@ func TestNewCommand(t *testing.T) {
 				RedisConfigModified: false,
 			},
 		},
+		{
+			name: "AddConnectionParams",
+			args: "connection-params --port=1234 --password=test-password --project-id=test-project --secret-name=test-secret",
+			configToModify: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					RedisConfiguration: &cpb.RedisConfiguration{
+						Enabled: proto.Bool(true),
+					},
+				},
+				RedisConfigModified: false,
+			},
+			want: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					RedisConfiguration: &cpb.RedisConfiguration{
+						Enabled: proto.Bool(true),
+						ConnectionParameters: &cpb.ConnectionParameters{
+							Port: 1234,
+							Secret: &cpb.SecretRef{
+								ProjectId:  "test-project",
+								SecretName: "test-secret",
+							},
+							Password: "test-password",
+						},
+					},
+				},
+				RedisConfigModified: true,
+			},
+		},
+		{
+			name: "UpdateConnectionParams",
+			args: "connection-params --password=new-password --project-id=new-project",
+			configToModify: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					RedisConfiguration: &cpb.RedisConfiguration{
+						Enabled: proto.Bool(true),
+						ConnectionParameters: &cpb.ConnectionParameters{
+							Port:     defaultPort,
+							Password: "old-password",
+							Secret: &cpb.SecretRef{
+								ProjectId:  "old-project",
+								SecretName: "old-secret",
+							},
+						},
+					},
+				},
+				RedisConfigModified: false,
+			},
+			want: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					RedisConfiguration: &cpb.RedisConfiguration{
+						Enabled: proto.Bool(true),
+						ConnectionParameters: &cpb.ConnectionParameters{
+							Port:     defaultPort,
+							Password: "new-password",
+							Secret: &cpb.SecretRef{
+								ProjectId:  "new-project",
+								SecretName: "old-secret",
+							},
+						},
+					},
+				},
+				RedisConfigModified: true,
+			},
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// 'got' is the configuration that will be modified by the command.
-			cmd := NewCommand(tc.got)
+			// 'configToModify' is the configuration that will be modified by the command.
+			cmd := NewCommand(tc.configToModify)
 			// Set the args for the command.
 			cmd.SetArgs(strings.Split(tc.args, " "))
 			// Capture stdout to avoid printing during tests.
@@ -93,7 +159,7 @@ func TestNewCommand(t *testing.T) {
 			}
 
 			// Compare the configurations.
-			if diff := cmp.Diff(tc.want, tc.got, protocmp.Transform(), cmpopts.IgnoreUnexported(cliconfig.Configure{})); diff != "" {
+			if diff := cmp.Diff(tc.want, tc.configToModify, protocmp.Transform(), cmpopts.IgnoreUnexported(cliconfig.Configure{})); diff != "" {
 				t.Errorf("NewCommand().Execute() mismatch (-want +got):\n%s", diff)
 			}
 		})

@@ -97,6 +97,8 @@ const (
 	DefaultSQLServerRetryFrequency = time.Hour
 	// DefaultSQLServerCollectionFrequency is the default frequency for SQL Server collection.
 	DefaultSQLServerCollectionFrequency = time.Hour
+	// DefaultRedisPort is the default port for Redis.
+	DefaultRedisPort = 6379
 )
 
 // ConfigFromFile returns the configuration from the given file path.
