@@ -89,7 +89,6 @@ func NewConfigure(path string, m Marshaller, fw WriteConfigFile) *Configure {
 }
 
 // WriteFile writes the configuration using injected dependencies.
-// TODO : Refactor this function.
 func (c *Configure) WriteFile(ctx context.Context) error {
 	if c.Configuration == nil {
 		return fmt.Errorf("configuration is nil")
