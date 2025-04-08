@@ -56,7 +56,7 @@ func NewCommand(cloudProps *cpb.CloudProperties) *cobra.Command {
 		},
 		// PersistentPostRunE is called after each cli command is run.
 		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
-			if !cfg.SQLServerConfigModified && !cfg.OracleConfigModified {
+			if !cfg.SQLServerConfigModified && !cfg.OracleConfigModified && !cfg.RedisConfigModified && !cfg.MySQLConfigModified {
 				log.CtxLogger(cmd.Context()).Info("No configuration changes to save.")
 				return nil
 			}
