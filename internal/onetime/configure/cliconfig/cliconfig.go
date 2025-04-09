@@ -114,3 +114,8 @@ func (c *Configure) WriteFile(ctx context.Context) error {
 	log.CtxLogger(ctx).Info("Successfully Updated configuration.json")
 	return nil
 }
+
+// IsConfigModified returns true if any of the configuration files are modified.
+func (c *Configure) IsConfigModified() bool {
+	return c.OracleConfigModified || c.SQLServerConfigModified || c.RedisConfigModified || c.MySQLConfigModified
+}
