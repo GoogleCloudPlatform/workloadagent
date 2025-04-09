@@ -20,6 +20,7 @@ package oracle
 import (
 	"context"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/GoogleCloudPlatform/workloadagent/internal/oraclediscovery"
@@ -39,6 +40,7 @@ type Service struct {
 	discoveryRoutine        *recovery.RecoverableRoutine
 	currentSIDs             []string
 	CommonCh                <-chan *servicecommunication.Message
+	isProcessPresent        bool
 }
 
 type runDiscoveryArgs struct {
@@ -49,17 +51,28 @@ type runMetricCollectionArgs struct {
 	s *Service
 }
 
+var oraProcessPrefix = "ora_pmon_"
+
 // Start initiates the Oracle workload agent service
 func (s *Service) Start(ctx context.Context, a any) {
-	if !s.Config.GetOracleConfiguration().GetEnabled() {
+	// Check if the enabled field is unset. If it is, then the service is still enabled if the workload is present.
+	if s.Config.GetOracleConfiguration().Enabled == nil {
+		log.CtxLogger(ctx).Info("Oracle service enabled field is not set, will check for workload presence to determine if service should be enabled.")
+		go (func() {
+			for {
+				s.checkServiceCommunication(ctx)
+			}
+		})()
+		// If the workload is present, proceed with starting the service even if it is not enabled.
+		for !s.isProcessPresent {
+			time.Sleep(5 * time.Second)
+		}
+		log.CtxLogger(ctx).Info("Oracle workload is present. Starting service.")
+	} else if !s.Config.GetOracleConfiguration().GetEnabled() {
 		log.CtxLogger(ctx).Info("Oracle service is disabled")
 		return
 	}
-	go (func() {
-		for {
-			s.checkServiceCommunication(ctx)
-		}
-	})()
+
 	if runtime.GOOS != "linux" {
 		log.CtxLogger(ctx).Error("Oracle service is only supported on Linux")
 		return
@@ -172,6 +185,13 @@ func (s *Service) checkServiceCommunication(ctx context.Context) {
 		switch msg.Origin {
 		case servicecommunication.Discovery:
 			log.CtxLogger(ctx).Debugw("Oracle workload agent service received a discovery message")
+			for _, p := range msg.DiscoveryResult.Processes {
+				name, err := p.Name()
+				if err == nil && strings.HasPrefix(name, oraProcessPrefix) {
+					s.isProcessPresent = true
+					break
+				}
+			}
 		case servicecommunication.DWActivation:
 			log.CtxLogger(ctx).Debugw("Oracle workload agent service received a DW activation message")
 		default:
