@@ -93,10 +93,7 @@ func TestDwActivationLoop(t *testing.T) {
 
 	service := Service{}
 	service.Client = ActivatedClient
-	result, err := service.dwActivationLoop(ctx)
-	if err != nil {
-		t.Fatalf("dwActivationLoop() returned an unexpected error: %v", err)
-	}
+	result := service.dwActivationLoop(ctx)
 	if !cmp.Equal(result, servicecommunication.DataWarehouseActivationResult{Activated: true}) {
 		t.Errorf("dwActivationLoop() = %v, want %v", result, servicecommunication.DataWarehouseActivationResult{Activated: true})
 	}
@@ -108,10 +105,7 @@ func TestDwActivationNilResponse(t *testing.T) {
 	service := Service{}
 	service.Client = NilResponseClient
 	want := servicecommunication.DataWarehouseActivationResult{Activated: false}
-	result, err := service.dwActivationLoop(ctx)
-	if err != nil {
-		t.Fatalf("dwActivationLoop() returned an unexpected error: %v", err)
-	}
+	result := service.dwActivationLoop(ctx)
 	if !cmp.Equal(result, want) {
 		t.Errorf("dwActivationLoop() = %v, want %v", result, want)
 	}

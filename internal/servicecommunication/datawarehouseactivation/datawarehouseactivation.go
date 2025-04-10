@@ -36,7 +36,7 @@ type Service struct {
 
 // checkActivation checks if the data warehouse is activated by sending an empty insight.
 // The data warehouse returns a 201 status code if it is activated.
-func (s Service) checkActivation(ctx context.Context) (bool, error) {
+func (s Service) checkActivation(ctx context.Context) bool {
 	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
 		WLMetrics: workloadmanager.WorkloadMetrics{
 			WorkloadType: workloadmanager.UNKNOWN,
@@ -46,23 +46,24 @@ func (s Service) checkActivation(ctx context.Context) (bool, error) {
 		WLMService: s.Client,
 	})
 	if err != nil {
-		log.CtxLogger(ctx).Infow("Encountered error checking DW activation", "error", err)
-		return false, err
+		log.CtxLogger(ctx).Debugw("Context for DW Status being not activated.", "error", err)
+		return false
 	}
 	if res == nil {
-		log.CtxLogger(ctx).Warn("SendDataInsight did not return an error but the WriteInsight response is nil")
-		return false, nil
+		return false
 	}
 	log.CtxLogger(ctx).Debugw("WriteInsight response", "StatusCode", res.HTTPStatusCode)
-	return res.HTTPStatusCode == 201, nil
+	return res.HTTPStatusCode == 201
 }
 
-func (s Service) dwActivationLoop(ctx context.Context) (servicecommunication.DataWarehouseActivationResult, error) {
-	dwActivationStatus, err := s.checkActivation(ctx)
-	if err != nil {
-		return servicecommunication.DataWarehouseActivationResult{}, err
+func (s Service) dwActivationLoop(ctx context.Context) servicecommunication.DataWarehouseActivationResult {
+	dwActivationStatus := s.checkActivation(ctx)
+	statusMsg := "activated"
+	if !dwActivationStatus {
+		statusMsg = "not activated"
 	}
-	return servicecommunication.DataWarehouseActivationResult{Activated: dwActivationStatus}, nil
+	log.CtxLogger(ctx).Infow("Finished checking data warehouse activation.", "Status", statusMsg)
+	return servicecommunication.DataWarehouseActivationResult{Activated: dwActivationStatus}
 }
 
 // DataWarehouseActivationCheck runs the data warehouse activation check periodically
@@ -79,12 +80,7 @@ func (s Service) DataWarehouseActivationCheck(ctx context.Context, a any) {
 	ticker := time.NewTicker(frequency)
 	defer ticker.Stop()
 	for {
-		result, err := s.dwActivationLoop(ctx)
-		if err != nil {
-			log.CtxLogger(ctx).Errorw("Failed to perform data warehouse activation check", "error", err)
-			return
-		}
-		log.CtxLogger(ctx).Infof("DataWarehouseActivationCheck found Data Warehouse Activation Status: %v", result.Activated)
+		result := s.dwActivationLoop(ctx)
 
 		fullChs := 0
 		msg := &servicecommunication.Message{Origin: servicecommunication.DWActivation, DWActivationResult: result}
