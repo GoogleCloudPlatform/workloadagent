@@ -19,6 +19,7 @@ package sqlserver
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
@@ -31,36 +32,38 @@ import (
 
 // Service implements the interfaces for SQL Server workload agent service.
 type Service struct {
-	Config             *configpb.Configuration
-	CloudProps         *configpb.CloudProperties
-	CommonCh           <-chan *servicecommunication.Message
-	processes          servicecommunication.DiscoveryResult
-	sqlServerProcesses []servicecommunication.ProcessWrapper
+	Config           *configpb.Configuration
+	CloudProps       *configpb.CloudProperties
+	CommonCh         <-chan *servicecommunication.Message
+	isProcessPresent bool
 }
 
 type runMetricCollectionArgs struct {
 	s *Service
 }
 
+var sqlserverProcessSubstring = "sqlserv"
+
 // Start initiates the SQL Server workload agent service
 func (s *Service) Start(ctx context.Context, a any) {
+	// Check if the enabled field is unset. If it is, then the service is still enabled if the workload is present.
 	if s.Config.GetSqlserverConfiguration() == nil || s.Config.GetSqlserverConfiguration().Enabled == nil {
-		// If SQL Server workload agent service is not explicitly enabled in the configuration, then return.
-		log.CtxLogger(ctx).Info("SQL Server workload agent service is not explicitly enabled in the configuration")
-		return
-	}
-
-	if !s.Config.GetSqlserverConfiguration().GetEnabled() {
+		log.CtxLogger(ctx).Info("SQL Server service enabled field is not set, will check for workload presence to determine if service should be enabled.")
+		go (func() {
+			for {
+				s.checkServiceCommunication(ctx)
+			}
+		})()
+		// If the workload is present, proceed with starting the service even if it is not enabled.
+		for !s.isProcessPresent {
+			time.Sleep(5 * time.Second)
+		}
+		log.CtxLogger(ctx).Info("SQL Server workload is present. Starting service.")
+	} else if !s.Config.GetSqlserverConfiguration().GetEnabled() {
 		// If SQL Server workload agent service is explicitly disabled in the configuration, then return.
 		log.CtxLogger(ctx).Info("SQL Server workload agent service is disabled in the configuration")
 		return
 	}
-
-	go (func() {
-		for {
-			s.checkServiceCommunication(ctx)
-		}
-	})()
 
 	// Start SQL Server Metric Collection
 	mcCtx := log.SetCtx(ctx, "context", "SQLServerMetricCollection")
@@ -139,6 +142,13 @@ func (s *Service) checkServiceCommunication(ctx context.Context) {
 		switch msg.Origin {
 		case servicecommunication.Discovery:
 			log.CtxLogger(ctx).Debugw("SQL Server workload agent service received a discovery message")
+			for _, p := range msg.DiscoveryResult.Processes {
+				name, err := p.Name()
+				if err == nil && strings.Contains(name, sqlserverProcessSubstring) {
+					s.isProcessPresent = true
+					break
+				}
+			}
 		case servicecommunication.DWActivation:
 			log.CtxLogger(ctx).Debugw("SQL Server workload agent service received a DW activation message")
 		default:
