@@ -30,6 +30,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/configure/oracle"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/configure/redis"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/configure/sqlserver"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
@@ -39,14 +40,20 @@ import (
 type loadFunc func(path string, readFile configuration.ReadConfigFile, cloudProps *cpb.CloudProperties) (*cpb.Configuration, error)
 
 // NewCommand creates a new 'configure' command.
-func NewCommand(cloudProps *cpb.CloudProperties) *cobra.Command {
-	cfg := cliconfig.NewConfigure(configPath(runtime.GOOS), nil, nil)
+func NewCommand(lp log.Parameters, cloudProps *cpb.CloudProperties) *cobra.Command {
+	cfg := cliconfig.NewConfigure(configPath(runtime.GOOS), lp, nil, nil)
 
 	configureCmd := &cobra.Command{
 		Use:   "configure",
 		Short: "Configure the Google Cloud Agent for Compute Workloads",
 		// PersistentPreRunE is called before each cli command is run.
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			onetime.SetValues("google-cloud-workload-agent", &cfg.Lp, cmd, "configure")
+			if cfg.Lp.CloudLoggingClient != nil {
+				defer cfg.Lp.CloudLoggingClient.Close()
+			}
+			log.SetupLoggingForOTE("google-cloud-workload-agent", "configure", cfg.Lp)
+
 			var err error
 			cfg.Configuration, err = loadWAConfiguration(cloudProps, os.ReadFile, configuration.Load)
 			if err != nil {
@@ -57,7 +64,7 @@ func NewCommand(cloudProps *cpb.CloudProperties) *cobra.Command {
 		// PersistentPostRunE is called after each cli command is run.
 		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
 			if !cfg.IsConfigModified() {
-				log.CtxLogger(cmd.Context()).Info("No configuration changes to save.")
+				cfg.LogToBoth(cmd.Context(), "No configuration changes to save.")
 				return nil
 			}
 			// TODO: Display Modified Configuration on Console.

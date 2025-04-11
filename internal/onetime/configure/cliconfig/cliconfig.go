@@ -50,6 +50,7 @@ type Configure struct {
 	SQLServerConfigModified bool
 	RedisConfigModified     bool
 	MySQLConfigModified     bool
+	Lp                      log.Parameters
 
 	// Injected dependencies (unexported)
 	marshaller Marshaller
@@ -68,7 +69,7 @@ func (m *DefaultProtoMarshaller) Marshal(msg proto.Message) ([]byte, error) {
 
 // NewConfigure creates a new Config, injecting dependencies.
 // If nil is passed for marshaller or fileWriter, defaults (real implementations) are used.
-func NewConfigure(path string, m Marshaller, fw WriteConfigFile) *Configure {
+func NewConfigure(path string, lp log.Parameters, m Marshaller, fw WriteConfigFile) *Configure {
 	if m == nil {
 		m = &DefaultProtoMarshaller{
 			Options: protojson.MarshalOptions{
@@ -83,6 +84,7 @@ func NewConfigure(path string, m Marshaller, fw WriteConfigFile) *Configure {
 
 	return &Configure{
 		Path:       path,
+		Lp:         lp,
 		marshaller: m,
 		fileWriter: fw,
 	}
@@ -111,11 +113,17 @@ func (c *Configure) WriteFile(ctx context.Context) error {
 		return fmt.Errorf("unable to write configuration file %q: %w", c.Path, err)
 	}
 
-	log.CtxLogger(ctx).Info("Successfully Updated configuration.json")
+	c.LogToBoth(ctx, "Successfully Updated configuration.json")
 	return nil
 }
 
 // IsConfigModified returns true if any of the configuration files are modified.
 func (c *Configure) IsConfigModified() bool {
 	return c.OracleConfigModified || c.SQLServerConfigModified || c.RedisConfigModified || c.MySQLConfigModified
+}
+
+// LogToBoth logs the message to both the console and the log file.
+func (c *Configure) LogToBoth(ctx context.Context, msg string) {
+	fmt.Println(msg)
+	log.CtxLogger(ctx).Infof(msg)
 }

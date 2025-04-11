@@ -103,7 +103,7 @@ func NewCommand(lp log.Parameters, cloudProps *cpb.CloudProperties) *cobra.Comma
 }
 
 func (l *LogUsage) logUsageHandler(cmd *cobra.Command, cloudProps *cpb.CloudProperties) error {
-	onetime.SetValues(l.name, &l.lp, cmd)
+	onetime.SetValues(l.name, &l.lp, cmd, "logusage")
 	if l.lp.CloudLoggingClient != nil {
 		defer l.lp.CloudLoggingClient.Close()
 	}

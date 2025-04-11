@@ -37,15 +37,10 @@ This command allows you to enable and configure various features
 for monitoring Oracle databases, including discovery and metrics collection.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			if cmd.Flags().Changed("enabled") {
-				fmt.Println("Oracle Enabled: ", enabled)
+				msg := fmt.Sprintf("Oracle Enabled: %v", enabled)
+				cfg.LogToBoth(cmd.Context(), msg)
 				cfg.Configuration.OracleConfiguration.Enabled = &enabled
 				cfg.OracleConfigModified = true
-			}
-			// TODO: We'll add/remove this logic once we have a clearer design.
-			if enabled {
-				fmt.Println("Oracle Configuration is Enabled.  Performing Oracle-specific tasks...")
-			} else {
-				fmt.Println("Oracle Configuration is Disabled.")
 			}
 		},
 	}

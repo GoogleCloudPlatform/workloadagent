@@ -46,17 +46,20 @@ This includes enabling metrics, setting the collection frequency,
 managing connection parameters, and adding/removing SQL queries.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			if cmd.Flags().Changed("frequency") {
-				fmt.Println("Metrics Frequency: ", metricsFrequency)
+				msg := fmt.Sprintf("Oracle Metrics Frequency: %v", metricsFrequency)
+				cfg.LogToBoth(cmd.Context(), msg)
 				cfg.Configuration.OracleConfiguration.OracleMetrics.CollectionFrequency = dpb.New(metricsFrequency)
 				cfg.OracleConfigModified = true
 			}
 			if cmd.Flags().Changed("max-threads") {
-				fmt.Println("Metrics Max Threads: ", metricsMaxThreads)
+				msg := fmt.Sprintf("Oracle Metrics Max Threads: %v", metricsMaxThreads)
+				cfg.LogToBoth(cmd.Context(), msg)
 				cfg.Configuration.OracleConfiguration.OracleMetrics.MaxExecutionThreads = metricsMaxThreads
 				cfg.OracleConfigModified = true
 			}
 			if cmd.Flags().Changed("query-timeout") {
-				fmt.Println("Metrics Query Timeout: ", metricsQueryTimeout)
+				msg := fmt.Sprintf("Oracle Metrics Query Timeout: %v", metricsQueryTimeout)
+				cfg.LogToBoth(cmd.Context(), msg)
 				cfg.Configuration.OracleConfiguration.OracleMetrics.QueryTimeout = dpb.New(metricsQueryTimeout)
 				cfg.OracleConfigModified = true
 			}
@@ -65,10 +68,11 @@ managing connection parameters, and adding/removing SQL queries.`,
 				// If metrics are enabled, but there are no connection parameters, disable metrics.
 				if enableMetrics && (cfg.Configuration.OracleConfiguration.GetOracleMetrics().GetConnectionParameters() == nil ||
 					len(cfg.Configuration.OracleConfiguration.GetOracleMetrics().GetConnectionParameters()) == 0) {
-					fmt.Println("Metrics remained disabled because connection parameters are not set.")
+					cfg.LogToBoth(cmd.Context(), "Metrics Enabled, but no connection parameters found.  Disabling metrics.")
 					enableMetrics = false
 				}
-				fmt.Println("Metrics Enabled: ", enableMetrics)
+				msg := fmt.Sprintf("Oracle Metrics Enabled: %v", enableMetrics)
+				cfg.LogToBoth(cmd.Context(), msg)
 				cfg.Configuration.OracleConfiguration.OracleMetrics.Enabled = &enableMetrics
 				cfg.OracleConfigModified = true
 			}
@@ -129,7 +133,8 @@ func newMetricsConnectionAddCmd(cfg *cliconfig.Configure) *cobra.Command {
 				},
 			}
 
-			fmt.Println("Adding New connection: ", newConn)
+			msg := fmt.Sprintf("Oracle Metrics Connection Added: %v", newConn)
+			cfg.LogToBoth(cmd.Context(), msg)
 			cfg.Configuration.OracleConfiguration.OracleMetrics.ConnectionParameters = append(cfg.Configuration.OracleConfiguration.OracleMetrics.ConnectionParameters, newConn)
 			cfg.OracleConfigModified = true
 			return nil

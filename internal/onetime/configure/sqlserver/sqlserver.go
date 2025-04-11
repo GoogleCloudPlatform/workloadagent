@@ -46,27 +46,32 @@ func NewCommand(cfg *cliconfig.Configure) *cobra.Command {
 This command allows you to enable and configure various features for monitoring SQL Server databases.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			if cmd.Flags().Changed("enabled") {
-				fmt.Println("SQL Server Enabled: ", enabled)
+				msg := fmt.Sprintf("SQL Server Enabled: %v", enabled)
+				cfg.LogToBoth(cmd.Context(), msg)
 				cfg.Configuration.SqlserverConfiguration.Enabled = &enabled
 				cfg.SQLServerConfigModified = true
 			}
 			if cmd.Flags().Changed("collection-timeout") {
-				fmt.Println("SQL Server Collection Timeout: ", collectionTimeout)
+				msg := fmt.Sprintf("SQL Server Collection Timeout: %v", collectionTimeout)
+				cfg.LogToBoth(cmd.Context(), msg)
 				cfg.Configuration.SqlserverConfiguration.CollectionTimeout = dpb.New(collectionTimeout)
 				cfg.SQLServerConfigModified = true
 			}
 			if cmd.Flags().Changed("max-retries") {
-				fmt.Println("SQL Server Max Retries: ", maxRetries)
+				msg := fmt.Sprintf("SQL Server Max Retries: %v", maxRetries)
+				cfg.LogToBoth(cmd.Context(), msg)
 				cfg.Configuration.SqlserverConfiguration.MaxRetries = maxRetries
 				cfg.SQLServerConfigModified = true
 			}
 			if cmd.Flags().Changed("retry-frequency") {
-				fmt.Println("SQL Server Retry Frequency: ", retryFrequency)
+				msg := fmt.Sprintf("SQL Server Retry Frequency: %v", retryFrequency)
+				cfg.LogToBoth(cmd.Context(), msg)
 				cfg.Configuration.SqlserverConfiguration.RetryFrequency = dpb.New(retryFrequency)
 				cfg.SQLServerConfigModified = true
 			}
 			if cmd.Flags().Changed("remote-collection") {
-				fmt.Println("SQL Server Remote Collection: ", remoteCollection)
+				msg := fmt.Sprintf("SQL Server Remote Collection: %v", remoteCollection)
+				cfg.LogToBoth(cmd.Context(), msg)
 				cfg.Configuration.SqlserverConfiguration.RemoteCollection = remoteCollection
 				cfg.SQLServerConfigModified = true
 			}

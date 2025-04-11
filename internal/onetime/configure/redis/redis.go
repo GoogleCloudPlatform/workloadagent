@@ -40,7 +40,8 @@ This command allows you to enable and configure various features
 for monitoring Redis databases, including discovery and metrics collection.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			if cmd.Flags().Changed("enabled") {
-				fmt.Println("Redis Enabled: ", enabled)
+				msg := fmt.Sprintf("Redis Enabled: %v", enabled)
+				cfg.LogToBoth(cmd.Context(), msg)
 				cfg.Configuration.RedisConfiguration.Enabled = &enabled
 				cfg.RedisConfigModified = true
 			}
@@ -80,12 +81,14 @@ the password in Google Cloud Secret Manager and using the --project-id and
 			cp := cfg.Configuration.RedisConfiguration.ConnectionParameters
 
 			if cmd.Flags().Changed("port") {
-				fmt.Println("Setting Redis Port:", port)
+				msg := fmt.Sprintf("Setting Redis Port: %v", port)
+				cfg.LogToBoth(cmd.Context(), msg)
 				cp.Port = int32(port)
 				cfg.RedisConfigModified = true
 			}
 			if cmd.Flags().Changed("password") {
-				fmt.Println("Setting Redis Password:", password)
+				msg := fmt.Sprintf("Setting Redis Password: %v", password)
+				cfg.LogToBoth(cmd.Context(), msg)
 				cp.Password = password
 				cfg.RedisConfigModified = true
 			}
@@ -96,12 +99,14 @@ the password in Google Cloud Secret Manager and using the --project-id and
 				cp.Secret = &cpb.SecretRef{}
 			}
 			if spChanged {
-				fmt.Println("Setting Redis Project ID:", projectID)
+				msg := fmt.Sprintf("Setting Redis Project ID: %v", projectID)
+				cfg.LogToBoth(cmd.Context(), msg)
 				cp.Secret.ProjectId = projectID
 				cfg.RedisConfigModified = true
 			}
 			if snChanged {
-				fmt.Println("Setting Redis Secret Name:", secretName)
+				msg := fmt.Sprintf("Setting Redis Secret Name: %v", secretName)
+				cfg.LogToBoth(cmd.Context(), msg)
 				cp.Secret.SecretName = secretName
 				cfg.RedisConfigModified = true
 			}

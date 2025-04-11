@@ -39,7 +39,8 @@ This command allows you to enable and configure various features
 for monitoring MySQL databases, including discovery and metrics collection.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			if cmd.Flags().Changed("enabled") {
-				fmt.Println("MySQL Enabled: ", enabled)
+				msg := fmt.Sprintf("MySQL Enabled: %v", enabled)
+				cfg.LogToBoth(cmd.Context(), msg)
 				cfg.Configuration.MysqlConfiguration.Enabled = &enabled
 				cfg.MySQLConfigModified = true
 			}
@@ -75,12 +76,14 @@ the password in Google Cloud Secret Manager and using the --project-id and
 			cp := cfg.Configuration.MysqlConfiguration.ConnectionParameters
 
 			if cmd.Flags().Changed("username") {
-				fmt.Println("Setting MySQL Username:", username)
+				msg := fmt.Sprintf("Setting MySQL Username: %v", username)
+				cfg.LogToBoth(cmd.Context(), msg)
 				cp.Username = username
 				cfg.MySQLConfigModified = true
 			}
 			if cmd.Flags().Changed("password") {
-				fmt.Println("Setting MySQL Password:", password)
+				msg := fmt.Sprintf("Setting MySQL Password: %v", password)
+				cfg.LogToBoth(cmd.Context(), msg)
 				cp.Password = password
 				cfg.MySQLConfigModified = true
 			}
@@ -91,12 +94,14 @@ the password in Google Cloud Secret Manager and using the --project-id and
 				cp.Secret = &cpb.SecretRef{}
 			}
 			if spChanged {
-				fmt.Println("Setting MySQL Project ID:", projectID)
+				msg := fmt.Sprintf("Setting MySQL Project ID: %v", projectID)
+				cfg.LogToBoth(cmd.Context(), msg)
 				cp.Secret.ProjectId = projectID
 				cfg.MySQLConfigModified = true
 			}
 			if snChanged {
-				fmt.Println("Setting MySQL Secret Name:", secretName)
+				msg := fmt.Sprintf("Setting MySQL Secret Name: %v", secretName)
+				cfg.LogToBoth(cmd.Context(), msg)
 				cp.Secret.SecretName = secretName
 				cfg.MySQLConfigModified = true
 			}

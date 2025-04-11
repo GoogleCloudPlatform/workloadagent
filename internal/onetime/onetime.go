@@ -110,9 +110,9 @@ func Register(osType string, cmd *cobra.Command) {
 }
 
 // SetValues sets the persistent flags for the subcommand.
-func SetValues(agentName string, lp *log.Parameters, cmd *cobra.Command) {
+func SetValues(agentName string, lp *log.Parameters, cmd *cobra.Command, logName string) {
 	flags := cmd.Flags()
-	lp.LogFileName = log.OTEFilePath("google-cloud-workload-agent", cmd.Name(), lp.OSType, "")
+	lp.LogFileName = log.OTEFilePath("google-cloud-workload-agent", logName, lp.OSType, "")
 	logFileName, _ := flags.GetString("log-file")
 	if logFileName != "" {
 		lp.LogFileName = logFileName
