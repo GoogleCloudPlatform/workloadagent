@@ -38,6 +38,9 @@ func NewCommand(cfg *cliconfig.Configure) *cobra.Command {
 This command allows you to enable and configure various features
 for monitoring MySQL databases, including discovery and metrics collection.`,
 		Run: func(cmd *cobra.Command, args []string) {
+			if cfg.Configuration.MysqlConfiguration == nil {
+				cfg.Configuration.MysqlConfiguration = &cpb.MySQLConfiguration{}
+			}
 			if cmd.Flags().Changed("enabled") {
 				msg := fmt.Sprintf("MySQL Enabled: %v", enabled)
 				cfg.LogToBoth(cmd.Context(), msg)
@@ -70,6 +73,9 @@ as it can expose the password in shell history or logs. Please prefer storing
 the password in Google Cloud Secret Manager and using the --project-id and
 --secret-name flags instead.`,
 		Run: func(cmd *cobra.Command, args []string) {
+			if cfg.Configuration.MysqlConfiguration == nil {
+				cfg.Configuration.MysqlConfiguration = &cpb.MySQLConfiguration{}
+			}
 			if cfg.Configuration.MysqlConfiguration.ConnectionParameters == nil {
 				cfg.Configuration.MysqlConfiguration.ConnectionParameters = &cpb.ConnectionParameters{}
 			}

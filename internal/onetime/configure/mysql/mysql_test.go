@@ -79,6 +79,24 @@ func TestNewCommand(t *testing.T) {
 			},
 		},
 		{
+			name: "MissingMysqlConfiguration",
+			args: "connection-params --username=test-user --password=test-password",
+			configToModify: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{},
+			},
+			want: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					MysqlConfiguration: &cpb.MySQLConfiguration{
+						ConnectionParameters: &cpb.ConnectionParameters{
+							Username: "test-user",
+							Password: "test-password",
+						},
+					},
+				},
+				MySQLConfigModified: true,
+			},
+		},
+		{
 			name: "AddNewConnectionParams",
 			args: "connection-params --username=test-user --password=test-password --project-id=test-project --secret-name=test-secret",
 			configToModify: &cliconfig.Configure{

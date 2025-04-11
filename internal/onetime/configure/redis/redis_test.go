@@ -79,6 +79,24 @@ func TestNewCommand(t *testing.T) {
 			},
 		},
 		{
+			name: "MissingRedisConfiguration",
+			args: "connection-params --port=1234 --password=test-password",
+			configToModify: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{},
+			},
+			want: &cliconfig.Configure{
+				Configuration: &cpb.Configuration{
+					RedisConfiguration: &cpb.RedisConfiguration{
+						ConnectionParameters: &cpb.ConnectionParameters{
+							Port:     1234,
+							Password: "test-password",
+						},
+					},
+				},
+				RedisConfigModified: true,
+			},
+		},
+		{
 			name: "AddConnectionParams",
 			args: "connection-params --port=1234 --password=test-password --project-id=test-project --secret-name=test-secret",
 			configToModify: &cliconfig.Configure{
