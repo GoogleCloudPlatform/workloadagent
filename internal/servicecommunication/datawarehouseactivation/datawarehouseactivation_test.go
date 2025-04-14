@@ -88,25 +88,60 @@ func TestExpectedMinDuration(t *testing.T) {
 	}
 }
 
-func TestDwActivationLoop(t *testing.T) {
-	ctx := context.Background()
-
-	service := Service{}
-	service.Client = ActivatedClient
-	result := service.dwActivationLoop(ctx)
-	if !cmp.Equal(result, servicecommunication.DataWarehouseActivationResult{Activated: true}) {
-		t.Errorf("dwActivationLoop() = %v, want %v", result, servicecommunication.DataWarehouseActivationResult{Activated: true})
+func TestDataWarehouseActivation(t *testing.T) {
+	tests := []struct {
+		name              string
+		s                 *Service
+		startingStatus    activationStatus
+		want              servicecommunication.DataWarehouseActivationResult
+		wantStatusChanged bool
+	}{
+		{
+			name: "NilResponse",
+			s: &Service{
+				Client: NilResponseClient,
+			},
+			startingStatus:    notYetChecked,
+			want:              servicecommunication.DataWarehouseActivationResult{Activated: false},
+			wantStatusChanged: true,
+		},
+		{
+			name: "Activated",
+			s: &Service{
+				Client: ActivatedClient,
+			},
+			startingStatus:    notYetChecked,
+			want:              servicecommunication.DataWarehouseActivationResult{Activated: true},
+			wantStatusChanged: true,
+		},
+		{
+			name: "AlreadyActivated",
+			s: &Service{
+				Client: ActivatedClient,
+			},
+			startingStatus:    activated,
+			want:              servicecommunication.DataWarehouseActivationResult{Activated: true},
+			wantStatusChanged: false,
+		},
+		{
+			name: "AlreadyNotActivated",
+			s: &Service{
+				Client: NilResponseClient,
+			},
+			startingStatus:    notActivated,
+			want:              servicecommunication.DataWarehouseActivationResult{Activated: false},
+			wantStatusChanged: false,
+		},
 	}
-}
-
-func TestDwActivationNilResponse(t *testing.T) {
-	ctx := context.Background()
-
-	service := Service{}
-	service.Client = NilResponseClient
-	want := servicecommunication.DataWarehouseActivationResult{Activated: false}
-	result := service.dwActivationLoop(ctx)
-	if !cmp.Equal(result, want) {
-		t.Errorf("dwActivationLoop() = %v, want %v", result, want)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, tc := range tests {
+		result, statusChanged := tc.s.dwActivationLoop(ctx, tc.startingStatus)
+		if !cmp.Equal(result, tc.want) {
+			t.Errorf("dwActivationLoop() = %v, want %v", result, tc.want)
+		}
+		if statusChanged != tc.wantStatusChanged {
+			t.Errorf("dwActivationLoop() status changed = %v, want %v", statusChanged, tc.wantStatusChanged)
+		}
 	}
 }

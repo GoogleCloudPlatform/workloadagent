@@ -34,6 +34,24 @@ type Service struct {
 	Client workloadmanager.WLMWriter
 }
 
+type activationStatus int
+
+const (
+	notYetChecked activationStatus = iota
+	activated
+	notActivated
+)
+
+var statusToString = map[activationStatus]string{
+	notYetChecked: "not yet checked",
+	activated:     "activated",
+	notActivated:  "not activated",
+}
+
+func (s activationStatus) String() string {
+	return statusToString[s]
+}
+
 // checkActivation checks if the data warehouse is activated by sending an empty insight.
 // The data warehouse returns a 201 status code if it is activated.
 func (s Service) checkActivation(ctx context.Context) bool {
@@ -56,19 +74,40 @@ func (s Service) checkActivation(ctx context.Context) bool {
 	return res.HTTPStatusCode == 201
 }
 
-func (s Service) dwActivationLoop(ctx context.Context) servicecommunication.DataWarehouseActivationResult {
+func (s Service) dwActivationLoop(ctx context.Context, currentStatus activationStatus) (servicecommunication.DataWarehouseActivationResult, bool) {
+	log.CtxLogger(ctx).Infow("dwActivationLoop started.", "Current status", currentStatus)
 	dwActivationStatus := s.checkActivation(ctx)
-	statusMsg := "activated"
-	if !dwActivationStatus {
-		statusMsg = "not activated"
+	status := notActivated
+	if dwActivationStatus {
+		status = activated
 	}
-	log.CtxLogger(ctx).Infow("Finished checking data warehouse activation.", "Status", statusMsg)
-	return servicecommunication.DataWarehouseActivationResult{Activated: dwActivationStatus}
+	statusChanged := (status != currentStatus)
+	if statusChanged {
+		// Only log the status at info level if there is new information.
+		log.CtxLogger(ctx).Infow("Updated data warehouse activation status.", "Status", status)
+	}
+	return servicecommunication.DataWarehouseActivationResult{Activated: dwActivationStatus}, statusChanged
+}
+
+func (s Service) sendActivationResult(ctx context.Context, chs []chan<- *servicecommunication.Message, result servicecommunication.DataWarehouseActivationResult) {
+	fullChs := 0
+	msg := &servicecommunication.Message{Origin: servicecommunication.DWActivation, DWActivationResult: result}
+	for _, ch := range chs {
+		select {
+		case ch <- msg:
+		default:
+			fullChs++
+		}
+	}
+	if fullChs > 0 {
+		log.CtxLogger(ctx).Infof("DataWarehouseActivationCheck found %d full channels that it was unable to write to.", fullChs)
+	}
 }
 
 // DataWarehouseActivationCheck runs the data warehouse activation check periodically
 // and publishes the result to the workload agent service channels.
 func (s Service) DataWarehouseActivationCheck(ctx context.Context, a any) {
+	currentStatus := notYetChecked
 	log.CtxLogger(ctx).Info("DataWarehouseActivationCheck started")
 	var chs []chan<- *servicecommunication.Message
 	var ok bool
@@ -80,20 +119,16 @@ func (s Service) DataWarehouseActivationCheck(ctx context.Context, a any) {
 	ticker := time.NewTicker(frequency)
 	defer ticker.Stop()
 	for {
-		result := s.dwActivationLoop(ctx)
-
-		fullChs := 0
-		msg := &servicecommunication.Message{Origin: servicecommunication.DWActivation, DWActivationResult: result}
-		for _, ch := range chs {
-			select {
-			case ch <- msg:
-			default:
-				fullChs++
+		result, statusChanged := s.dwActivationLoop(ctx, currentStatus)
+		// If the status has changed, send the new information across the channels.
+		if statusChanged {
+			currentStatus = notActivated
+			if result.Activated {
+				currentStatus = activated
 			}
+			s.sendActivationResult(ctx, chs, result)
 		}
-		if fullChs > 0 {
-			log.CtxLogger(ctx).Infof("DataWarehouseActivationCheck found %d full channels that it was unable to write to.", fullChs)
-		}
+
 		// We can stop checking if the data warehouse is activated once we know that it is.
 		if result.Activated {
 			return
