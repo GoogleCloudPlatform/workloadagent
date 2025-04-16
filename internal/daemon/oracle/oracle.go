@@ -20,7 +20,7 @@ package oracle
 import (
 	"context"
 	"runtime"
-	"strings"
+	"sync"
 	"time"
 
 	"github.com/GoogleCloudPlatform/workloadagent/internal/oraclediscovery"
@@ -41,6 +41,8 @@ type Service struct {
 	currentSIDs             []string
 	CommonCh                <-chan *servicecommunication.Message
 	isProcessPresent        bool
+	processes               []servicecommunication.ProcessWrapper
+	processesMutex          sync.Mutex
 }
 
 type runDiscoveryArgs struct {
@@ -51,18 +53,18 @@ type runMetricCollectionArgs struct {
 	s *Service
 }
 
-var oraProcessPrefix = "ora_pmon_"
+var oraProcessPrefixes = []string{"ora_pmon_", "db_pmon_"}
 
 // Start initiates the Oracle workload agent service
 func (s *Service) Start(ctx context.Context, a any) {
+	go (func() {
+		for {
+			s.checkServiceCommunication(ctx)
+		}
+	})()
 	// Check if the enabled field is unset. If it is, then the service is still enabled if the workload is present.
 	if s.Config.GetOracleConfiguration().Enabled == nil {
 		log.CtxLogger(ctx).Info("Oracle service enabled field is not set, will check for workload presence to determine if service should be enabled.")
-		go (func() {
-			for {
-				s.checkServiceCommunication(ctx)
-			}
-		})()
 		// If the workload is present, proceed with starting the service even if it is not enabled.
 		for !s.isProcessPresent {
 			time.Sleep(5 * time.Second)
@@ -116,6 +118,7 @@ func runDiscovery(ctx context.Context, a any) {
 		log.CtxLogger(ctx).Error("args is not of type runDiscoveryArgs")
 		return
 	}
+	s := args.s
 
 	ticker := time.NewTicker(args.s.Config.GetOracleConfiguration().GetOracleDiscovery().GetUpdateFrequency().AsDuration())
 	defer ticker.Stop()
@@ -124,7 +127,25 @@ func runDiscovery(ctx context.Context, a any) {
 
 	for {
 		// Discovery data is not used yet.
-		_, err := ds.Discover(ctx, args.s.CloudProps)
+		s.processesMutex.Lock()
+		processes := s.processes
+		s.processesMutex.Unlock()
+		// Don't start discovery until processes are populated.
+		for processes == nil {
+			time.Sleep(5 * time.Second)
+			s.processesMutex.Lock()
+			processes = s.processes
+			s.processesMutex.Unlock()
+			// Respect context cancellation.
+			select {
+			case <-ctx.Done():
+				log.CtxLogger(ctx).Info("Oracle Discovery cancellation requested")
+				return
+			default:
+				continue
+			}
+		}
+		_, err := ds.Discover(ctx, s.CloudProps, processes)
 		if err != nil {
 			log.CtxLogger(ctx).Errorw("Failed to discover databases", "error", err)
 			return
@@ -185,9 +206,12 @@ func (s *Service) checkServiceCommunication(ctx context.Context) {
 		switch msg.Origin {
 		case servicecommunication.Discovery:
 			log.CtxLogger(ctx).Debugw("Oracle workload agent service received a discovery message")
+			s.processesMutex.Lock()
+			s.processes = msg.DiscoveryResult.Processes
+			s.processesMutex.Unlock()
 			for _, p := range msg.DiscoveryResult.Processes {
 				name, err := p.Name()
-				if err == nil && strings.HasPrefix(name, oraProcessPrefix) {
+				if err == nil && servicecommunication.HasAnyPrefix(name, oraProcessPrefixes) {
 					s.isProcessPresent = true
 					break
 				}

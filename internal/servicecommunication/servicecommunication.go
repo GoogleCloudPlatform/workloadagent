@@ -17,6 +17,18 @@ limitations under the License.
 // Package servicecommunication provides common types and functions for communicating between services.
 package servicecommunication
 
+import "strings"
+
+// HasAnyPrefix returns true if any of the prefixes is a prefix of the given string.
+func HasAnyPrefix(s string, prefixes []string) bool {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(s, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // ProcessWrapper is a wrapper around process.Process to support testing.
 type ProcessWrapper interface {
 	Username() (string, error)

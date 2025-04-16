@@ -32,7 +32,7 @@ import (
 	"time"
 
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
-	"github.com/shirou/gopsutil/v3/process"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	odpb "github.com/GoogleCloudPlatform/workloadagent/protos/oraclediscovery"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
@@ -67,9 +67,6 @@ const (
 
 	sqlSettings = "SET PAGESIZE 0 LINESIZE 32000 LONG 50000 FEEDBACK OFF " +
 		"ECHO OFF TERMOUT OFF HEADING OFF VERIFY OFF TRIMSPOOL ON"
-
-	oraProcessPrefix = "ora_pmon_"
-	oraListenerProc  = "tnslsnr"
 )
 
 var (
@@ -77,6 +74,8 @@ var (
 	errOracleSIDNotFound  = errors.New("ORACLE_SID not found")
 	errIncompleteData     = errors.New("required fields are missing")
 	sqlPlusArgs           = []string{"-LOGON", "-SILENT", "-NOLOGINTIME", "/", "as", "sysdba"}
+	oraProcessPrefixes    = []string{"ora_pmon_", "db_pmon_"}
+	oraListenerProc       = []string{"tnslsnr"}
 )
 
 type database struct {
@@ -108,73 +107,17 @@ type readFile func(string) ([]byte, error)
 // hostname abstracts the os.Hostname for testability.
 type hostname func() (string, error)
 
-// processLister is a wrapper around []*process.Process.
-type processLister interface {
-	listAllProcesses() ([]processWrapper, error)
-}
-
-// defaultProcessLister implements the ProcessLister interface for listing processes.
-type defaultProcessLister struct{}
-
-// listAllProcesses returns a list of processes.
-func (defaultProcessLister) listAllProcesses() ([]processWrapper, error) {
-	ps, err := process.Processes()
-	if err != nil {
-		return nil, err
-	}
-	processes := make([]processWrapper, len(ps))
-	for i, p := range ps {
-		processes[i] = &gopsProcess{process: p}
-	}
-	return processes, nil
-}
-
 // DiscoveryService is used to perform Oracle discovery operations.
 type DiscoveryService struct {
-	processLister  processLister
 	executeCommand executeCommand
 	readFile       readFile
 	hostname       hostname
-}
-
-// processWrapper is a wrapper around process.Process to support testing.
-type processWrapper interface {
-	Username() (string, error)
-	Pid() int32
-	Name() (string, error)
-	CmdlineSlice() ([]string, error)
-}
-
-// gopsProcess implements the processWrapper for abstracting process.Process.
-type gopsProcess struct {
-	process *process.Process
-}
-
-// Username returns a username of the process.
-func (p gopsProcess) Username() (string, error) {
-	return p.process.Username()
-}
-
-// Pid returns the PID of the process.
-func (p gopsProcess) Pid() int32 {
-	return p.process.Pid
-}
-
-// Name returns the name of the process.
-func (p gopsProcess) Name() (string, error) {
-	return p.process.Name()
-}
-
-// CmdlineSlice returns the command line arguments of the process.
-func (p gopsProcess) CmdlineSlice() ([]string, error) {
-	return p.process.CmdlineSlice()
 }
 
 // New creates a new DiscoveryService.
 // The options are used to override the default behavior of the DiscoveryService.
 func New(options ...func(*DiscoveryService)) *DiscoveryService {
 	d := DiscoveryService{
-		processLister:  &defaultProcessLister{},
 		executeCommand: commandlineexecutor.ExecuteCommand,
 		readFile:       os.ReadFile,
 		hostname:       os.Hostname,
@@ -186,17 +129,17 @@ func New(options ...func(*DiscoveryService)) *DiscoveryService {
 }
 
 // Discover returns the discovery proto containing discovered databases, listeners, and host metadata.
-func (d DiscoveryService) Discover(ctx context.Context, cloudProps *cpb.CloudProperties) (*odpb.Discovery, error) {
+func (d DiscoveryService) Discover(ctx context.Context, cloudProps *cpb.CloudProperties, processes []servicecommunication.ProcessWrapper) (*odpb.Discovery, error) {
 	discovery := &odpb.Discovery{}
 	var err error
-	discovery.Databases, err = d.discoverDatabases(ctx)
+	discovery.Databases, err = d.discoverDatabases(ctx, processes)
 	if err != nil {
 		return nil, fmt.Errorf("discovering databases: %w", err)
 	}
 	if len(discovery.Databases) == 0 {
 		return nil, nil
 	}
-	discovery.Listeners, err = d.discoverListeners(ctx)
+	discovery.Listeners, err = d.discoverListeners(ctx, processes)
 	if err != nil {
 		return nil, fmt.Errorf("discovering listeners: %w", err)
 	}
@@ -257,13 +200,13 @@ func (d DiscoveryService) extractOracleEnvVars(environFilePath string, varsToExt
 	return results, nil
 }
 
-func (d DiscoveryService) discoverDatabases(ctx context.Context) ([]*odpb.Discovery_DatabaseRoot, error) {
+func (d DiscoveryService) discoverDatabases(ctx context.Context, allProcesses []servicecommunication.ProcessWrapper) ([]*odpb.Discovery_DatabaseRoot, error) {
 	var dbroots []*odpb.Discovery_DatabaseRoot
-	procs, err := d.findProcessesByName(ctx, oraProcessPrefix)
+	procs, err := d.findProcessesByName(ctx, oraProcessPrefixes, allProcesses)
 	if err != nil {
 		return nil, err
 	}
-	log.CtxLogger(ctx).Debugf("found %d Oracle processes: %+v", len(procs), procs)
+	log.CtxLogger(ctx).Infof("found %d Oracle processes: %+v", len(procs), procs)
 	for _, p := range procs {
 		environFilePath := fmt.Sprintf("/proc/%d/environ", p.Pid())
 		envVars, err := d.extractOracleEnvVars(environFilePath, "ORACLE_HOME", "ORACLE_SID")
@@ -358,9 +301,9 @@ func createDatabase(database database, envVars map[string]string) *odpb.Discover
 	return db
 }
 
-func (d DiscoveryService) discoverListeners(ctx context.Context) ([]*odpb.Discovery_Listener, error) {
+func (d DiscoveryService) discoverListeners(ctx context.Context, allProcesses []servicecommunication.ProcessWrapper) ([]*odpb.Discovery_Listener, error) {
 	var listeners []*odpb.Discovery_Listener
-	procs, err := d.findProcessesByName(ctx, oraListenerProc)
+	procs, err := d.findProcessesByName(ctx, oraListenerProc, allProcesses)
 	if err != nil {
 		return nil, err
 	}
@@ -612,13 +555,8 @@ func populateInstanceHandlers(ctx context.Context, r io.Reader, listener *odpb.D
 }
 
 // findProcessesByName finds and returns a slice of processes that match the given name.
-func (d DiscoveryService) findProcessesByName(ctx context.Context, name string) ([]processWrapper, error) {
-	allProcesses, err := d.processLister.listAllProcesses()
-	if err != nil {
-		return nil, err
-	}
-
-	var matchedProcesses []processWrapper
+func (d DiscoveryService) findProcessesByName(ctx context.Context, names []string, allProcesses []servicecommunication.ProcessWrapper) ([]servicecommunication.ProcessWrapper, error) {
+	var matchedProcesses []servicecommunication.ProcessWrapper
 	for _, proc := range allProcesses {
 		procName, err := proc.Name()
 		if err != nil {
@@ -629,7 +567,7 @@ func (d DiscoveryService) findProcessesByName(ctx context.Context, name string) 
 			log.CtxLogger(ctx).Warnw("Could not get the name of process, skipping", "process_id", proc.Pid(), "error", err)
 			continue
 		}
-		if strings.HasPrefix(procName, name) {
+		if servicecommunication.HasAnyPrefix(procName, names) {
 			matchedProcesses = append(matchedProcesses, proc)
 		}
 	}

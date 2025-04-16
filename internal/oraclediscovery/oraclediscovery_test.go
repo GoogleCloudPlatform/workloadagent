@@ -28,6 +28,7 @@ import (
 	tpb "google.golang.org/protobuf/types/known/timestamppb"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/testing/protocmp"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	odpb "github.com/GoogleCloudPlatform/workloadagent/protos/oraclediscovery"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
@@ -41,18 +42,6 @@ const (
 	listenerStatusFailureFilePath   = "testdata/lsnrctl_status_failure.txt"
 	listenerServicesSuccessFilePath = "testdata/lsnrctl_services_success.txt"
 )
-
-type fakeProcessLister struct {
-	processes []processStub
-}
-
-func (f fakeProcessLister) listAllProcesses() ([]processWrapper, error) {
-	result := make([]processWrapper, len(f.processes))
-	for i, p := range f.processes {
-		result[i] = processWrapper(p)
-	}
-	return result, nil
-}
 
 // Stub is a no-op test double for psutil.Process.
 type processStub struct {
@@ -81,10 +70,8 @@ func (p processStub) CmdlineSlice() ([]string, error) {
 	return p.args, nil
 }
 
-func processListerFunc(p []processStub) func(d *DiscoveryService) {
-	return func(d *DiscoveryService) {
-		d.processLister = fakeProcessLister{processes: p}
-	}
+func (p processStub) Environ() ([]string, error) {
+	return []string{}, nil
 }
 
 func readFileFunc(s string, err error) func(d *DiscoveryService) {
@@ -186,42 +173,71 @@ func TestExtractOracleEnvVars(t *testing.T) {
 func TestFindProcessesByName(t *testing.T) {
 	tests := []struct {
 		name       string
-		input      []processStub
+		processes  []servicecommunication.ProcessWrapper
 		wantNames  []string
-		searchName string
+		searchName []string
 	}{
 		{
 			name: "empty process list",
 		},
 		{
 			name: "oracle and non-oracle processes",
-			input: []processStub{
-				{username: "user1", pid: 123, name: "ora_pmon_testdb1"},
-				{username: "user2", pid: 456, name: "ora_pmon_testdb2"},
-				{username: "user3", pid: 789, name: "not_oracle_process"},
+			processes: []servicecommunication.ProcessWrapper{
+				processStub{username: "user1", pid: 123, name: "ora_pmon_testdb1"},
+				processStub{username: "user2", pid: 456, name: "ora_pmon_testdb2"},
+				processStub{username: "user3", pid: 789, name: "not_oracle_process"},
 			},
-			searchName: "ora_pmon_",
+			searchName: oraProcessPrefixes,
 			wantNames:  []string{"ora_pmon_testdb1", "ora_pmon_testdb2"},
 		},
 		{
 			name: "no match",
-			input: []processStub{
-				{username: "user1", pid: 123, name: "not_oracle_process"},
+			processes: []servicecommunication.ProcessWrapper{
+				processStub{username: "user1", pid: 123, name: "not_oracle_process"},
 			},
-			searchName: "ora_pmon_",
+			searchName: oraProcessPrefixes,
 		},
 		{
 			name: "process with no Name",
-			input: []processStub{
-				{username: "user1", pid: 123},
+			processes: []servicecommunication.ProcessWrapper{
+				processStub{username: "user1", pid: 123},
 			},
-			searchName: "ora_pmon_",
+			searchName: oraProcessPrefixes,
+		},
+		{
+			name: "oracle db_pmon and non-oracle processes",
+			processes: []servicecommunication.ProcessWrapper{
+				processStub{username: "user1", pid: 123, name: "db_pmon_testdb1"},
+				processStub{username: "user2", pid: 456, name: "db_pmon_testdb2"},
+				processStub{username: "user3", pid: 789, name: "not_oracle_process"},
+			},
+			searchName: oraProcessPrefixes,
+			wantNames:  []string{"db_pmon_testdb1", "db_pmon_testdb2"},
+		},
+		{
+			name: "oracle db_pmon and ora_pmon and non-oracle processes",
+			processes: []servicecommunication.ProcessWrapper{
+				processStub{username: "user1", pid: 123, name: "db_pmon_testdb1"},
+				processStub{username: "user2", pid: 456, name: "ora_pmon_testdb2"},
+				processStub{username: "user3", pid: 789, name: "not_oracle_process"},
+			},
+			searchName: oraProcessPrefixes,
+			wantNames:  []string{"db_pmon_testdb1", "ora_pmon_testdb2"},
+		},
+		{
+			name: "oracle listener and non-oracle processes",
+			processes: []servicecommunication.ProcessWrapper{
+				processStub{username: "user1", pid: 123, name: "tnslsnr_testdb1"},
+				processStub{username: "user3", pid: 789, name: "not_oracle_process"},
+			},
+			searchName: oraListenerProc,
+			wantNames:  []string{"tnslsnr_testdb1"},
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			d := New(processListerFunc(tc.input))
-			processes, err := d.findProcessesByName(context.Background(), tc.searchName)
+			d := New()
+			processes, err := d.findProcessesByName(context.Background(), tc.searchName, tc.processes)
 			if err != nil {
 				t.Errorf("findProcessesByName() failed: %v", err)
 			}
@@ -507,7 +523,7 @@ func TestDiscovery(t *testing.T) {
 	tests := []struct {
 		name                     string
 		envFileContent           string
-		processes                []processStub
+		processes                []servicecommunication.ProcessWrapper
 		want                     *odpb.Discovery
 		sqlplusOutput            string
 		listenerStatusFilePath   string
@@ -521,17 +537,17 @@ func TestDiscovery(t *testing.T) {
 		},
 		{
 			name: "No oracle processes",
-			processes: []processStub{
-				{username: "user1", pid: 123, name: "test"},
-				{username: "user2", pid: 456, name: "tnslsnr", args: []string{"tnslsnr", "LISTENER"}},
+			processes: []servicecommunication.ProcessWrapper{
+				processStub{username: "user1", pid: 123, name: "test"},
+				processStub{username: "user2", pid: 456, name: "tnslsnr", args: []string{"tnslsnr", "LISTENER"}},
 			},
 		},
 		{
 			name:     "Oracle and listener processes",
 			hostname: "test_hostname",
-			processes: []processStub{
-				{username: "user1", pid: 123, name: "ora_pmon_orcl"},
-				{username: "user2", pid: 456, name: "tnslsnr", args: []string{"tnslsnr", "LISTENER"}},
+			processes: []servicecommunication.ProcessWrapper{
+				processStub{username: "user1", pid: 123, name: "ora_pmon_orcl"},
+				processStub{username: "user2", pid: 456, name: "tnslsnr", args: []string{"tnslsnr", "LISTENER"}},
 			},
 			envFileContent: "ORACLE_HOME=/opt/oracle/product/19c/db\x00ORACLE_SID=orcl",
 			sqlplusOutput: `
@@ -738,8 +754,8 @@ func TestDiscovery(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			d := New(processListerFunc(tc.processes), executeCommandFunc(t, tc.sqlplusOutput, nil, tc.listenerStatusFilePath, tc.listenerServicesFilePath), readFileFunc(tc.envFileContent, nil), hostnameFunc(tc.hostname, nil))
-			got, err := d.Discover(context.Background(), &cpb.CloudProperties{InstanceId: "test_instance_id"})
+			d := New(executeCommandFunc(t, tc.sqlplusOutput, nil, tc.listenerStatusFilePath, tc.listenerServicesFilePath), readFileFunc(tc.envFileContent, nil), hostnameFunc(tc.hostname, nil))
+			got, err := d.Discover(context.Background(), &cpb.CloudProperties{InstanceId: "test_instance_id"}, tc.processes)
 			if err != nil && !errors.Is(err, tc.wantErr) {
 				t.Errorf("Discover() got error: %v, want: %v", err, tc.wantErr)
 			}
@@ -762,7 +778,7 @@ func TestDiscoverDatabases(t *testing.T) {
 		want           []*odpb.Discovery_DatabaseRoot
 		wantErr        error
 		stdout         string
-		processes      []processStub
+		processes      []servicecommunication.ProcessWrapper
 	}{
 		{
 			name:   "No processes found",
@@ -771,7 +787,7 @@ func TestDiscoverDatabases(t *testing.T) {
 		{
 			name:   "No env variables",
 			stdout: "{}",
-			processes: []processStub{
+			processes: []servicecommunication.ProcessWrapper{
 				processStub{pid: 123, name: "ora_pmon_orcl", username: "user1"},
 			},
 			envFileContent: "",
@@ -779,7 +795,7 @@ func TestDiscoverDatabases(t *testing.T) {
 		{
 			name:           "Success",
 			envFileContent: "ORACLE_HOME=/opt/oracle/product/19c/db\x00ORACLE_SID=orcl",
-			processes:      []processStub{{username: "user1", pid: 123, name: "ora_pmon_orcl"}},
+			processes:      []servicecommunication.ProcessWrapper{processStub{username: "user1", pid: 123, name: "ora_pmon_orcl"}},
 			stdout: `
 			  {
 			      "dbid": 1234567890,
@@ -834,8 +850,8 @@ func TestDiscoverDatabases(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			d := New(processListerFunc(tc.processes), readFileFunc(tc.envFileContent, nil), executeCommandFunc(t, tc.stdout, nil, listenerStatusSuccessFilePath, listenerServicesSuccessFilePath))
-			got, err := d.discoverDatabases(ctx)
+			d := New(readFileFunc(tc.envFileContent, nil), executeCommandFunc(t, tc.stdout, nil, listenerStatusSuccessFilePath, listenerServicesSuccessFilePath))
+			got, err := d.discoverDatabases(ctx, tc.processes)
 			if err != nil && !errors.Is(err, tc.wantErr) {
 				t.Errorf("discoverDatabases() got error: %v, want: %v", err, tc.wantErr)
 			}
@@ -1211,7 +1227,7 @@ func TestDiscoverListeners(t *testing.T) {
 		envFileContent           string
 		want                     []*odpb.Discovery_Listener
 		wantErr                  error
-		processes                []processStub
+		processes                []servicecommunication.ProcessWrapper
 		listenerStatusFilePath   string
 		listenerServicesFilePath string
 	}{
@@ -1224,7 +1240,7 @@ func TestDiscoverListeners(t *testing.T) {
 		{
 			name:           "missing ORACLE_HOME env variable",
 			envFileContent: "",
-			processes: []processStub{
+			processes: []servicecommunication.ProcessWrapper{
 				processStub{pid: 123, name: "tnslsnr", username: "user1", args: []string{"tnslsnr", "listener1"}},
 			},
 			wantErr:                  errOracleHomeNotFound,
@@ -1233,7 +1249,7 @@ func TestDiscoverListeners(t *testing.T) {
 		},
 		{
 			name: "Failed to connect to the listener",
-			processes: []processStub{
+			processes: []servicecommunication.ProcessWrapper{
 				processStub{pid: 123, name: "tnslsnr", username: "user1", args: []string{"tnslsnr", "listener1"}},
 			},
 			envFileContent:           "ORACLE_HOME=/opt/oracle/product/19c/db\x00ORACLE_SID=orcl",
@@ -1243,7 +1259,7 @@ func TestDiscoverListeners(t *testing.T) {
 		},
 		{
 			name: "listener and non-listener processes",
-			processes: []processStub{
+			processes: []servicecommunication.ProcessWrapper{
 				processStub{pid: 123, name: "tnslsnr", username: "user1", args: []string{"tnslsnr", "listener1"}},
 				processStub{pid: 456, name: "non_listener_process", username: "user2"},
 			},
@@ -1393,8 +1409,8 @@ func TestDiscoverListeners(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			d := New(processListerFunc(tc.processes), readFileFunc(tc.envFileContent, nil), executeCommandFunc(t, "", nil, tc.listenerStatusFilePath, tc.listenerServicesFilePath))
-			got, err := d.discoverListeners(ctx)
+			d := New(readFileFunc(tc.envFileContent, nil), executeCommandFunc(t, "", nil, tc.listenerStatusFilePath, tc.listenerServicesFilePath))
+			got, err := d.discoverListeners(ctx, tc.processes)
 			if err != nil && tc.wantErr == nil {
 				t.Errorf("discoverListeners() returned unexpected error: %v", err)
 			} else if err != nil && !errors.Is(err, tc.wantErr) {
