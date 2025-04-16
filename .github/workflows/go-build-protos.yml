@@ -54,12 +54,15 @@ jobs:
         git config --global user.email 'bot@noreply.github.com'
         git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
         git add protos
-        git commit -m "Auto updated compiled protocol buffers" && git push || echo "No changes to commit"
-
+        if ! git commit -m "Auto updated compiled protocol buffers"; then
+            echo "No changes to commit."
+          else
+            git push
+        fi
     - name: Notify on failure
       if: ${{ failure() }}
       uses: cinotify/github-action@main
       with:
         to: 'workload-agent-github-dev@google.com'
         subject: '[Failure] GitHub Workload Agent Protocol Buffer Build and Commit failed'
-        body: 'There was a failure for the GitHub Workload Agent workflow go-build-protos action.\n\n https://github.com/GoogleCloudPlatform/workloadagent/actions/runs/${{ github.run_id }}'
+        body: 'There was a failure for the GitHub Workload Agent workflow go-build-protos action.\n\n https://github.com/GoogleCloudPlatform/workloadagent/actions/runs/${{ github.run_id }}/jobs/${{ github.job }}'
