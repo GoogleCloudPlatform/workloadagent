@@ -85,7 +85,7 @@ func NewCommand(lp log.Parameters, cloudProps *cpb.CloudProperties) *cobra.Comma
 	logUsageCmd := &cobra.Command{
 		Use:   `logusage`,
 		Short: "Log usage metrics for the agent",
-		Long:  "Usage: logusage [-name <tool or agent name>] [-av <tool or agent version>] [-status <RUNNING|INSTALLED|...>] [-action <integer action code>] [-error <integer error code>] [-image <image URL of the compute instance>] [-v] [-h]",
+		Long:  "Usage: logusage [--name <tool or agent name>] [--av <tool or agent version>] [--status <RUNNING|INSTALLED|...>] [--action <integer action code>] [--error <integer error code>] [--image <image URL of the compute instance>] [-v] [-h]",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return l.logUsageHandler(cmd, cloudProps)
 		},
