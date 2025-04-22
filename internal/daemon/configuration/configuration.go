@@ -120,13 +120,6 @@ func ConfigFromFile(path string, read ReadConfigFile) (*cpb.Configuration, error
 		return nil, fmt.Errorf("parsing JSON content from %s configuration file: %w", path, err)
 	}
 
-	if err := validateOracleConfiguration(cfgFromFile); err != nil {
-		return nil, fmt.Errorf("validating Oracle configuration: %w", err)
-	}
-
-	if err := validateSQLServerConfiguration(cfgFromFile); err != nil {
-		return nil, fmt.Errorf("validating SQL Server configuration: %w", err)
-	}
 	return cfgFromFile, nil
 }
 
@@ -147,6 +140,14 @@ func Load(path string, read ReadConfigFile, cloudProps *cpb.CloudProperties) (*c
 	userCfg, err := ConfigFromFile(path, read)
 	if err != nil {
 		return nil, fmt.Errorf("gathering configuration from file: %w", err)
+	}
+
+	if err := validateOracleConfiguration(userCfg); err != nil {
+		return nil, fmt.Errorf("validating Oracle configuration: %w", err)
+	}
+
+	if err := validateSQLServerConfiguration(userCfg); err != nil {
+		return nil, fmt.Errorf("validating SQL Server configuration: %w", err)
 	}
 
 	defaultOracleQueries := defaultCfg.GetOracleConfiguration().GetOracleMetrics().GetQueries()

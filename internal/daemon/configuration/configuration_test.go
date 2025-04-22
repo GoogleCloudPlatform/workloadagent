@@ -398,6 +398,125 @@ func TestLoad(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "MissingConnectionParametersOracleValidationFails",
+			readFunc: func(p string) ([]byte, error) {
+				fileContent := `{
+					"log_level": "DEBUG",
+					"log_to_cloud": false,
+					"cloud_properties": {
+						"project_id": "config-project-id",
+						"instance_id": "config-instance-id",
+						"zone": "config-zone",
+						"image": "config-image"
+					},
+					"oracle_configuration": {
+						"enabled": true,
+						"oracle_discovery": {
+							"enabled": true,
+							"update_frequency": "240s"
+						},
+						"oracle_metrics": {
+							"enabled": true,
+							"collection_frequency": "120s",
+							"query_timeout": "10s",
+							"max_execution_threads": 20
+						}
+					},
+					"sqlserver_configuration": {
+						"enabled": true,
+						"collection_configuration": {
+							"collect_guest_os_metrics":true,
+							"collect_sql_metrics":true,
+							"collection_frequency": "600s"
+						},
+						"credential_configurations": [
+							{
+								"connection_parameters": [
+									{
+										"host":"test-host",
+										"username":"test-user",
+										"secret": {
+											"project_id":"test-project",
+											"secret_name":"test-secret"
+										},
+										"port":1433
+									}
+								],
+								"local_collection":true
+							}
+						],
+						"collection_timeout":"5s",
+						"max_retries":5,
+						"retry_frequency":"600s"
+					}
+				}`
+				return []byte(fileContent), nil
+			},
+			wantErr: true,
+		},
+		{
+			name: "MissingCollectionConfigurationSQLServerValidationFails",
+			readFunc: func(p string) ([]byte, error) {
+				fileContent := `{
+					"log_level": "DEBUG",
+					"log_to_cloud": false,
+					"cloud_properties": {
+						"project_id": "config-project-id",
+						"instance_id": "config-instance-id",
+						"zone": "config-zone",
+						"image": "config-image"
+					},
+					"oracle_configuration": {
+						"enabled": true,
+						"oracle_discovery": {
+							"enabled": true,
+							"update_frequency": "240s"
+						},
+						"oracle_metrics": {
+							"enabled": true,
+							"connection_parameters": [
+								{
+									"username": "testuser",
+									"service_name": "orcl",
+									"secret": {
+										"project_id": "testproject",
+										"secret_name": "testsecret"
+									}
+								}
+							],
+							"collection_frequency": "120s",
+							"query_timeout": "10s",
+							"max_execution_threads": 20
+						}
+					},
+					"sqlserver_configuration": {
+						"enabled": true,
+						"credential_configurations": [
+							{
+								"connection_parameters": [
+									{
+										"host":"test-host",
+										"username":"test-user",
+										"secret": {
+											"project_id":"test-project",
+											"secret_name":"test-secret"
+										},
+										"port":1433
+									}
+								],
+								"local_collection":true
+							}
+						],
+						"collection_timeout":"5s",
+						"max_retries":5,
+						"retry_frequency":"600s"
+					}
+				}`
+				return []byte(fileContent), nil
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, test := range tests {
