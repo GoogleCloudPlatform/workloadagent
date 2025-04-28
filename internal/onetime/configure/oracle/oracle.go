@@ -36,6 +36,8 @@ func NewCommand(cfg *cliconfig.Configure) *cobra.Command {
 This command allows you to enable and configure various features
 for monitoring Oracle databases, including discovery and metrics collection.`,
 		Run: func(cmd *cobra.Command, args []string) {
+			cfg.ValidateOracle()
+
 			if cmd.Flags().Changed("enabled") {
 				msg := fmt.Sprintf("Oracle Enabled: %v", enabled)
 				cfg.LogToBoth(cmd.Context(), msg)

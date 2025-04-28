@@ -40,6 +40,8 @@ func DiscoveryCommand(cfg *cliconfig.Configure) *cobra.Command {
 
 This command allows you to enable or disable Oracle discovery and set the update frequency.`,
 		Run: func(cmd *cobra.Command, args []string) {
+			cfg.ValidateOracleDiscovery()
+
 			if cmd.Flags().Changed("enabled") {
 				msg := fmt.Sprintf("Oracle Discovery Enabled: %v", enableDiscovery)
 				cfg.LogToBoth(cmd.Context(), msg)

@@ -42,9 +42,7 @@ func TestNewCommand(t *testing.T) {
 			name: "EnableOracle",
 			args: "--enabled",
 			got: &cliconfig.Configure{
-				Configuration: &cpb.Configuration{
-					OracleConfiguration: &cpb.OracleConfiguration{},
-				},
+				Configuration: &cpb.Configuration{},
 			},
 			want: &cliconfig.Configure{
 				Configuration: &cpb.Configuration{

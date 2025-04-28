@@ -45,6 +45,8 @@ func MetricsCommand(cfg *cliconfig.Configure) *cobra.Command {
 This includes enabling metrics, setting the collection frequency,
 managing connection parameters, and adding/removing SQL queries.`,
 		Run: func(cmd *cobra.Command, args []string) {
+			cfg.ValidateOracleMetrics()
+
 			if cmd.Flags().Changed("frequency") {
 				msg := fmt.Sprintf("Oracle Metrics Frequency: %v", metricsFrequency)
 				cfg.LogToBoth(cmd.Context(), msg)
@@ -97,6 +99,8 @@ func newMetricsConnectionAddCmd(cfg *cliconfig.Configure) *cobra.Command {
 		Use:   "connection-add",
 		Short: "Add a database connection",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg.ValidateOracleMetricsConnection()
+
 			username, err := cmd.Flags().GetString("username")
 			if err != nil {
 				return fmt.Errorf("error getting username: %w", err)

@@ -25,6 +25,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/testing/protocmp"
 
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
@@ -140,6 +141,313 @@ func TestWriteFileErrors(t *testing.T) {
 			gotErr := tc.configure.WriteFile(context.Background())
 			if !cmp.Equal(gotErr, tc.wantErr, cmpopts.EquateErrors()) {
 				t.Errorf("writeFile(%v, %v)=%v, want %v", tc.configure, tc.path, gotErr, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateOracle(t *testing.T) {
+	tests := []struct {
+		name           string
+		configToModify *Configure
+		want           *Configure
+	}{
+		{
+			name: "ValidOracleConfig",
+			configToModify: &Configure{
+				Configuration: &cpb.Configuration{},
+			},
+			want: &Configure{
+				Configuration: &cpb.Configuration{
+					OracleConfiguration: &cpb.OracleConfiguration{},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.configToModify.ValidateOracle()
+			// Compare the configurations.
+			if diff := cmp.Diff(tc.want, tc.configToModify, protocmp.Transform(), cmpopts.IgnoreUnexported(Configure{})); diff != "" {
+				t.Errorf("ValidateOracle() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateOracleDiscovery(t *testing.T) {
+	tests := []struct {
+		name           string
+		configToModify *Configure
+		want           *Configure
+	}{
+		{
+			name: "ValidOracleDiscoveryConfig",
+			configToModify: &Configure{
+				Configuration: &cpb.Configuration{},
+			},
+			want: &Configure{
+				Configuration: &cpb.Configuration{
+					OracleConfiguration: &cpb.OracleConfiguration{
+						OracleDiscovery: &cpb.OracleDiscovery{},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.configToModify.ValidateOracleDiscovery()
+			// Compare the configurations.
+			if diff := cmp.Diff(tc.want, tc.configToModify, protocmp.Transform(), cmpopts.IgnoreUnexported(Configure{})); diff != "" {
+				t.Errorf("ValidateOracleDiscovery() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateOracleMetrics(t *testing.T) {
+	tests := []struct {
+		name           string
+		configToModify *Configure
+		want           *Configure
+	}{
+		{
+			name: "ValidOracleMetricsConfig",
+			configToModify: &Configure{
+				Configuration: &cpb.Configuration{},
+			},
+			want: &Configure{
+				Configuration: &cpb.Configuration{
+					OracleConfiguration: &cpb.OracleConfiguration{
+						OracleMetrics: &cpb.OracleMetrics{},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.configToModify.ValidateOracleMetrics()
+			// Compare the configurations.
+			if diff := cmp.Diff(tc.want, tc.configToModify, protocmp.Transform(), cmpopts.IgnoreUnexported(Configure{})); diff != "" {
+				t.Errorf("ValidateOracleMetrics() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateOracleMetricsConnection(t *testing.T) {
+	tests := []struct {
+		name           string
+		configToModify *Configure
+		want           *Configure
+	}{
+		{
+			name: "ValidOracleMetricsConnectionConfig",
+			configToModify: &Configure{
+				Configuration: &cpb.Configuration{},
+			},
+			want: &Configure{
+				Configuration: &cpb.Configuration{
+					OracleConfiguration: &cpb.OracleConfiguration{
+						OracleMetrics: &cpb.OracleMetrics{
+							ConnectionParameters: []*cpb.ConnectionParameters{},
+						},
+					},
+				},
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.configToModify.ValidateOracleMetricsConnection()
+			// Compare the configurations.
+			if diff := cmp.Diff(tc.want, tc.configToModify, protocmp.Transform(), cmpopts.IgnoreUnexported(Configure{})); diff != "" {
+				t.Errorf("ValidateOracleMetricsConnection() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateSQLServer(t *testing.T) {
+	tests := []struct {
+		name           string
+		configToModify *Configure
+		want           *Configure
+	}{
+		{
+			name: "ValidSQLServerConfig",
+			configToModify: &Configure{
+				Configuration: &cpb.Configuration{},
+			},
+			want: &Configure{
+				Configuration: &cpb.Configuration{
+					SqlserverConfiguration: &cpb.SQLServerConfiguration{},
+				},
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.configToModify.ValidateSQLServer()
+			// Compare the configurations.
+			if diff := cmp.Diff(tc.want, tc.configToModify, protocmp.Transform(), cmpopts.IgnoreUnexported(Configure{})); diff != "" {
+				t.Errorf("ValidateSQLServer() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateSQLServerCollectionConfig(t *testing.T) {
+	tests := []struct {
+		name           string
+		configToModify *Configure
+		want           *Configure
+	}{
+		{
+			name: "ValidSQLServerCollectionConfig",
+			configToModify: &Configure{
+				Configuration: &cpb.Configuration{},
+			},
+			want: &Configure{
+				Configuration: &cpb.Configuration{
+					SqlserverConfiguration: &cpb.SQLServerConfiguration{
+						CollectionConfiguration: &cpb.SQLServerConfiguration_CollectionConfiguration{},
+					},
+				},
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.configToModify.ValidateSQLServerCollectionConfig()
+			// Compare the configurations.
+			if diff := cmp.Diff(tc.want, tc.configToModify, protocmp.Transform(), cmpopts.IgnoreUnexported(Configure{})); diff != "" {
+				t.Errorf("ValidateSQLServerCollectionConfig() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateRedis(t *testing.T) {
+	tests := []struct {
+		name           string
+		configToModify *Configure
+		want           *Configure
+	}{
+		{
+			name: "ValidRedisConfig",
+			configToModify: &Configure{
+				Configuration: &cpb.Configuration{},
+			},
+			want: &Configure{
+				Configuration: &cpb.Configuration{
+					RedisConfiguration: &cpb.RedisConfiguration{},
+				},
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.configToModify.ValidateRedis()
+			// Compare the configurations.
+			if diff := cmp.Diff(tc.want, tc.configToModify, protocmp.Transform(), cmpopts.IgnoreUnexported(Configure{})); diff != "" {
+				t.Errorf("ValidateRedis() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateRedisConnectionParams(t *testing.T) {
+	tests := []struct {
+		name           string
+		configToModify *Configure
+		want           *Configure
+	}{
+		{
+			name: "ValidRedisConnectionParams",
+			configToModify: &Configure{
+				Configuration: &cpb.Configuration{},
+			},
+			want: &Configure{
+				Configuration: &cpb.Configuration{
+					RedisConfiguration: &cpb.RedisConfiguration{
+						ConnectionParameters: &cpb.ConnectionParameters{},
+					},
+				},
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.configToModify.ValidateRedisConnectionParams()
+			// Compare the configurations.
+			if diff := cmp.Diff(tc.want, tc.configToModify, protocmp.Transform(), cmpopts.IgnoreUnexported(Configure{})); diff != "" {
+				t.Errorf("ValidateRedisConnectionParams() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateMySQL(t *testing.T) {
+	tests := []struct {
+		name           string
+		configToModify *Configure
+		want           *Configure
+	}{
+		{
+			name: "ValidMySQLConfig",
+			configToModify: &Configure{
+				Configuration: &cpb.Configuration{},
+			},
+			want: &Configure{
+				Configuration: &cpb.Configuration{
+					MysqlConfiguration: &cpb.MySQLConfiguration{},
+				},
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.configToModify.ValidateMySQL()
+			// Compare the configurations.
+			if diff := cmp.Diff(tc.want, tc.configToModify, protocmp.Transform(), cmpopts.IgnoreUnexported(Configure{})); diff != "" {
+				t.Errorf("ValidateMySQL() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateMySQLConnectionParams(t *testing.T) {
+	tests := []struct {
+		name           string
+		configToModify *Configure
+		want           *Configure
+	}{
+		{
+			name: "ValidMySQLConnectionParams",
+			configToModify: &Configure{
+				Configuration: &cpb.Configuration{},
+			},
+			want: &Configure{
+				Configuration: &cpb.Configuration{
+					MysqlConfiguration: &cpb.MySQLConfiguration{
+						ConnectionParameters: &cpb.ConnectionParameters{},
+					},
+				},
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.configToModify.ValidateMySQLConnectionParams()
+			// Compare the configurations.
+			if diff := cmp.Diff(tc.want, tc.configToModify, protocmp.Transform(), cmpopts.IgnoreUnexported(Configure{})); diff != "" {
+				t.Errorf("ValidateMySQLConnectionParams() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

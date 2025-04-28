@@ -36,11 +36,11 @@ import (
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
 
-// LoadFunc abstracts the configuration.Load function signature for testability.
-type loadFunc func(path string, readFile configuration.ReadConfigFile, cloudProps *cpb.CloudProperties) (*cpb.Configuration, error)
+// configFromFileFunc abstracts the configuration.ConfigFromFile function signature for testability.
+type configFromFileFunc func(path string, readFile configuration.ReadConfigFile) (*cpb.Configuration, error)
 
 // NewCommand creates a new 'configure' command.
-func NewCommand(lp log.Parameters, cloudProps *cpb.CloudProperties) *cobra.Command {
+func NewCommand(lp log.Parameters) *cobra.Command {
 	cfg := cliconfig.NewConfigure(configPath(runtime.GOOS), lp, nil, nil)
 
 	configureCmd := &cobra.Command{
@@ -55,9 +55,9 @@ func NewCommand(lp log.Parameters, cloudProps *cpb.CloudProperties) *cobra.Comma
 			log.SetupLoggingForOTE("google-cloud-workload-agent", "configure", cfg.Lp)
 
 			var err error
-			cfg.Configuration, err = loadWAConfiguration(cloudProps, os.ReadFile, configuration.Load)
+			cfg.Configuration, err = loadWAConfiguration(os.ReadFile, configuration.ConfigFromFile)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to load configuration: %w", err)
 			}
 			return nil
 		},
@@ -109,8 +109,9 @@ func NewCommand(lp log.Parameters, cloudProps *cpb.CloudProperties) *cobra.Comma
 }
 
 // loadWAConfiguration creates a new Configuration.
-func loadWAConfiguration(cloudProps *cpb.CloudProperties, rf configuration.ReadConfigFile, lf loadFunc) (*cpb.Configuration, error) {
-	config, err := lf(configPath(runtime.GOOS), rf, cloudProps)
+// TODO: Remove this function
+func loadWAConfiguration(rf configuration.ReadConfigFile, cf configFromFileFunc) (*cpb.Configuration, error) {
+	config, err := cf(configPath(runtime.GOOS), rf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}

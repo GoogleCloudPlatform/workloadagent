@@ -38,6 +38,8 @@ func CollectionConfigCommand(cfg *cliconfig.Configure) *cobra.Command {
 		Use:   "collection-config",
 		Short: "Configure SQL Server collection settings",
 		Run: func(cmd *cobra.Command, args []string) {
+			cfg.ValidateSQLServerCollectionConfig()
+
 			if cmd.Flags().Changed("collect-guest-os-metrics") {
 				msg := fmt.Sprintf("SQL Server Collect Guest OS Metrics: %v", collectGuestOSMetrics)
 				cfg.LogToBoth(cmd.Context(), msg)

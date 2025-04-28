@@ -45,6 +45,8 @@ func NewCommand(cfg *cliconfig.Configure) *cobra.Command {
 
 This command allows you to enable and configure various features for monitoring SQL Server databases.`,
 		Run: func(cmd *cobra.Command, args []string) {
+			cfg.ValidateSQLServer()
+
 			if cmd.Flags().Changed("enabled") {
 				msg := fmt.Sprintf("SQL Server Enabled: %v", enabled)
 				cfg.LogToBoth(cmd.Context(), msg)

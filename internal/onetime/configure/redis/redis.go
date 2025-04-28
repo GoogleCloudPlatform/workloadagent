@@ -39,9 +39,8 @@ func NewCommand(cfg *cliconfig.Configure) *cobra.Command {
 This command allows you to enable and configure various features
 for monitoring Redis databases, including discovery and metrics collection.`,
 		Run: func(cmd *cobra.Command, args []string) {
-			if cfg.Configuration.RedisConfiguration == nil {
-				cfg.Configuration.RedisConfiguration = &cpb.RedisConfiguration{}
-			}
+			cfg.ValidateRedis()
+
 			if cmd.Flags().Changed("enabled") {
 				msg := fmt.Sprintf("Redis Enabled: %v", enabled)
 				cfg.LogToBoth(cmd.Context(), msg)
@@ -78,12 +77,7 @@ as it can expose the password in shell history or logs. Please prefer storing
 the password in Google Cloud Secret Manager and using the --project-id and
 --secret-name flags instead.`,
 		Run: func(cmd *cobra.Command, args []string) {
-			if cfg.Configuration.RedisConfiguration == nil {
-				cfg.Configuration.RedisConfiguration = &cpb.RedisConfiguration{}
-			}
-			if cfg.Configuration.RedisConfiguration.ConnectionParameters == nil {
-				cfg.Configuration.RedisConfiguration.ConnectionParameters = &cpb.ConnectionParameters{}
-			}
+			cfg.ValidateRedisConnectionParams()
 			cp := cfg.Configuration.RedisConfiguration.ConnectionParameters
 
 			if cmd.Flags().Changed("port") {

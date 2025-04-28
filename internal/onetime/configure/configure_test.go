@@ -29,27 +29,24 @@ import (
 
 func TestLoadWAConfiguration(t *testing.T) {
 	tests := []struct {
-		name       string
-		cloudProps *cpb.CloudProperties
-		rf         configuration.ReadConfigFile
-		lf         loadFunc
-		want       *cpb.Configuration
-		wantErr    error
+		name    string
+		rf      configuration.ReadConfigFile
+		cf      configFromFileFunc
+		want    *cpb.Configuration
+		wantErr error
 	}{
 		{
-			name:       "Success",
-			cloudProps: &cpb.CloudProperties{},
-			rf:         func(string) ([]byte, error) { return []byte{}, nil },
-			lf: func(string, configuration.ReadConfigFile, *cpb.CloudProperties) (*cpb.Configuration, error) {
+			name: "Success",
+			rf:   func(string) ([]byte, error) { return []byte{}, nil },
+			cf: func(string, configuration.ReadConfigFile) (*cpb.Configuration, error) {
 				return &cpb.Configuration{}, nil
 			},
 			want: &cpb.Configuration{},
 		},
 		{
-			name:       "LoadFailure",
-			cloudProps: &cpb.CloudProperties{},
-			rf:         func(string) ([]byte, error) { return []byte{}, nil },
-			lf: func(string, configuration.ReadConfigFile, *cpb.CloudProperties) (*cpb.Configuration, error) {
+			name: "LoadFailure",
+			rf:   func(string) ([]byte, error) { return []byte{}, nil },
+			cf: func(string, configuration.ReadConfigFile) (*cpb.Configuration, error) {
 				return nil, cmpopts.AnyError
 			},
 			wantErr: cmpopts.AnyError,
@@ -58,12 +55,12 @@ func TestLoadWAConfiguration(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, gotErr := loadWAConfiguration(tc.cloudProps, tc.rf, tc.lf)
+			got, gotErr := loadWAConfiguration(tc.rf, tc.cf)
 			if !cmp.Equal(gotErr, tc.wantErr, cmpopts.EquateErrors()) {
-				t.Errorf("LoadWAConfiguration(%v, %v, %v)=%v, want %v", tc.cloudProps, tc.rf, tc.lf, gotErr, tc.wantErr)
+				t.Errorf("LoadWAConfiguration(%v, %v)=%v, want %v", tc.rf, tc.cf, gotErr, tc.wantErr)
 			}
 			if diff := cmp.Diff(tc.want, got, protocmp.Transform()); diff != "" {
-				t.Errorf("LoadWAConfiguration(%v, %v, %v) returned an unexpected diff (-want +got): %v", tc.cloudProps, tc.rf, tc.lf, diff)
+				t.Errorf("LoadWAConfiguration(%v, %v) returned an unexpected diff (-want +got): %v", tc.rf, tc.cf, diff)
 			}
 		})
 	}

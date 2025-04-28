@@ -127,3 +127,79 @@ func (c *Configure) LogToBoth(ctx context.Context, msg string) {
 	fmt.Println(msg)
 	log.CtxLogger(ctx).Infof(msg)
 }
+
+// ValidateOracle ensures that the Oracle configuration is initialized.
+func (c *Configure) ValidateOracle() {
+	if c.Configuration.OracleConfiguration == nil {
+		c.Configuration.OracleConfiguration = &cpb.OracleConfiguration{}
+	}
+}
+
+// ValidateOracleDiscovery ensures that the Oracle discovery configuration is initialized.
+func (c *Configure) ValidateOracleDiscovery() {
+	c.ValidateOracle()
+	if c.Configuration.OracleConfiguration.OracleDiscovery == nil {
+		c.Configuration.OracleConfiguration.OracleDiscovery = &cpb.OracleDiscovery{}
+	}
+}
+
+// ValidateOracleMetrics ensures that the Oracle metrics configuration is initialized.
+func (c *Configure) ValidateOracleMetrics() {
+	c.ValidateOracle()
+	if c.Configuration.OracleConfiguration.OracleMetrics == nil {
+		c.Configuration.OracleConfiguration.OracleMetrics = &cpb.OracleMetrics{}
+	}
+}
+
+// ValidateOracleMetricsConnection ensures that the Oracle metrics connection configuration is initialized.
+func (c *Configure) ValidateOracleMetricsConnection() {
+	c.ValidateOracleMetrics()
+	if c.Configuration.OracleConfiguration.OracleMetrics.ConnectionParameters == nil {
+		c.Configuration.OracleConfiguration.OracleMetrics.ConnectionParameters = []*cpb.ConnectionParameters{}
+	}
+}
+
+// ValidateSQLServer ensures that the SQL Server configuration is initialized.
+func (c *Configure) ValidateSQLServer() {
+	if c.Configuration.SqlserverConfiguration == nil {
+		c.Configuration.SqlserverConfiguration = &cpb.SQLServerConfiguration{}
+	}
+}
+
+// ValidateSQLServerCollectionConfig ensures that the SQL Server collection configuration is initialized.
+func (c *Configure) ValidateSQLServerCollectionConfig() {
+	c.ValidateSQLServer()
+	if c.Configuration.SqlserverConfiguration.CollectionConfiguration == nil {
+		c.Configuration.SqlserverConfiguration.CollectionConfiguration = &cpb.SQLServerConfiguration_CollectionConfiguration{}
+	}
+}
+
+// ValidateRedis ensures that the Redis configuration is initialized.
+func (c *Configure) ValidateRedis() {
+	if c.Configuration.RedisConfiguration == nil {
+		c.Configuration.RedisConfiguration = &cpb.RedisConfiguration{}
+	}
+}
+
+// ValidateRedisConnectionParams ensures that the Redis connection parameters are initialized.
+func (c *Configure) ValidateRedisConnectionParams() {
+	c.ValidateRedis()
+	if c.Configuration.RedisConfiguration.ConnectionParameters == nil {
+		c.Configuration.RedisConfiguration.ConnectionParameters = &cpb.ConnectionParameters{}
+	}
+}
+
+// ValidateMySQL ensures that the MySQL configuration is initialized.
+func (c *Configure) ValidateMySQL() {
+	if c.Configuration.MysqlConfiguration == nil {
+		c.Configuration.MysqlConfiguration = &cpb.MySQLConfiguration{}
+	}
+}
+
+// ValidateMySQLConnectionParams ensures that the MySQL connection parameters are initialized.
+func (c *Configure) ValidateMySQLConnectionParams() {
+	c.ValidateMySQL()
+	if c.Configuration.MysqlConfiguration.ConnectionParameters == nil {
+		c.Configuration.MysqlConfiguration.ConnectionParameters = &cpb.ConnectionParameters{}
+	}
+}
