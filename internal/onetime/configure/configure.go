@@ -32,12 +32,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/configure/sqlserver"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
-
-	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
-
-// configFromFileFunc abstracts the configuration.ConfigFromFile function signature for testability.
-type configFromFileFunc func(path string, readFile configuration.ReadConfigFile) (*cpb.Configuration, error)
 
 // NewCommand creates a new 'configure' command.
 func NewCommand(lp log.Parameters) *cobra.Command {
@@ -55,7 +50,7 @@ func NewCommand(lp log.Parameters) *cobra.Command {
 			log.SetupLoggingForOTE("google-cloud-workload-agent", "configure", cfg.Lp)
 
 			var err error
-			cfg.Configuration, err = loadWAConfiguration(os.ReadFile, configuration.ConfigFromFile)
+			cfg.Configuration, err = configuration.ConfigFromFile(configPath(runtime.GOOS), os.ReadFile)
 			if err != nil {
 				return fmt.Errorf("failed to load configuration: %w", err)
 			}
@@ -67,7 +62,6 @@ func NewCommand(lp log.Parameters) *cobra.Command {
 				cfg.LogToBoth(cmd.Context(), "No configuration changes to save.")
 				return nil
 			}
-			// TODO: Display Modified Configuration on Console.
 			return cfg.WriteFile(cmd.Context())
 		},
 	}
@@ -106,16 +100,6 @@ func NewCommand(lp log.Parameters) *cobra.Command {
 	configureCmd.AddCommand(redis.NewCommand(cfg))
 
 	return configureCmd
-}
-
-// loadWAConfiguration creates a new Configuration.
-// TODO: Remove this function
-func loadWAConfiguration(rf configuration.ReadConfigFile, cf configFromFileFunc) (*cpb.Configuration, error) {
-	config, err := cf(configPath(runtime.GOOS), rf)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load configuration: %w", err)
-	}
-	return config, nil
 }
 
 // configPath determines the configuration path based on the OS.
