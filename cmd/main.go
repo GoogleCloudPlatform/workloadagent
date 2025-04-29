@@ -28,6 +28,7 @@ import (
 	"github.com/spf13/pflag"
 	"go.uber.org/zap/zapcore"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/configure"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/logusage"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/migrate"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime"
@@ -83,6 +84,7 @@ func main() {
 	rootCmd.AddCommand(version.NewCommand())
 	rootCmd.AddCommand(logusage.NewCommand(lp, cloudProps))
 	rootCmd.AddCommand(migrate.NewCommand())
+	rootCmd.AddCommand(configure.NewCommand(lp))
 	d := daemon.NewDaemon(lp, cloudProps, osData)
 	daemonCmd := daemon.NewDaemonSubCommand(d)
 
