@@ -62,6 +62,9 @@ const (
 	WorkloadManagerConnectionError        = 24
 	DataWarehouseActivationServiceFailure = 25
 	DataWarehouseWriteInsightFailure      = 26
+	PostgresServiceError                  = 27
+	PostgresMetricCollectionFailure       = 28
+	PostgresDiscoveryFailure              = 29
 )
 
 // Agent wide action mappings.

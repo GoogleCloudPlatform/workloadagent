@@ -1,5 +1,5 @@
 /*
-Copyright 2024 Google LLC
+Copyright 2025 Google LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -41,6 +41,7 @@ message Configuration {
   RedisConfiguration redis_configuration = 9;
   SQLServerConfiguration sqlserver_configuration = 10;
   string data_warehouse_endpoint = 11;
+  PostgresConfiguration postgres_configuration = 12;
 }
 
 message CloudProperties {
@@ -91,6 +92,11 @@ message CommonDiscovery {
 }
 
 message RedisConfiguration {
+  optional bool enabled = 1;
+  ConnectionParameters connection_parameters = 2;
+}
+
+message PostgresConfiguration {
   optional bool enabled = 1;
   ConnectionParameters connection_parameters = 2;
 }

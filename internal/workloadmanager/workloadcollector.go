@@ -50,6 +50,8 @@ const (
 	MYSQL WorkloadType = "MYSQL"
 	// REDIS workload type.
 	REDIS WorkloadType = "REDIS"
+	// POSTGRES workload type.
+	POSTGRES WorkloadType = "POSTGRES"
 	// collectionFrequency is the frequency at which metrics are collected.
 	collectionFrequency = 5 * time.Minute
 )

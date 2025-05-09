@@ -22,6 +22,7 @@ require (
   github.com/google/go-cmp v0.6.0
   github.com/jonboulle/clockwork v0.5.0
   github.com/kardianos/service v1.2.2
+  github.com/lib/pq v1.10.9
   github.com/mattn/go-sqlite3 v1.14.16
   github.com/microsoft/go-mssqldb v1.4.0
   github.com/redis/go-redis/v9 v9.7.0

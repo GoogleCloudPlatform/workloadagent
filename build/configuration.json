@@ -1,6 +1,6 @@
 {
   "log_level": "INFO",
   "common_discovery": {
-    "collection_frequency": "10800s"
+    "collection_frequency": "3600s"
   }
 }
