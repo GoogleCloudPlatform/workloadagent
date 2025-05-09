@@ -23,6 +23,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/shirou/gopsutil/v3/process"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
@@ -64,10 +65,11 @@ func (DefaultProcessLister) listAllProcesses() ([]servicecommunication.ProcessWr
 
 // Service is used to perform common discovery operations.
 type Service struct {
-	ProcessLister processLister
-	ReadFile      readFile
-	Hostname      hostname
-	Config        *cpb.Configuration
+	ProcessLister   processLister
+	ReadFile        readFile
+	Hostname        hostname
+	Config          *cpb.Configuration
+	InitialInterval time.Duration
 }
 
 // gopsProcess implements the processWrapper for abstracting process.Process.
@@ -101,6 +103,22 @@ func (p gopsProcess) Environ() ([]string, error) {
 	return p.process.Environ()
 }
 
+// setupBackoff sets up the backoff policy for discovery. Upon startup we want to check more
+// frequently as changes are more likely to occur. Each time this runs, it will double the interval
+// until it reaches the max interval.
+func setupBackoff(initialInterval, maxInterval time.Duration) backoff.BackOff {
+	b := &backoff.ExponentialBackOff{
+		InitialInterval:     initialInterval,
+		RandomizationFactor: 0,
+		Multiplier:          2,
+		MaxInterval:         maxInterval,
+		MaxElapsedTime:      0,
+		Clock:               backoff.SystemClock,
+	}
+	b.Reset()
+	return b
+}
+
 func (d Service) commonDiscoveryLoop(ctx context.Context) (servicecommunication.DiscoveryResult, error) {
 	processes, err := d.ProcessLister.listAllProcesses()
 	if err != nil {
@@ -121,13 +139,19 @@ func (d Service) CommonDiscovery(ctx context.Context, a any) {
 		log.CtxLogger(ctx).Warnw("args is not of type []chan servicecommunication.Message", "args", a, "type", reflect.TypeOf(a), "kind", reflect.TypeOf(a).Kind())
 		return
 	}
-	frequency := 3 * time.Hour
+	maxInterval := 1 * time.Hour
 	if d.Config.GetCommonDiscovery().GetCollectionFrequency() != nil {
-		frequency = d.Config.GetCommonDiscovery().GetCollectionFrequency().AsDuration()
+		maxInterval = d.Config.GetCommonDiscovery().GetCollectionFrequency().AsDuration()
 	}
-	ticker := time.NewTicker(frequency)
+	if d.InitialInterval == 0 {
+		d.InitialInterval = 1 * time.Second
+	}
+	discoveryBackoff := setupBackoff(d.InitialInterval, maxInterval)
+	ticker := time.NewTicker(maxInterval)
 	defer ticker.Stop()
 	for {
+		ticker.Reset(discoveryBackoff.NextBackOff())
+
 		discoveryResult, err := d.commonDiscoveryLoop(ctx)
 		if err != nil {
 			log.CtxLogger(ctx).Errorw("Failed to perform common discovery", "error", err)

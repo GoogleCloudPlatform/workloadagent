@@ -457,9 +457,12 @@ func TestCommonDiscovery(t *testing.T) {
 	sendChs := []chan<- *servicecommunication.Message{ch1, ch2}
 	receiveChs := []<-chan *servicecommunication.Message{ch1, ch2}
 	tests := []struct {
-		name string
-		d    *Service
-		want servicecommunication.Message
+		name        string
+		d           *Service
+		want        servicecommunication.Message
+		iterations  int
+		maxDuration time.Duration
+		minDuration time.Duration
 	}{
 		{
 			name: "MultipleChannels",
@@ -475,6 +478,9 @@ func TestCommonDiscovery(t *testing.T) {
 					},
 				},
 			},
+			iterations:  1,
+			maxDuration: 3 * time.Second,
+			minDuration: 0 * time.Second,
 		},
 		{
 			name: "SingleChannel",
@@ -490,6 +496,9 @@ func TestCommonDiscovery(t *testing.T) {
 					},
 				},
 			},
+			iterations:  1,
+			maxDuration: 3 * time.Second,
+			minDuration: 0 * time.Second,
 		},
 		{
 			name: "ZeroChannelsDoesNotHang",
@@ -505,16 +514,78 @@ func TestCommonDiscovery(t *testing.T) {
 					},
 				},
 			},
+			iterations:  1,
+			maxDuration: 3 * time.Second,
+			minDuration: 0 * time.Second,
+		},
+		{
+			name: "MultipleIterations",
+			d: &Service{
+				ProcessLister: fakeProcessLister{processes: []processStub{
+					{username: "user1", pid: 123, name: "test"},
+				}},
+				Config: &cpb.Configuration{
+					CommonDiscovery: &cpb.CommonDiscovery{
+						// 200 milliseconds collection frequency
+						CollectionFrequency: &dpb.Duration{Nanos: 1000 * 1000 * 200},
+					},
+				},
+				InitialInterval: 30 * time.Millisecond,
+			},
+			want: servicecommunication.Message{
+				DiscoveryResult: servicecommunication.DiscoveryResult{
+					Processes: []servicecommunication.ProcessWrapper{
+						processStub{username: "user1", pid: 123, name: "test"},
+					},
+				},
+			},
+			iterations:  10,
+			maxDuration: 10 * time.Second,
+			minDuration: 1 * time.Second,
+		},
+		{
+			name: "MultipleIterationsWithInitialInterval",
+			d: &Service{
+				ProcessLister: fakeProcessLister{processes: []processStub{
+					{username: "user1", pid: 123, name: "test"},
+				}},
+				Config: &cpb.Configuration{
+					CommonDiscovery: &cpb.CommonDiscovery{
+						CollectionFrequency: &dpb.Duration{Seconds: 1},
+					},
+				},
+				InitialInterval: 10 * time.Millisecond,
+			},
+			want: servicecommunication.Message{
+				DiscoveryResult: servicecommunication.DiscoveryResult{
+					Processes: []servicecommunication.ProcessWrapper{
+						processStub{username: "user1", pid: 123, name: "test"},
+					},
+				},
+			},
+			iterations:  4,
+			maxDuration: 3 * time.Second,
+			minDuration: 0 * time.Second,
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
 	for _, tc := range tests {
-		tc.d.CommonDiscovery(ctx, sendChs)
-		for _, ch := range receiveChs {
-			result := <-ch
-			ValidateResult(result.DiscoveryResult.Processes, tc.want.DiscoveryResult.Processes, tc.name, t)
+		start := time.Now()
+		ctx, cancel := context.WithCancel(context.Background())
+		go tc.d.CommonDiscovery(ctx, sendChs)
+		for range tc.iterations {
+			for _, ch := range receiveChs {
+				result := <-ch
+				ValidateResult(result.DiscoveryResult.Processes, tc.want.DiscoveryResult.Processes, tc.name, t)
+			}
+		}
+		cancel()
+		elapsed := time.Since(start)
+		if elapsed > time.Duration(tc.maxDuration) {
+			t.Errorf("TestCommonDiscovery() with name %s took %v, want less than %v", tc.name, elapsed, tc.maxDuration)
+		}
+		if elapsed < time.Duration(tc.minDuration) {
+			t.Errorf("TestCommonDiscovery() with name %s took %v, want at least %v", tc.name, elapsed, tc.minDuration)
 		}
 	}
 }
