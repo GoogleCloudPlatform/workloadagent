@@ -19,11 +19,15 @@ package redismetrics
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/metricutils"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
@@ -53,6 +57,9 @@ const (
 	replicationKey         = "replication_enabled"
 	serviceEnabledKey      = "service_enabled"
 	serviceRestartKey      = "service_restart"
+	replicationZonesKey    = "replication_zones"
+	currentRoleKey         = "current_role"
+	ip                     = "ip"
 )
 
 type gceInterface interface {
@@ -67,11 +74,12 @@ type dbInterface interface {
 
 // RedisMetrics contains variables and methods to collect metrics for Redis databases running on the current host.
 type RedisMetrics struct {
-	Config    *configpb.Configuration
-	db        dbInterface
-	execute   commandlineexecutor.Execute
-	WLMClient workloadmanager.WLMWriter
-	OSData    osinfo.Data
+	Config      *configpb.Configuration
+	db          dbInterface
+	execute     commandlineexecutor.Execute
+	WLMClient   workloadmanager.WLMWriter
+	OSData      osinfo.Data
+	CurrentRole string
 }
 
 // New creates a new RedisMetrics object initialized with default values.
@@ -121,11 +129,10 @@ func (r *RedisMetrics) InitDB(ctx context.Context, gceService gceInterface) erro
 	return nil
 }
 
-func (r *RedisMetrics) replicationModeActive(ctx context.Context) bool {
+func (r *RedisMetrics) getCurrentRole(ctx context.Context) string {
 	replication := r.db.Info(ctx, "replication")
 	log.CtxLogger(ctx).Debugf("replication: %v", replication)
 	lines := strings.Split(replication.String(), "\n")
-	var err error
 	var currentRole string
 	for _, line := range lines {
 		if strings.Contains(line, role) {
@@ -138,10 +145,54 @@ func (r *RedisMetrics) replicationModeActive(ctx context.Context) bool {
 				currentRole = worker
 			default:
 				log.CtxLogger(ctx).Debugf("Redis is running as an unknown role. Returning false by default.")
-				return false
+				return ""
 			}
 		}
 	}
+	return currentRole
+}
+
+func getIP(s string) (string, error) {
+	// s is something like "slave0:ip=12.345.67.890,port=6379,state=wait_bgsave,offset=0,lag=0"
+	// We want the ip=12.345.67.890 part, specifically the part after the '='.
+	re := regexp.MustCompile(`ip=([^,]+)`)
+	match := re.FindStringSubmatch(s)
+	if len(match) > 1 {
+		return strings.TrimSpace(match[1]), nil
+	}
+	return "", errors.New("ip not found")
+}
+
+func (r *RedisMetrics) replicationZones(ctx context.Context, currentRole string, netLookupAddr func(ip string) ([]string, error)) []string {
+	var workerIPs []string
+	replication := r.db.Info(ctx, "replication")
+	log.CtxLogger(ctx).Debugf("replication: %v", replication)
+	lines := strings.Split(replication.String(), "\n")
+	// There are only replication targets for the main role.
+	if currentRole != main {
+		return nil
+	}
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Replication target information
+		if strings.HasPrefix(line, redisWorker) {
+			ip, err := getIP(line)
+			if err != nil {
+				log.CtxLogger(ctx).Debugf("Failed to get IP from line: %v", err)
+				continue
+			}
+			workerIPs = append(workerIPs, ip)
+		}
+	}
+	zones := metricutils.ZonesFromIPs(ctx, workerIPs, netLookupAddr)
+	return zones
+}
+
+func (r *RedisMetrics) replicationModeActive(ctx context.Context, currentRole string) bool {
+	replication := r.db.Info(ctx, "replication")
+	log.CtxLogger(ctx).Debugf("replication: %v", replication)
+	lines := strings.Split(replication.String(), "\n")
+	var err error
 	var numWorkers int
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -227,23 +278,29 @@ func (r *RedisMetrics) serviceRestart(ctx context.Context) bool {
 
 // CollectMetricsOnce collects metrics for Redis databases running on the host.
 func (r *RedisMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmanager.WorkloadMetrics, error) {
-	replicationOn := r.replicationModeActive(ctx)
+	currentRole := r.getCurrentRole(ctx)
+	replicationOn := r.replicationModeActive(ctx, currentRole)
 	persistenceOn := r.persistenceEnabled(ctx)
 	serviceEnabled := r.serviceEnabled(ctx)
 	serviceRestart := r.serviceRestart(ctx)
+	replicationZones := r.replicationZones(ctx, currentRole, net.LookupAddr)
 	log.CtxLogger(ctx).Debugw("Finished collecting metrics once. Next step is to send to WLM (DW).",
 		replicationKey, replicationOn,
 		persistenceKey, persistenceOn,
 		serviceEnabledKey, serviceEnabled,
 		serviceRestartKey, serviceRestart,
+		replicationZonesKey, strings.Join(replicationZones, ","),
+		currentRoleKey, currentRole,
 	)
 	metrics := workloadmanager.WorkloadMetrics{
 		WorkloadType: workloadmanager.REDIS,
 		Metrics: map[string]string{
-			replicationKey:    strconv.FormatBool(replicationOn),
-			persistenceKey:    strconv.FormatBool(persistenceOn),
-			serviceEnabledKey: strconv.FormatBool(serviceEnabled),
-			serviceRestartKey: strconv.FormatBool(serviceRestart),
+			replicationKey:      strconv.FormatBool(replicationOn),
+			persistenceKey:      strconv.FormatBool(persistenceOn),
+			serviceEnabledKey:   strconv.FormatBool(serviceEnabled),
+			serviceRestartKey:   strconv.FormatBool(serviceRestart),
+			replicationZonesKey: strings.Join(replicationZones, ","),
+			currentRoleKey:      currentRole,
 		},
 	}
 	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{

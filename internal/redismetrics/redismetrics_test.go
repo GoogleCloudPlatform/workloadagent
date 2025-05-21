@@ -233,10 +233,12 @@ func TestCollectMetricsOnce(t *testing.T) {
 			want: &workloadmanager.WorkloadMetrics{
 				WorkloadType: workloadmanager.REDIS,
 				Metrics: map[string]string{
-					replicationKey:    "true",
-					persistenceKey:    "true",
-					serviceEnabledKey: "true",
-					serviceRestartKey: "true",
+					replicationKey:      "true",
+					persistenceKey:      "true",
+					serviceEnabledKey:   "true",
+					serviceRestartKey:   "true",
+					replicationZonesKey: "",
+					currentRoleKey:      main,
 				},
 			},
 			wantErr: false,
@@ -297,10 +299,12 @@ func TestCollectMetricsOnce(t *testing.T) {
 			want: &workloadmanager.WorkloadMetrics{
 				WorkloadType: workloadmanager.REDIS,
 				Metrics: map[string]string{
-					replicationKey:    "true",
-					persistenceKey:    "true",
-					serviceEnabledKey: "true",
-					serviceRestartKey: "true",
+					replicationKey:      "true",
+					persistenceKey:      "true",
+					serviceEnabledKey:   "true",
+					serviceRestartKey:   "true",
+					replicationZonesKey: "",
+					currentRoleKey:      main,
 				},
 			},
 			wantErr: false,
@@ -339,41 +343,49 @@ func TestReplicationModeActive(t *testing.T) {
 	tests := []struct {
 		name           string
 		stringCmdValue string
+		role           string
 		want           bool
 	}{
 		{
 			name:           "HappyPathMain",
 			stringCmdValue: "role:master\nconnected_slaves:1\n",
+			role:           main,
 			want:           true,
 		},
 		{
 			name:           "HappyPathWorker",
 			stringCmdValue: "role:slave\nmaster_link_status:up\n",
+			role:           worker,
 			want:           true,
 		},
 		{
 			name:           "NoWorkers",
 			stringCmdValue: "role:master\nconnected_slaves:0\n",
+			role:           main,
 			want:           false,
 		},
 		{
 			name:           "WorkerNotUp",
 			stringCmdValue: "role:slave\nmaster_link_status:down\n",
+			role:           worker,
 			want:           false,
 		},
 		{
 			name:           "EmptySpaceHappyPathMain",
 			stringCmdValue: "role:master\n     connected_slaves:1\n",
+			role:           main,
 			want:           true,
 		},
 		{
 			name:           "EmptySpaceHappyPathWorker",
 			stringCmdValue: "role:slave\n     master_link_status:up\n",
+			role:           worker,
 			want:           true,
 		},
 		{
 			name:           "UnknownRole",
 			stringCmdValue: "role:unknown\n",
+			role:           "",
 			want:           false,
 		},
 	}
@@ -385,7 +397,7 @@ func TestReplicationModeActive(t *testing.T) {
 				db: testDB,
 			}
 
-			got := r.replicationModeActive(context.Background())
+			got := r.replicationModeActive(context.Background(), tc.role)
 			if got != tc.want {
 				t.Errorf("replicationModeActive() test %v = %v, want %v", tc.name, got, tc.want)
 			}
@@ -646,6 +658,131 @@ func TestInitDB(t *testing.T) {
 			}
 			if !gotErr && (tc.r.db.String() != tc.want) {
 				t.Errorf("InitDB(%v) = %v, want %v", tc.name, tc.r.db.String(), tc.want)
+			}
+		})
+	}
+}
+
+func TestReplicationZones(t *testing.T) {
+	tests := []struct {
+		name           string
+		stringCmdValue string
+		role           string
+		want           []string
+	}{
+		{
+			name:           "HappyPathMain",
+			stringCmdValue: "role:master\nslave0:ip=1.2.3.4,port=6379,state=online\n",
+			role:           main,
+			want:           []string{"test-zone"}, // Assuming 1.2.3.4 resolves to test-zone
+		},
+		{
+			name:           "NoWorkers",
+			stringCmdValue: "role:master\n",
+			role:           main,
+			want:           nil,
+		},
+		{
+			name:           "InvalidIP",
+			stringCmdValue: "role:master\nslave0:ip=invalid,port=6379,state=online\n",
+			role:           main,
+			want:           nil,
+		},
+		{
+			name:           "WorkerRole",
+			stringCmdValue: "role:slave\nmaster_link_status:up\n",
+			role:           worker,
+			want:           nil,
+		},
+		{
+			name:           "EmptyResponse",
+			stringCmdValue: "",
+			role:           main,
+			want:           nil,
+		},
+		{
+			name: "MultipleWorkers",
+			stringCmdValue: `role:master
+slave0:ip=1.2.3.4,port=6379,state=online
+slave1:ip=5.6.7.8,port=6380,state=online`,
+			role: main,
+			want: []string{"test-zone", "test-zone2"}, // Assuming 5.6.7.8 resolves to test-zone2
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			testDB := &testDB{info: &redis.StringCmd{}}
+			testDB.info.SetVal(tc.stringCmdValue)
+			r := RedisMetrics{
+				db: testDB,
+			}
+			// Mock net.LookupAddr for testing purposes
+			netLookupAddr := func(ip string) ([]string, error) {
+				switch ip {
+				case "1.2.3.4":
+					return []string{"hostname.test-zone.c.fake-project.internal."}, nil
+				case "5.6.7.8":
+					return []string{"hostname.test-zone2.c.fake-project.internal."}, nil
+				default:
+					return nil, errors.New("invalid IP")
+				}
+			}
+
+			got := r.replicationZones(context.Background(), tc.role, netLookupAddr)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("replicationZones() test %v returned diff (-want +got):\n%s", tc.name, diff)
+			}
+		})
+	}
+}
+
+func TestGetIP(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{
+			name:  "ValidIP",
+			input: "slave0:ip=1.2.3.4,port=6379,state=online",
+			want:  "1.2.3.4",
+		},
+		{
+			name:    "NoIP",
+			input:   "slave0:port=6379,state=online",
+			wantErr: true,
+		},
+		{
+			name:    "EmptyInput",
+			input:   "",
+			wantErr: true,
+		},
+		{
+			name:  "IPAtBeginning",
+			input: "ip=1.2.3.4,port=6379,state=online",
+			want:  "1.2.3.4",
+		},
+		{
+			name:  "IPAtEnd",
+			input: "slave0:port=6379,state=online,ip=1.2.3.4",
+			want:  "1.2.3.4",
+		},
+		{
+			name:  "ExtraSpaces",
+			input: "  slave0:  ip=1.2.3.4 , port=6379, state=online  ",
+			want:  "1.2.3.4",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := getIP(tc.input)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("getIP() error = %v, wantErr %v", err, tc.wantErr)
+				return
+			}
+			if got != tc.want {
+				t.Errorf("getIP() got = %v, want %v", got, tc.want)
 			}
 		})
 	}
