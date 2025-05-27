@@ -22,11 +22,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
 	"runtime"
 	"strconv"
 	"strings"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/ipinfo"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
@@ -35,10 +37,35 @@ import (
 )
 
 const (
-	innoDBKey     = "is_inno_db_default"
-	bufferPoolKey = "buffer_pool_size"
-	totalRAMKey   = "total_ram"
+	innoDBKey             = "is_inno_db_default"
+	bufferPoolKey         = "buffer_pool_size"
+	totalRAMKey           = "total_ram"
+	currentRoleKey        = "current_role"
+	replicationZonesKey   = "replication_zones"
+	sourceRole            = "source"
+	replicaRole           = "replica"
+	replicationZonesQuery = "SELECT HOST FROM information_schema.PROCESSLIST AS p WHERE p.COMMAND = 'Binlog Dump'"
 )
+
+type netInterface interface {
+	LookupHost(host string) ([]string, error)
+	ParseIP(ip string) net.IP
+	LookupAddr(ip string) ([]string, error)
+}
+
+type netImpl struct{}
+
+func (n netImpl) LookupHost(host string) ([]string, error) {
+	return net.LookupHost(host)
+}
+
+func (n netImpl) ParseIP(ip string) net.IP {
+	return net.ParseIP(ip)
+}
+
+func (n netImpl) LookupAddr(ip string) ([]string, error) {
+	return net.LookupAddr(ip)
+}
 
 type gceInterface interface {
 	GetSecret(ctx context.Context, projectID, secretName string) (string, error)
@@ -192,8 +219,11 @@ func (m *MySQLMetrics) isInnoDBStorageEngine(ctx context.Context) (bool, error) 
 	if err != nil {
 		return false, fmt.Errorf("issue trying to show engines: %v", err)
 	}
+	if rows == nil {
+		return false, fmt.Errorf("no rows returned from show engines query")
+	}
 	log.CtxLogger(ctx).Debugw("MySQL show engines result", "rows", rows)
-	engineResults := []engineResult{}
+	var engineResults []engineResult
 	defer rows.Close()
 	for rows.Next() {
 		engineResult, err := readEngine(ctx, rows)
@@ -220,6 +250,9 @@ func (m *MySQLMetrics) bufferPoolSize(ctx context.Context) (int64, error) {
 		return 0, fmt.Errorf("can't get buffer pool size in test MySQL connection: %v", err)
 	}
 	log.CtxLogger(ctx).Debugw("MySQL buffer pool size result", "rows", rows)
+	if rows == nil {
+		return 0, fmt.Errorf("no rows returned from buffer pool size query")
+	}
 	defer rows.Close()
 	var bufferPoolSize int64
 	if !rows.Next() {
@@ -230,6 +263,93 @@ func (m *MySQLMetrics) bufferPoolSize(ctx context.Context) (int64, error) {
 	}
 	log.CtxLogger(ctx).Debugw("MySQL buffer pool size", "bufferPoolSize", bufferPoolSize)
 	return bufferPoolSize, nil
+}
+
+func isReplica(ctx context.Context, db dbInterface) bool {
+	isReplica := false
+	// Only supported in versions 8.0.22 and later.
+	rows, err := executeQuery(ctx, db, "SHOW REPLICA STATUS")
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("MySQL error while running SHOW REPLICA STATUS", "err", err)
+	} else if rows != nil {
+		defer rows.Close()
+		// If there is a row, then this is a replica. Otherwise, it is the source.
+		isReplica = rows.Next()
+	}
+	// If we already know this is a replica, return early.
+	if isReplica {
+		return isReplica
+	}
+
+	// Work in versions prior to 8.0.22, but is deprecated in 8.0.22 and later in favor of SHOW REPLICA STATUS. May eventually stop working.
+	rows, err = executeQuery(ctx, db, "SHOW SLAVE STATUS")
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("MySQL current role error", "err", err)
+	} else if rows != nil {
+		defer rows.Close()
+		// If there is a row, then this is a replica. Otherwise, it is the source.
+		isReplica = rows.Next()
+	}
+	return isReplica
+}
+
+func (m *MySQLMetrics) currentRole(ctx context.Context) string {
+	role := sourceRole
+	if isReplica(ctx, m.db) {
+		role = replicaRole
+	}
+	log.CtxLogger(ctx).Debugw("MySQL current role", "role", role)
+	return role
+}
+
+func host(ctx context.Context, rows rowsInterface) string {
+	var host sql.NullString
+	if err := rows.Scan(&host); err != nil {
+		log.CtxLogger(ctx).Debugw("MySQL error while running query", "query", replicationZonesQuery, "err", err)
+	}
+	return host.String
+}
+
+func (m *MySQLMetrics) replicationZones(ctx context.Context, currentRole string, netInterface netInterface) []string {
+	// We only need to check the replication zones if the current role is the source.
+	if currentRole != sourceRole {
+		return nil
+	}
+	var zones []string
+	rows, err := executeQuery(ctx, m.db, replicationZonesQuery)
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("MySQL error while running query", "query", replicationZonesQuery, "err", err)
+	}
+	if rows == nil {
+		log.CtxLogger(ctx).Debugw("MySQL no rows returned from replication zones query")
+		return nil
+	}
+	defer rows.Close()
+	for rows.Next() {
+		host := host(ctx, rows)
+		if host == "" {
+			continue
+		}
+		ip := netInterface.ParseIP(host)
+		isIP := ip != nil
+		if isIP {
+			zone := ipinfo.ZoneFromIP(ctx, host, netInterface.LookupAddr)
+			if zone != "" {
+				zones = append(zones, zone)
+			}
+		} else {
+			_, err := netInterface.LookupHost(host)
+			if err != nil {
+				log.CtxLogger(ctx).Debugw("MySQL error while looking up host", "host", host, "err", err)
+				continue
+			}
+			zone := ipinfo.ZoneFromHost(ctx, host)
+			if zone != "" {
+				zones = append(zones, zone)
+			}
+		}
+	}
+	return zones
 }
 
 func windowsTotalRAM(ctx context.Context, output string) (int, error) {
@@ -301,17 +421,23 @@ func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmanager
 		log.CtxLogger(ctx).Warnf("Failed to get InnoDB default status: %v", err)
 		return nil, err
 	}
+	currentRole := m.currentRole(ctx)
+	replicationZones := m.replicationZones(ctx, currentRole, &netImpl{})
 	log.CtxLogger(ctx).Debugw("Finished collecting MySQL metrics once. Next step is to send to WLM (DW).",
 		bufferPoolKey, bufferPoolSize,
 		totalRAMKey, totalRAM,
 		innoDBKey, isInnoDBDefault,
+		currentRoleKey, currentRole,
+		replicationZonesKey, strings.Join(replicationZones, ","),
 	)
 	metrics := workloadmanager.WorkloadMetrics{
 		WorkloadType: workloadmanager.MYSQL,
 		Metrics: map[string]string{
-			bufferPoolKey: strconv.FormatInt(bufferPoolSize, 10),
-			totalRAMKey:   strconv.Itoa(totalRAM),
-			innoDBKey:     strconv.FormatBool(isInnoDBDefault),
+			bufferPoolKey:       strconv.FormatInt(bufferPoolSize, 10),
+			totalRAMKey:         strconv.Itoa(totalRAM),
+			innoDBKey:           strconv.FormatBool(isInnoDBDefault),
+			currentRoleKey:      currentRole,
+			replicationZonesKey: strings.Join(replicationZones, ","),
 		},
 	}
 	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{

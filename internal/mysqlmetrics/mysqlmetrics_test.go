@@ -20,6 +20,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net"
 	"strconv"
 	"testing"
 
@@ -34,6 +35,37 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 )
 
+type mockNetInterface struct {
+	lookupHostValue map[string][]string
+	lookupHostErr   map[string]error
+	lookupAddrValue map[string][]string
+	lookupAddrErr   map[string]error
+}
+
+func (m mockNetInterface) LookupHost(host string) ([]string, error) {
+	if err, ok := m.lookupHostErr[host]; ok {
+		return nil, err
+	}
+	return m.lookupHostValue[host], nil
+}
+
+func (m mockNetInterface) ParseIP(ip string) net.IP {
+	if ip == "" {
+		return nil
+	}
+	if ip == "1.2.3.4" || ip == "5.6.7.8" {
+		return net.ParseIP("127.0.0.1")
+	}
+	return net.ParseIP(ip)
+}
+
+func (m mockNetInterface) LookupAddr(ip string) ([]string, error) {
+	if err, ok := m.lookupAddrErr[ip]; ok {
+		return nil, err
+	}
+	return m.lookupAddrValue[ip], nil
+}
+
 type testGCE struct {
 	secret string
 	err    error
@@ -44,10 +76,16 @@ func (t *testGCE) GetSecret(ctx context.Context, projectID, secretName string) (
 }
 
 type testDB struct {
-	engineRows     rowsInterface
-	engineErr      error
-	bufferPoolRows rowsInterface
-	bufferPoolErr  error
+	engineRows           rowsInterface
+	engineErr            error
+	bufferPoolRows       rowsInterface
+	bufferPoolErr        error
+	replicaRows          rowsInterface
+	replicaErr           error
+	slaveRows            rowsInterface
+	slaveErr             error
+	replicationZonesRows rowsInterface
+	replicationZonesErr  error
 }
 
 func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (rowsInterface, error) {
@@ -55,6 +93,12 @@ func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (r
 		return t.engineRows, t.engineErr
 	} else if query == "SELECT @@innodb_buffer_pool_size" {
 		return t.bufferPoolRows, t.bufferPoolErr
+	} else if query == "SHOW REPLICA STATUS" {
+		return t.replicaRows, t.replicaErr
+	} else if query == "SHOW SLAVE STATUS" {
+		return t.slaveRows, t.slaveErr
+	} else if query == replicationZonesQuery {
+		return t.replicationZonesRows, t.replicationZonesErr
 	}
 	return nil, nil
 }
@@ -114,6 +158,87 @@ func (f *isInnoDBRows) Next() bool {
 }
 
 func (f *isInnoDBRows) Close() error {
+	return nil
+}
+
+type replicaRows struct {
+	count     int
+	size      int
+	data      []sql.NullString
+	shouldErr bool
+}
+
+func (f *replicaRows) Scan(dest ...any) error {
+	log.CtxLogger(context.Background()).Infow("fakeRows.Scan", "dest", dest, "dest[0]", dest[0], "data", f.data)
+	if f.shouldErr {
+		return errors.New("test-error")
+	}
+	for i := range f.data {
+		*dest[i].(*sql.NullString) = f.data[i]
+	}
+	return nil
+}
+
+func (f *replicaRows) Next() bool {
+	f.count++
+	return f.count <= f.size
+}
+
+func (f *replicaRows) Close() error {
+	return nil
+}
+
+type slaveRows struct {
+	count     int
+	size      int
+	data      []sql.NullString
+	shouldErr bool
+}
+
+func (f *slaveRows) Scan(dest ...any) error {
+	log.CtxLogger(context.Background()).Infow("fakeRows.Scan", "dest", dest, "dest[0]", dest[0], "data", f.data)
+	if f.shouldErr {
+		return errors.New("test-error")
+	}
+	for i := range f.data {
+		*dest[i].(*sql.NullString) = f.data[i]
+	}
+	return nil
+}
+
+func (f *slaveRows) Next() bool {
+	f.count++
+	return f.count <= f.size
+}
+
+func (f *slaveRows) Close() error {
+	return nil
+}
+
+type replicationZonesRows struct {
+	count     int
+	size      int
+	data      []sql.NullString
+	shouldErr bool
+}
+
+func (f *replicationZonesRows) Scan(dest ...any) error {
+	log.CtxLogger(context.Background()).Infow("fakeRows.Scan", "dest", dest, "dest[0]", dest[0], "data", f.data)
+	if f.shouldErr {
+		return errors.New("test-error")
+	}
+	for i := range f.data {
+		*dest[i].(*sql.NullString) = f.data[i]
+	}
+	return nil
+}
+
+func (f *replicationZonesRows) Next() bool {
+	f.count++
+	return f.count <= f.size
+}
+
+func (f *replicationZonesRows) Close() error {
 	return nil
 }
 
@@ -772,9 +897,11 @@ func TestCollectMetricsOnce(t *testing.T) {
 			wantMetrics: &workloadmanager.WorkloadMetrics{
 				WorkloadType: workloadmanager.MYSQL,
 				Metrics: map[string]string{
-					bufferPoolKey: "134217728",
-					totalRAMKey:   strconv.Itoa(4025040 * 1024),
-					innoDBKey:     "true",
+					bufferPoolKey:       "134217728",
+					currentRoleKey:      sourceRole,
+					totalRAMKey:         strconv.Itoa(4025040 * 1024),
+					innoDBKey:           "true",
+					replicationZonesKey: "",
 				},
 			},
 			wantErr: false,
@@ -815,9 +942,11 @@ func TestCollectMetricsOnce(t *testing.T) {
 			wantMetrics: &workloadmanager.WorkloadMetrics{
 				WorkloadType: workloadmanager.MYSQL,
 				Metrics: map[string]string{
-					bufferPoolKey: "0",
-					totalRAMKey:   strconv.Itoa(4025040 * 1024),
-					innoDBKey:     "false",
+					bufferPoolKey:       "0",
+					currentRoleKey:      sourceRole,
+					totalRAMKey:         strconv.Itoa(4025040 * 1024),
+					innoDBKey:           "false",
+					replicationZonesKey: "",
 				},
 			},
 			wantErr: true,
@@ -857,9 +986,11 @@ func TestCollectMetricsOnce(t *testing.T) {
 			wantMetrics: &workloadmanager.WorkloadMetrics{
 				WorkloadType: workloadmanager.MYSQL,
 				Metrics: map[string]string{
-					bufferPoolKey: "134217728",
-					totalRAMKey:   "0",
-					innoDBKey:     "true",
+					bufferPoolKey:       "134217728",
+					currentRoleKey:      sourceRole,
+					totalRAMKey:         "0",
+					innoDBKey:           "true",
+					replicationZonesKey: "",
 				},
 			},
 			wantErr: true,
@@ -931,9 +1062,11 @@ func TestCollectMetricsOnce(t *testing.T) {
 			wantMetrics: &workloadmanager.WorkloadMetrics{
 				WorkloadType: workloadmanager.MYSQL,
 				Metrics: map[string]string{
-					bufferPoolKey: "134217728",
-					totalRAMKey:   strconv.Itoa(4025040 * 1024),
-					innoDBKey:     "true",
+					bufferPoolKey:       "134217728",
+					currentRoleKey:      sourceRole,
+					totalRAMKey:         strconv.Itoa(4025040 * 1024),
+					innoDBKey:           "true",
+					replicationZonesKey: "",
 				},
 			},
 			wantErr: true,
@@ -972,9 +1105,11 @@ func TestCollectMetricsOnce(t *testing.T) {
 			wantMetrics: &workloadmanager.WorkloadMetrics{
 				WorkloadType: workloadmanager.MYSQL,
 				Metrics: map[string]string{
-					bufferPoolKey: "134217728",
-					totalRAMKey:   strconv.Itoa(4025040 * 1024),
-					innoDBKey:     "true",
+					bufferPoolKey:       "134217728",
+					currentRoleKey:      sourceRole,
+					totalRAMKey:         strconv.Itoa(4025040 * 1024),
+					innoDBKey:           "true",
+					replicationZonesKey: "",
 				},
 			},
 			wantErr: false,
@@ -994,5 +1129,202 @@ func TestCollectMetricsOnce(t *testing.T) {
 		if diff := cmp.Diff(tc.wantMetrics, gotMetrics, protocmp.Transform()); diff != "" {
 			t.Errorf("CollectMetricsOnce(%v) returned diff (-want +got):\n%s", tc.name, diff)
 		}
+	}
+}
+
+func TestGetCurrentRole(t *testing.T) {
+	tests := []struct {
+		name        string
+		isReplica   bool
+		replicaRows rowsInterface
+		replicaErr  error
+		slaveRows   rowsInterface
+		slaveErr    error
+		want        string
+	}{
+		{
+			name:      "IsReplica",
+			isReplica: true,
+			replicaRows: &replicaRows{
+				count: 0,
+				size:  1,
+				data: []sql.NullString{
+					sql.NullString{String: "teststring1"},
+				},
+				shouldErr: false,
+			},
+			want: replicaRole,
+		},
+		{
+			name:      "IsReplicaOldVersion",
+			isReplica: true,
+			slaveRows: &replicaRows{
+				count: 0,
+				size:  1,
+				data: []sql.NullString{
+					sql.NullString{String: "teststring1"},
+				},
+				shouldErr: false,
+			},
+			want: replicaRole,
+		},
+		{
+			name:       "Error",
+			isReplica:  true,
+			replicaErr: errors.New("test-error"),
+			want:       sourceRole,
+		},
+		{
+			name:      "ErrorOldVersion",
+			isReplica: true,
+			slaveErr:  errors.New("test-error"),
+			want:      sourceRole,
+		},
+		{
+			name:      "IsSource",
+			isReplica: false,
+			want:      sourceRole,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := MySQLMetrics{
+				db: &testDB{
+					replicaRows: tc.replicaRows,
+					replicaErr:  tc.replicaErr,
+					slaveRows:   tc.slaveRows,
+					slaveErr:    tc.slaveErr,
+				},
+			}
+
+			got := m.currentRole(context.Background())
+			if got != tc.want {
+				t.Errorf("getCurrentRole() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReplicationZones(t *testing.T) {
+	tests := []struct {
+		name                 string
+		replicationZonesRows rowsInterface
+		replicationZonesErr  error
+		lookupHostValue      map[string][]string
+		lookupHostErr        map[string]error
+		lookupAddrValue      map[string][]string
+		lookupAddrErr        map[string]error
+		role                 string
+		want                 []string
+	}{
+		{
+			name: "HappyPathIp",
+			replicationZonesRows: &replicationZonesRows{
+				count: 0,
+				size:  1,
+				data: []sql.NullString{
+					sql.NullString{String: "1.2.3.4"},
+				},
+				shouldErr: false,
+			},
+			lookupAddrValue: map[string][]string{
+				"1.2.3.4": []string{"testname.test-zone.c.fake-project.internal."},
+			},
+			role: sourceRole,
+			want: []string{"test-zone"},
+		},
+		{
+			name: "HappyPathIp2",
+			replicationZonesRows: &replicationZonesRows{
+				count: 0,
+				size:  1,
+				data: []sql.NullString{
+					sql.NullString{String: "5.6.7.8"},
+				},
+				shouldErr: false,
+			},
+			lookupAddrValue: map[string][]string{
+				"5.6.7.8": []string{"testname.test-zone2.c.fake-project.internal."},
+			},
+			role: sourceRole,
+			want: []string{"test-zone2"},
+		},
+		{
+			name: "NoWorkers",
+			role: sourceRole,
+			want: nil,
+		},
+		{
+			name: "InvalidIP",
+			replicationZonesRows: &replicationZonesRows{
+				count: 0,
+				size:  1,
+				data: []sql.NullString{
+					sql.NullString{String: "1.241234.3.4"},
+				},
+				shouldErr: false,
+			},
+			lookupHostErr: map[string]error{
+				"1.241234.3.4": errors.New("test-error"),
+			},
+			role: sourceRole,
+			want: nil,
+		},
+		{
+			name: "ReplicaRole",
+			replicationZonesRows: &replicationZonesRows{
+				count: 0,
+				size:  1,
+				data: []sql.NullString{
+					sql.NullString{String: "1.2.3.4"},
+				},
+				shouldErr: false,
+			},
+			role: replicaRole,
+			want: nil,
+		},
+		{
+			name: "EmptyResult",
+			role: sourceRole,
+			want: nil,
+		},
+		{
+			name: "HappyPathHostname",
+			replicationZonesRows: &replicationZonesRows{
+				count: 0,
+				size:  1,
+				data: []sql.NullString{
+					sql.NullString{String: "testname.test-zone.c.fake-project.internal."},
+				},
+				shouldErr: false,
+			},
+			lookupHostValue: map[string][]string{
+				"testname.test-zone.c.fake-project.internal.": []string{"valid"},
+			},
+			role: sourceRole,
+			want: []string{"test-zone"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := MySQLMetrics{
+				db: &testDB{
+					replicationZonesRows: tc.replicationZonesRows,
+					replicationZonesErr:  tc.replicationZonesErr,
+				},
+			}
+			netMock := mockNetInterface{
+				lookupHostValue: tc.lookupHostValue,
+				lookupHostErr:   tc.lookupHostErr,
+				lookupAddrValue: tc.lookupAddrValue,
+				lookupAddrErr:   tc.lookupAddrErr,
+			}
+
+			got := m.replicationZones(context.Background(), tc.role, netMock)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("replicationZones() returned diff (-want +got):\n%s", diff)
+			}
+		})
 	}
 }

@@ -27,7 +27,7 @@ import (
 	"strings"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/GoogleCloudPlatform/workloadagent/internal/metricutils"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/ipinfo"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
@@ -184,7 +184,7 @@ func (r *RedisMetrics) replicationZones(ctx context.Context, currentRole string,
 			workerIPs = append(workerIPs, ip)
 		}
 	}
-	zones := metricutils.ZonesFromIPs(ctx, workerIPs, netLookupAddr)
+	zones := ipinfo.ZonesFromIPs(ctx, workerIPs, netLookupAddr)
 	return zones
 }
 
