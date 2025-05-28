@@ -381,3 +381,71 @@ func TestSendDataInsight(t *testing.T) {
 		})
 	}
 }
+
+func TestQuietSendDataInsight(t *testing.T) {
+	tests := []struct {
+		name         string
+		wlmService   *wlmfake.TestWLM
+		params       SendDataInsightParams
+		wantRespBody *wlm.WriteInsightResponse
+		wantErr      bool
+	}{
+		{
+			name: "Success",
+			wlmService: &wlmfake.TestWLM{
+				T: t,
+				WriteInsightResponses: []*wlm.WriteInsightResponse{
+					&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
+				},
+				WriteInsightErrs: []error{nil},
+			},
+			params: SendDataInsightParams{
+				WLMetrics: WorkloadMetrics{
+					WorkloadType: MYSQL,
+					Metrics: map[string]string{
+						"instance_name": "mysql-instance",
+						"metric1":       "value1",
+					},
+				},
+				CloudProps: DefaultCloudProperties,
+			},
+			wantRespBody: &wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
+			wantErr:      false,
+		},
+		{
+			name: "Error",
+			wlmService: &wlmfake.TestWLM{
+				T: t,
+				WriteInsightResponses: []*wlm.WriteInsightResponse{
+					&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 400}},
+				},
+				WriteInsightErrs: []error{fmt.Errorf("error")},
+			},
+			params: SendDataInsightParams{
+				WLMetrics: WorkloadMetrics{
+					WorkloadType: MYSQL,
+					Metrics: map[string]string{
+						"instance_name": "mysql-instance",
+						"metric1":       "value1",
+					},
+				},
+				CloudProps: DefaultCloudProperties,
+			},
+			wantRespBody: &wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 400}},
+			wantErr:      true,
+		},
+	}
+
+	ctx := context.Background()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.params.WLMService = tt.wlmService
+			got, err := QuietSendDataInsight(ctx, tt.params)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Error mismatch: got %v, want %v.", err, tt.wantErr)
+			} else if diff := cmp.Diff(tt.wantRespBody, got); diff != "" {
+				t.Errorf("QuietSendDataInsight(%v) returned an unexpected diff (-want +got): \n%s", tt.params, diff)
+			}
+		})
+	}
+}

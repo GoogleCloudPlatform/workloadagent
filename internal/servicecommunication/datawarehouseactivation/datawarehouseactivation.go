@@ -55,7 +55,7 @@ func (s activationStatus) String() string {
 // checkActivation checks if the data warehouse is activated by sending an empty insight.
 // The data warehouse returns a 201 status code if it is activated.
 func (s Service) checkActivation(ctx context.Context) bool {
-	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
+	res, err := workloadmanager.QuietSendDataInsight(ctx, workloadmanager.SendDataInsightParams{
 		WLMetrics: workloadmanager.WorkloadMetrics{
 			WorkloadType: workloadmanager.UNKNOWN,
 			Metrics:      map[string]string{},

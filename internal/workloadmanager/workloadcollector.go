@@ -243,6 +243,13 @@ func sendMetricsToDataWarehouse(ctx context.Context, params sendMetricsParams) {
 	wg.Wait()
 }
 
+// QuietSendDataInsight sends a data insight to Data Warehouse without logging.
+// This is used for the data warehouse activation check.
+func QuietSendDataInsight(ctx context.Context, params SendDataInsightParams) (*wlm.WriteInsightResponse, error) {
+	req := createWriteInsightRequest(ctx, params.WLMetrics, params.CloudProps)
+	return params.WLMService.WriteInsightAndGetResponse(params.CloudProps.GetProjectId(), params.CloudProps.GetRegion(), req)
+}
+
 // SendDataInsight sends a data insight to Data Warehouse.
 func SendDataInsight(ctx context.Context, params SendDataInsightParams) (*wlm.WriteInsightResponse, error) {
 	req := createWriteInsightRequest(ctx, params.WLMetrics, params.CloudProps)
