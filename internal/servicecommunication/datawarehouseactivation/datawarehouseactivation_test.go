@@ -54,7 +54,7 @@ func TestDataWarehouseActivationCheck(t *testing.T) {
 
 	service := Service{}
 	service.Client = ActivatedClient
-	go service.DataWarehouseActivationCheck(ctx, []chan<- *servicecommunication.Message{ch})
+	go service.DataWarehouseActivationCheck(ctx, map[string]chan<- *servicecommunication.Message{"test": ch})
 
 	select {
 	case <-time.After(10 * time.Second):

@@ -89,18 +89,18 @@ func (s Service) dwActivationLoop(ctx context.Context, currentStatus activationS
 	return servicecommunication.DataWarehouseActivationResult{Activated: dwActivationStatus}, statusChanged
 }
 
-func (s Service) sendActivationResult(ctx context.Context, chs []chan<- *servicecommunication.Message, result servicecommunication.DataWarehouseActivationResult) {
-	fullChs := 0
+func (s Service) sendActivationResult(ctx context.Context, chs map[string]chan<- *servicecommunication.Message, result servicecommunication.DataWarehouseActivationResult) {
+	var fullChs []string
 	msg := &servicecommunication.Message{Origin: servicecommunication.DWActivation, DWActivationResult: result}
-	for _, ch := range chs {
+	for key, ch := range chs {
 		select {
 		case ch <- msg:
 		default:
-			fullChs++
+			fullChs = append(fullChs, key)
 		}
 	}
-	if fullChs > 0 {
-		log.CtxLogger(ctx).Infof("DataWarehouseActivationCheck found %d full channels that it was unable to write to.", fullChs)
+	if len(fullChs) > 0 {
+		log.CtxLogger(ctx).Debugf("DataWarehouseActivationCheck found %d full channels that it was unable to write to. Service(s) with full channels: %v", len(fullChs), fullChs)
 	}
 }
 
@@ -109,9 +109,9 @@ func (s Service) sendActivationResult(ctx context.Context, chs []chan<- *service
 func (s Service) DataWarehouseActivationCheck(ctx context.Context, a any) {
 	currentStatus := notYetChecked
 	log.CtxLogger(ctx).Info("DataWarehouseActivationCheck started")
-	var chs []chan<- *servicecommunication.Message
+	var chs map[string]chan<- *servicecommunication.Message
 	var ok bool
-	if chs, ok = a.([]chan<- *servicecommunication.Message); !ok {
+	if chs, ok = a.(map[string]chan<- *servicecommunication.Message); !ok {
 		log.CtxLogger(ctx).Warn("args is not of type chan servicecommunication.Message")
 		return
 	}

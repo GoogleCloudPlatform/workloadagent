@@ -190,7 +190,13 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 	redisCh := make(chan *servicecommunication.Message, 3)
 	sqlserverCh := make(chan *servicecommunication.Message, 3)
 	postgresCh := make(chan *servicecommunication.Message, 3)
-	scChs := []chan<- *servicecommunication.Message{mySQLCh, oracleCh, redisCh, sqlserverCh, postgresCh}
+	scChs := map[string]chan<- *servicecommunication.Message{
+		"mysql":     mySQLCh,
+		"oracle":    oracleCh,
+		"redis":     redisCh,
+		"sqlserver": sqlserverCh,
+		"postgres":  postgresCh,
+	}
 	commondiscovery := discovery.Service{
 		ProcessLister: discovery.DefaultProcessLister{},
 		ReadFile:      os.ReadFile,

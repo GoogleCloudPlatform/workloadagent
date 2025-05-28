@@ -133,9 +133,9 @@ func (d Service) commonDiscoveryLoop(ctx context.Context) (servicecommunication.
 // CommonDiscovery returns a CommonDiscoveryResult and any errors encountered during the discovery process.
 func (d Service) CommonDiscovery(ctx context.Context, a any) {
 	log.CtxLogger(ctx).Info("CommonDiscovery started")
-	var chs []chan<- *servicecommunication.Message
+	var chs map[string]chan<- *servicecommunication.Message
 	var ok bool
-	if chs, ok = a.([]chan<- *servicecommunication.Message); !ok {
+	if chs, ok = a.(map[string]chan<- *servicecommunication.Message); !ok {
 		log.CtxLogger(ctx).Warnw("args is not of type []chan servicecommunication.Message", "args", a, "type", reflect.TypeOf(a), "kind", reflect.TypeOf(a).Kind())
 		return
 	}
@@ -158,16 +158,16 @@ func (d Service) CommonDiscovery(ctx context.Context, a any) {
 			return
 		}
 		log.CtxLogger(ctx).Infof("CommonDiscovery found %d processes.", len(discoveryResult.Processes))
-		fullChs := 0
-		for _, ch := range chs {
+		var fullChs []string
+		for key, ch := range chs {
 			select {
 			case ch <- &servicecommunication.Message{Origin: servicecommunication.Discovery, DiscoveryResult: discoveryResult}:
 			default:
-				fullChs++
+				fullChs = append(fullChs, key)
 			}
 		}
-		if fullChs > 0 {
-			log.CtxLogger(ctx).Infof("CommonDiscovery found %d full channels that it was unable to write to.", fullChs)
+		if len(fullChs) > 0 {
+			log.CtxLogger(ctx).Debugf("CommonDiscovery found %d full channels that it was unable to write to. Service(s) with full channels: %v", len(fullChs), fullChs)
 		}
 		select {
 		case <-ctx.Done():

@@ -397,7 +397,7 @@ func TestCommonDiscoveryUnbufferedChannels(t *testing.T) {
 	tests := []struct {
 		name string
 		d    *Service
-		chs  []chan<- *servicecommunication.Message
+		chs  map[string]chan<- *servicecommunication.Message
 	}{
 		{
 			name: "UnbufferedChannelsDoNotHang",
@@ -406,7 +406,11 @@ func TestCommonDiscoveryUnbufferedChannels(t *testing.T) {
 					{username: "user1", pid: 123, name: "test"},
 				}},
 			},
-			chs: []chan<- *servicecommunication.Message{make(chan<- *servicecommunication.Message), make(chan<- *servicecommunication.Message), make(chan<- *servicecommunication.Message)},
+			chs: map[string]chan<- *servicecommunication.Message{
+				"test1": make(chan<- *servicecommunication.Message),
+				"test2": make(chan<- *servicecommunication.Message),
+				"test3": make(chan<- *servicecommunication.Message),
+			},
 		},
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -432,7 +436,7 @@ func TestCommonDiscoveryFullChannel(t *testing.T) {
 	}
 	ch1 := make(chan *servicecommunication.Message, 1)
 	ch2 := make(chan *servicecommunication.Message, 1)
-	chs := []chan<- *servicecommunication.Message{ch1, ch2}
+	chs := map[string]chan<- *servicecommunication.Message{"test1": ch1, "test2": ch2}
 	want := servicecommunication.Message{
 		DiscoveryResult: servicecommunication.DiscoveryResult{
 			Processes: []servicecommunication.ProcessWrapper{
@@ -454,7 +458,7 @@ func TestCommonDiscoveryFullChannel(t *testing.T) {
 func TestCommonDiscovery(t *testing.T) {
 	ch1 := make(chan *servicecommunication.Message, 1)
 	ch2 := make(chan *servicecommunication.Message, 1)
-	sendChs := []chan<- *servicecommunication.Message{ch1, ch2}
+	sendChs := map[string]chan<- *servicecommunication.Message{"test1": ch1, "test2": ch2}
 	receiveChs := []<-chan *servicecommunication.Message{ch1, ch2}
 	tests := []struct {
 		name        string
