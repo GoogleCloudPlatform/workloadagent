@@ -36,6 +36,7 @@ type ProcessWrapper interface {
 	Name() (string, error)
 	CmdlineSlice() ([]string, error)
 	Environ() ([]string, error)
+	String() string
 }
 
 // DiscoveryResult holds the results of a discovery operation.

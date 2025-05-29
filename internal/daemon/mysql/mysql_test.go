@@ -19,6 +19,7 @@ package mysql
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -56,6 +57,10 @@ func (p processStub) CmdlineSlice() ([]string, error) {
 
 func (p processStub) Environ() ([]string, error) {
 	return p.environ, nil
+}
+
+func (p processStub) String() string {
+	return fmt.Sprintf("processStub{username: %q, pid: %d, name: %q, args: %v}", p.username, p.pid, p.name, p.args)
 }
 
 func TestIsWorkloadPresent(t *testing.T) {

@@ -20,6 +20,7 @@ package discovery
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"time"
 
@@ -101,6 +102,15 @@ func (p gopsProcess) CmdlineSlice() ([]string, error) {
 // The format of each env var string is "key=value".
 func (p gopsProcess) Environ() ([]string, error) {
 	return p.process.Environ()
+}
+
+// String returns the string representation of the process.
+func (p gopsProcess) String() string {
+	username, _ := p.Username()
+	pid := p.Pid()
+	name, _ := p.Name()
+	args, _ := p.CmdlineSlice()
+	return fmt.Sprintf("process{username: %s, pid: %d, name: %s, args: %+v}", username, pid, name, args)
 }
 
 // setupBackoff sets up the backoff policy for discovery. Upon startup we want to check more

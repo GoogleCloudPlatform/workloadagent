@@ -74,6 +74,10 @@ func (p processStub) Environ() ([]string, error) {
 	return []string{}, nil
 }
 
+func (p processStub) String() string {
+	return fmt.Sprintf("processStub{username: %q, pid: %d, name: %q, args: %v}", p.username, p.pid, p.name, p.args)
+}
+
 func readFileFunc(s string, err error) func(d *DiscoveryService) {
 	return func(d *DiscoveryService) {
 		d.readFile = func(string) ([]byte, error) {
@@ -149,7 +153,7 @@ func TestExtractOracleEnvVars(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			keys := []string{}
+			var keys []string
 			if tc.want != nil {
 				for k := range tc.want {
 					keys = append(keys, k)
