@@ -20,6 +20,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -65,12 +66,19 @@ type (
 	}
 )
 
+var (
+	configFileReader = func(path string) (io.ReadCloser, error) {
+		file, err := os.Open(path)
+		var f io.ReadCloser = file
+		return f, err
+	}
+)
+
 // NewDaemon creates a new Daemon.
-func NewDaemon(lp log.Parameters, cloudProps *cpb.CloudProperties, osData osinfo.Data) *Daemon {
+func NewDaemon(lp log.Parameters, cloudProps *cpb.CloudProperties) *Daemon {
 	return &Daemon{
 		lp:         lp,
 		cloudProps: cloudProps,
-		osData:     osData,
 	}
 }
 
@@ -101,6 +109,13 @@ func (d *Daemon) Execute(ctx context.Context) error {
 		os.Chmod(logDir, 0777)
 	}
 	log.SetupLogging(d.lp)
+
+	osData, err := osinfo.ReadData(ctx, osinfo.FileReadCloser(configFileReader), osinfo.OSName, osinfo.OSReleaseFilePath)
+	if err != nil {
+		log.Logger.Errorw("Unable to read OS data. Agent services may be impacted.", "error", err)
+	}
+	d.osData = osData
+
 	// Run the daemon handler that will start any services
 	ctx, cancel := context.WithCancel(ctx)
 	return d.startdaemonHandler(ctx, cancel)
