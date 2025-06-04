@@ -19,6 +19,7 @@ package configuration
 import (
 	_ "embed"
 	"errors"
+	"os"
 	"testing"
 
 	dpb "google.golang.org/protobuf/types/known/durationpb"
@@ -906,6 +907,86 @@ func TestMergeQueries(t *testing.T) {
 			}
 			if diff := cmp.Diff(test.want, got, opts...); diff != "" {
 				t.Errorf("mergeQueries() returned unexpected diff (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestEnsureConfigExists(t *testing.T) {
+	tests := []struct {
+		name     string
+		stat     StatFile
+		mkdirall MkdirAll
+		write    WriteConfigFile
+		wantErr  error
+	}{
+		{
+			name: "FileExists",
+			stat: func(string) (os.FileInfo, error) {
+				return nil, nil
+			},
+			mkdirall: nil,
+			write:    nil,
+			wantErr:  nil,
+		},
+		{
+			name: "FileDoesNotExist",
+			stat: func(string) (os.FileInfo, error) {
+				return nil, os.ErrNotExist
+			},
+			mkdirall: func(string, os.FileMode) error {
+				return nil
+			},
+			write: func(string, []byte, os.FileMode) error {
+				return nil
+			},
+			wantErr: nil,
+		},
+		{
+			name: "StatErrorNotFileNotExists",
+			stat: func(string) (os.FileInfo, error) {
+				return nil, os.ErrPermission
+			},
+			mkdirall: func(string, os.FileMode) error {
+				return nil
+			},
+			write: func(string, []byte, os.FileMode) error {
+				return nil
+			},
+			wantErr: os.ErrPermission,
+		},
+		{
+			name: "MkdirAllError",
+			stat: func(string) (os.FileInfo, error) {
+				return nil, os.ErrNotExist
+			},
+			mkdirall: func(string, os.FileMode) error {
+				return os.ErrPermission
+			},
+			write: func(string, []byte, os.FileMode) error {
+				return nil
+			},
+			wantErr: os.ErrPermission,
+		},
+		{
+			name: "WriteError",
+			stat: func(string) (os.FileInfo, error) {
+				return nil, os.ErrNotExist
+			},
+			mkdirall: func(string, os.FileMode) error {
+				return nil
+			},
+			write: func(string, []byte, os.FileMode) error {
+				return os.ErrPermission
+			},
+			wantErr: os.ErrPermission,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := ensureConfigExists(test.stat, test.mkdirall, test.write)
+			if !errors.Is(err, test.wantErr) {
+				t.Errorf("EnsureConfigExists() returned error: %v, want error: %v", err, test.wantErr)
 			}
 		})
 	}

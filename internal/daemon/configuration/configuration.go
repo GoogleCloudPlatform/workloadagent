@@ -22,6 +22,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+
+	"path/filepath"
 	"runtime"
 	"sort"
 	"time"
@@ -39,11 +41,20 @@ import (
 //go:embed defaultconfigs/oraclemetrics/default_queries.json
 var defaultOracleQueriesContent []byte
 
+//go:embed defaultconfigs/configuration.json
+var defaultConfigurationJSONContent []byte
+
 // ReadConfigFile abstracts os.ReadFile function for testability.
 type ReadConfigFile func(string) ([]byte, error)
 
 // WriteConfigFile abstracts os.WriteFile function for testability.
 type WriteConfigFile func(string, []byte, os.FileMode) error
+
+// StatFile abstracts os.Stat function for testability.
+type StatFile func(string) (os.FileInfo, error)
+
+// MkdirAll abstracts os.MkdirAll function for testability.
+type MkdirAll func(string, os.FileMode) error
 
 var (
 	// AgentBuildChange is the change number that the agent was built at
@@ -123,13 +134,18 @@ func ConfigFromFile(path string, read ReadConfigFile) (*cpb.Configuration, error
 	return cfgFromFile, nil
 }
 
+// configPath returns the default configuration file path based on the operating system.
+func configPath() string {
+	if runtime.GOOS == "windows" {
+		return WindowsConfigPath
+	}
+	return LinuxConfigPath
+}
+
 // Load loads the configuration from a JSON file and applies defaults for missing fields.
 func Load(path string, read ReadConfigFile, cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) {
 	if path == "" {
-		path = LinuxConfigPath
-		if runtime.GOOS == "windows" {
-			path = WindowsConfigPath
-		}
+		path = configPath()
 	}
 
 	defaultCfg, err := defaultConfig(cloudProps)
@@ -306,4 +322,49 @@ func LogLevelToZapcore(level cpb.Configuration_LogLevel) zapcore.Level {
 		log.Logger.Warnw("Unsupported log level, defaulting to INFO", "level", level.String())
 		return zapcore.InfoLevel
 	}
+}
+
+// EnsureConfigExists ensures that the configuration file exists.
+// If the file does not exist, it creates the file and its parent directories.
+func EnsureConfigExists() error {
+	return ensureConfigExists(nil, nil, nil)
+}
+
+func ensureConfigExists(stat StatFile, mkdirall MkdirAll, write WriteConfigFile) error {
+	path := configPath()
+
+	if stat == nil {
+		stat = os.Stat
+	}
+
+	if mkdirall == nil {
+		mkdirall = os.MkdirAll
+	}
+
+	if write == nil {
+		write = os.WriteFile
+	}
+
+	_, err := stat(path)
+	if err == nil {
+		return nil
+	}
+
+	// We expect to see os.ErrNotExist if the file does not exist.
+	// Any other error is unexpected and should be returned.
+	if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("failed to stat configuration file: %w", err)
+	}
+
+	dir := filepath.Dir(path)
+	if err := mkdirall(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create configuration file directory %s: %w", dir, err)
+	}
+
+	if err := write(path, defaultConfigurationJSONContent, 0644); err != nil {
+		return fmt.Errorf("failed to write default configuration to file %s: %w", path, err)
+	}
+
+	log.Logger.Infow("Default configuration file created", "path", path)
+	return nil
 }
