@@ -11,10 +11,10 @@ require (
   github.com/DATA-DOG/go-sqlmock v1.5.0
   // Get the version by running:
   // go list -m -json github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries@main
-  github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20250306152918-ad26afc273a3
+  github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20250606142749-90be71b40c7d
   // Get the version by running:
   // go list -m -json github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos@main
-  github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20250306152918-ad26afc273a3
+  github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20250606142749-90be71b40c7d
   github.com/StackExchange/wmi v1.2.1
   github.com/cenkalti/backoff/v4 v4.3.0
   github.com/gammazero/workerpool v1.1.3
@@ -65,6 +65,7 @@ require (
   github.com/google/uuid v1.6.0 // indirect
   github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
   github.com/googleapis/gax-go/v2 v2.14.1 // indirect
+  github.com/GoogleCloudPlatform/agentcommunication_client v0.0.0-20250227185639-b70667e4a927 // indirect
   github.com/inconshreveable/mousetrap v1.1.0 // indirect
   github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
   github.com/natefinch/lumberjack v2.0.0+incompatible // indirect

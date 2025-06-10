@@ -26,10 +26,12 @@ github.com/BurntSushi/toml v0.3.1 h1:WXkYYl6Yr3qBf1K79EBnL4mak0OimBfB0XUf9Vl28OQ
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/DATA-DOG/go-sqlmock v1.5.0 h1:Shsta01QNfFxHCfpW6YH2STWB0MudeXXEWMr20OEh60=
 github.com/DATA-DOG/go-sqlmock v1.5.0/go.mod h1:f/Ixk793poVmq4qj/V1dPUg2JEAKC73Q5eFN3EC/SaM=
-github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20250306152918-ad26afc273a3 h1:u3zxRmK42F+sKJQmggToA7NleMNgMEqwF4PFjMP3Y1A=
-github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20250306152918-ad26afc273a3/go.mod h1:JWg3Gcbir6VMDl8ILpeFI4FoIeU3qftKZ7muCsy5U78=
-github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20250306152918-ad26afc273a3 h1:g5u2z3Cnn+gBDE6cZBTXHwqOGw6XViTfGL6/GSJe0ZY=
-github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20250306152918-ad26afc273a3/go.mod h1:SI7fYmbniDIoVITS6rG9iqA2omufwj8GrkFu/EarxkE=
+github.com/GoogleCloudPlatform/agentcommunication_client v0.0.0-20250227185639-b70667e4a927 h1:nn31d5gg+ysSNqWTqSOxsKBj17GJZBqsBx7biZAgYtI=
+github.com/GoogleCloudPlatform/agentcommunication_client v0.0.0-20250227185639-b70667e4a927/go.mod h1:A1V05o309ZvTwy/FTBooYvvIhzM6mtsJcHJsAkeuAAM=
+github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20250606142749-90be71b40c7d h1:kPPVdANQQE6z/csvZabWZezVosDjzWItfPODinj1+1I=
+github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20250606142749-90be71b40c7d/go.mod h1:kd9KRERnc/KakQgqX8jwmVwdMjVcficQIQ1FJ2j6EAQ=
+github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20250606142749-90be71b40c7d h1:Tpgkd5LQQV9wQnKhnQnGvHDutVjz8F+AXe1lRN4YfyM=
+github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20250606142749-90be71b40c7d/go.mod h1:8Ea8vdBuPsWhhwzL9sNK7BFQE9qbkPLZUHxcucWHXaM=
 github.com/StackExchange/wmi v1.2.1 h1:VIkavFPXSjcnS+O8yTq7NI32k0R5Aj+v39y29VYDOSA=
 github.com/StackExchange/wmi v1.2.1/go.mod h1:rcmrprowKIVzvc+NUiLncP2uuArMWLCbu9SBzvHz7e8=
 github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 h1:DDGfHa7BWjL4YnC6+E63dPcxHo2sUxDIu8g3QgEJdRY=
