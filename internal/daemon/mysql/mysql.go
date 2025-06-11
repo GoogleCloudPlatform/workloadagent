@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"go.uber.org/zap/zapcore"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/databasecenter"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/mysqldiscovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/mysqlmetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
@@ -47,6 +48,7 @@ type Service struct {
 	mySQLProcesses []servicecommunication.ProcessWrapper
 	dwActivated    bool
 	WLMClient      workloadmanager.WLMWriter
+	DBcenterClient databasecenter.Client
 }
 
 type runDiscoveryArgs struct {
@@ -155,7 +157,7 @@ func runMetricCollection(ctx context.Context, a any) {
 		log.CtxLogger(ctx).Errorf("initializing GCE services: %w", err)
 		return
 	}
-	m := mysqlmetrics.New(ctx, args.s.Config, args.s.WLMClient)
+	m := mysqlmetrics.New(ctx, args.s.Config, args.s.WLMClient, args.s.DBcenterClient)
 	err = m.InitDB(ctx, gceService)
 	if err != nil {
 		log.CtxLogger(ctx).Errorf("failed to initialize MySQL DB: %v", err)

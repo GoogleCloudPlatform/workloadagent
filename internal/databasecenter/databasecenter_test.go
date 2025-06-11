@@ -130,7 +130,7 @@ func TestBuildCondorMessage(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			client := NewClient(tc.config, nil)
+			client := realClient{Config: tc.config, CommClient: &MockCommunication{}}
 
 			gotAny, err := client.buildCondorMessage(context.Background())
 			if (err != nil) != tc.wantErr {

@@ -33,6 +33,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/postgres"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/redis"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/sqlserver"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/databasecenter"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication/datawarehouseactivation"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication/discovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
@@ -237,10 +238,13 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 	}
 	recoverableStart.StartRoutine(ctx)
 
+	// Create a new databasecenter client
+	dbcenterClient := databasecenter.NewClient(d.config, nil)
+
 	// Add any additional services here.
 	d.services = []Service{
 		&oracle.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: oracleCh},
-		&mysql.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: mySQLCh, WLMClient: wlmClient},
+		&mysql.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: mySQLCh, WLMClient: wlmClient, DBcenterClient: dbcenterClient},
 		&redis.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: redisCh, WLMClient: wlmClient, OSData: d.osData},
 		&sqlserver.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: sqlserverCh},
 		&postgres.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: postgresCh, WLMClient: wlmClient},

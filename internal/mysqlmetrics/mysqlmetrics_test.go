@@ -20,6 +20,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net"
 	"strconv"
 	"testing"
@@ -27,6 +28,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/protobuf/testing/protocmp"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/databasecenter"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
@@ -240,6 +242,16 @@ func (f *replicationZonesRows) Next() bool {
 
 func (f *replicationZonesRows) Close() error {
 	return nil
+}
+
+type MockDatabaseCenterClient struct {
+	sendMetadataCalled bool
+	sendMetadataErr    error
+}
+
+func (m *MockDatabaseCenterClient) SendMetadataToDatabaseCenter(ctx context.Context) error {
+	m.sendMetadataCalled = true
+	return m.sendMetadataErr
 }
 
 func TestInitPassword(t *testing.T) {
@@ -672,7 +684,7 @@ func TestNew(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		got := New(context.Background(), tc.cfg, nil)
+		got := New(context.Background(), tc.cfg, nil, databasecenter.NewClient(tc.cfg, nil))
 		if diff := cmp.Diff(tc.want, got.Config, protocmp.Transform()); diff != "" {
 			t.Errorf("New() test %v returned diff (-want +got):\n%s", tc.name, diff)
 		}
@@ -893,6 +905,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
 					},
 				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
 			},
 			wantMetrics: &workloadmanager.WorkloadMetrics{
 				WorkloadType: workloadmanager.MYSQL,
@@ -938,6 +951,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
 					},
 				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
 			},
 			wantMetrics: &workloadmanager.WorkloadMetrics{
 				WorkloadType: workloadmanager.MYSQL,
@@ -982,6 +996,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
 					},
 				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
 			},
 			wantMetrics: &workloadmanager.WorkloadMetrics{
 				WorkloadType: workloadmanager.MYSQL,
@@ -1015,6 +1030,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
 					},
 				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
 			},
 			wantMetrics: &workloadmanager.WorkloadMetrics{
 				WorkloadType: workloadmanager.MYSQL,
@@ -1058,6 +1074,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 400}},
 					},
 				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
 			},
 			wantMetrics: &workloadmanager.WorkloadMetrics{
 				WorkloadType: workloadmanager.MYSQL,
@@ -1101,6 +1118,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 					WriteInsightErrs:      []error{nil},
 					WriteInsightResponses: []*wlm.WriteInsightResponse{nil},
 				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
 			},
 			wantMetrics: &workloadmanager.WorkloadMetrics{
 				WorkloadType: workloadmanager.MYSQL,
@@ -1324,6 +1342,113 @@ func TestReplicationZones(t *testing.T) {
 			got := m.replicationZones(context.Background(), tc.role, netMock)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("replicationZones() returned diff (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestSendMetadataToDatabaseCenter(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name                 string
+		m                    MySQLMetrics
+		sendMetadataErr      error
+		wantSendMetadataCall bool
+		wantErr              bool
+	}{
+		{
+			name: "Send metadata success",
+			m: MySQLMetrics{
+				db: &testDB{
+					engineRows: &isInnoDBRows{
+						count: 0,
+						size:  1,
+						data: []sql.NullString{
+							sql.NullString{String: "InnoDB"},
+							sql.NullString{String: "DEFAULT"},
+						},
+						shouldErr: false,
+					},
+					engineErr:      nil,
+					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
+					bufferPoolErr:  nil,
+				},
+				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{
+						StdOut: "MemTotal:        4025040 kB\n",
+					}
+				},
+				WLMClient: &gcefake.TestWLM{
+					WriteInsightErrs: []error{nil},
+					WriteInsightResponses: []*wlm.WriteInsightResponse{
+						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
+					},
+				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
+			},
+			sendMetadataErr:      nil,
+			wantSendMetadataCall: true,
+			wantErr:              false,
+		},
+		{
+			name: "Send metadata failure, should not return error",
+			m: MySQLMetrics{
+				db: &testDB{
+					engineRows: &isInnoDBRows{
+						count: 0,
+						size:  1,
+						data: []sql.NullString{
+							sql.NullString{String: "InnoDB"},
+							sql.NullString{String: "DEFAULT"},
+						},
+						shouldErr: false,
+					},
+					engineErr:      nil,
+					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
+					bufferPoolErr:  nil,
+				},
+				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{
+						StdOut: "MemTotal:        4025040 kB\n",
+					}
+				},
+				WLMClient: &gcefake.TestWLM{
+					WriteInsightErrs: []error{nil},
+					WriteInsightResponses: []*wlm.WriteInsightResponse{
+						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
+					},
+				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
+			},
+			sendMetadataErr:      fmt.Errorf("db center error"),
+			wantSendMetadataCall: true,
+			wantErr:              false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mockClient := &MockDatabaseCenterClient{
+				sendMetadataCalled: false,
+				sendMetadataErr:    tc.sendMetadataErr,
+			}
+			// Set the mock dbcenter client in the MySQLMetrics object
+			tc.m.DBcenterClient = mockClient
+			// Call the function under test
+			metrics, err := tc.m.CollectMetricsOnce(ctx)
+
+			// Assertions
+			if err != nil && !tc.wantErr {
+				t.Errorf("CollectMetricsOnce returned an unexpected error: %v", err)
+			}
+			if err == nil && tc.wantErr {
+				t.Errorf("CollectMetricsOnce did not return an expected error")
+			}
+			if mockClient.sendMetadataCalled != tc.wantSendMetadataCall {
+				t.Errorf("CollectMetricsOnce: sendMetadataCalled = %v, want %v", mockClient.sendMetadataCalled, tc.wantSendMetadataCall)
+			}
+			if metrics == nil {
+				t.Errorf("CollectMetricsOnce returned nil metrics")
 			}
 		})
 	}

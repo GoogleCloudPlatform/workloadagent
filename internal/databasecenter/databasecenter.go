@@ -45,18 +45,23 @@ type CommunicationClient interface {
 }
 
 // Client for sending metadata to database center.
-type Client struct {
+type Client interface {
+	SendMetadataToDatabaseCenter(ctx context.Context) error
+}
+
+// Client for sending metadata to database center.
+type realClient struct {
 	Config     *configpb.Configuration
 	CommClient CommunicationClient
 	conn       *client.Connection
 }
 
 // NewClient creates a new database center client.
-func NewClient(config *configpb.Configuration, commClient CommunicationClient) *Client {
+func NewClient(config *configpb.Configuration, commClient CommunicationClient) Client {
 	if commClient == nil {
 		commClient = &realCommunicationClient{}
 	}
-	return &Client{
+	return &realClient{
 		Config:     config,
 		CommClient: commClient,
 	}
@@ -77,7 +82,7 @@ func (r *realCommunicationClient) SendAgentMessage(ctx context.Context, agentTyp
 }
 
 // buildCondorMessage builds the snapshot message.
-func (c *Client) buildCondorMessage(ctx context.Context) (*anypb.Any, error) {
+func (c *realClient) buildCondorMessage(ctx context.Context) (*anypb.Any, error) {
 	cloudProps := c.Config.GetCloudProperties()
 	feedTime := timestamppb.New(time.Now())
 	// construct an object of DatabaseResourceFeed proto.
@@ -116,7 +121,7 @@ func (c *Client) buildCondorMessage(ctx context.Context) (*anypb.Any, error) {
 }
 
 // SendMetadataToDatabaseCenter sends metadata to database center.
-func (c *Client) SendMetadataToDatabaseCenter(ctx context.Context) error {
+func (c *realClient) SendMetadataToDatabaseCenter(ctx context.Context) error {
 	flag.Parse()
 	log.CtxLogger(ctx).Debugw("Sending metadata to database center")
 	client.DebugLogging = true
