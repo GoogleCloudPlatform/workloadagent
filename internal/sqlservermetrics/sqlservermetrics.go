@@ -32,6 +32,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics/wlm"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce"
 
+	"github.com/GoogleCloudPlatform/workloadagent/internal/databasecenter"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics/sqlserverutils"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
@@ -50,7 +51,8 @@ type instanceProperties struct {
 
 // SQLServerMetrics contains variables and methods to collect metrics for SQL Server databases.
 type SQLServerMetrics struct {
-	Config *configpb.SQLServerConfiguration
+	Config         *configpb.SQLServerConfiguration
+	DBcenterClient databasecenter.Client
 }
 
 // CollectMetricsOnce collects metrics for SQL Server databases running on the host.
@@ -60,6 +62,14 @@ func (s *SQLServerMetrics) CollectMetricsOnce(ctx context.Context) {
 		log.Logger.Errorw("SQLServerMetrics SQL Collection failed", "error", err)
 	}
 	log.Logger.Info("SQLServerMetrics SQL Collection ends.")
+	// Send metadata details to database center
+	err := s.DBcenterClient.SendMetadataToDatabaseCenter(ctx)
+	if err != nil {
+		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.
+		log.CtxLogger(ctx).Info("Unable to send information to Database Center, please refer to documentation to make sure that all prerequisites are met")
+		log.CtxLogger(ctx).Debugf("Failed to send metadata to database center: %v", err)
+	}
+
 	log.Logger.Info("SQLServerMetrics OS Collection starts.")
 	if err := s.osCollection(ctx); err != nil {
 		log.Logger.Errorw("SQLServerMetrics OS Collection failed", "error", err)

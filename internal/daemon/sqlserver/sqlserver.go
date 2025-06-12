@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/GoogleCloudPlatform/workloadagent/internal/databasecenter"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
@@ -36,6 +37,7 @@ type Service struct {
 	CloudProps       *configpb.CloudProperties
 	CommonCh         <-chan *servicecommunication.Message
 	isProcessPresent bool
+	DBcenterClient   databasecenter.Client
 }
 
 type runMetricCollectionArgs struct {
@@ -111,7 +113,8 @@ func runMetricCollection(ctx context.Context, a any) {
 	}
 	log.CtxLogger(ctx).Debugw("SqlServer metric collection args", "args", args)
 	r := &sqlservermetrics.SQLServerMetrics{
-		Config: args.s.Config.GetSqlserverConfiguration(),
+		Config:         args.s.Config.GetSqlserverConfiguration(),
+		DBcenterClient: args.s.DBcenterClient,
 	}
 	ticker := time.NewTicker(args.s.Config.GetSqlserverConfiguration().GetCollectionConfiguration().GetCollectionFrequency().AsDuration())
 	defer ticker.Stop()
