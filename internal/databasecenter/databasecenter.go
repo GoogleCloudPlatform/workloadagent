@@ -114,7 +114,7 @@ func (c *realClient) buildCondorMessage(ctx context.Context) (*anypb.Any, error)
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("unable to marshal WriteInsightRequest: %v", err)
+		return nil, fmt.Errorf("unable to create DatabaseResourceFeed: %v", err)
 	}
 	log.CtxLogger(ctx).Debugf("Sending message databaseresourcefeed: %v", body)
 	return body, nil
@@ -129,21 +129,18 @@ func (c *realClient) SendMetadataToDatabaseCenter(ctx context.Context) error {
 	if c.conn == nil {
 		conn, err := c.CommClient.EstablishACSConnection(ctx, endpoint, channel)
 		if err != nil {
-			log.CtxLogger(ctx).Errorf("Failed to establish ACS connection: %v", err)
-			return err
+			return fmt.Errorf("failed to establish ACS connection: %v", err)
 		}
 		c.conn = conn
 	}
 
 	msg, err := c.buildCondorMessage(ctx)
 	if err != nil {
-		log.CtxLogger(ctx).Errorf("Failed to build condor message: %v", err)
-		return err
+		return fmt.Errorf("failed to build condor message: %v", err)
 	}
 	err = c.CommClient.SendAgentMessage(ctx, "mysql", "databaseresourcefeed", msg, c.conn)
 	if err != nil {
-		log.CtxLogger(ctx).Errorf("Encountered error during sendMetadataMessage, error: %v", err)
-		return err
+		return fmt.Errorf("failed to send message to database center: %v", err)
 	}
 	return nil
 }

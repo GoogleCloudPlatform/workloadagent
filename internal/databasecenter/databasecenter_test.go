@@ -185,15 +185,15 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 				},
 			},
 			establishACSConnectionError: nil,
-			sendAgentMessageError:       fmt.Errorf("failed to send message"),
-			wantErr:                     fmt.Errorf("failed to send message"),
+			sendAgentMessageError:       fmt.Errorf(""),
+			wantErr:                     fmt.Errorf("failed to send message to database center: "),
 		},
 		{
 			name:                        "failed to establish connection",
 			config:                      &configpb.Configuration{},
-			establishACSConnectionError: fmt.Errorf("failed to establish connection"),
+			establishACSConnectionError: fmt.Errorf(""),
 			sendAgentMessageError:       nil,
-			wantErr:                     fmt.Errorf("failed to establish connection"),
+			wantErr:                     fmt.Errorf("failed to establish ACS connection: "),
 		},
 	}
 
