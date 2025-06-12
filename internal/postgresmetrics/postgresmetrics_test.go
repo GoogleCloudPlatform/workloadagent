@@ -19,12 +19,14 @@ package postgresmetrics
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/protobuf/testing/protocmp"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/databasecenter"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	gcefake "github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/fake"
@@ -74,6 +76,16 @@ func (f *workMemRows) Next() bool {
 
 func (f *workMemRows) Close() error {
 	return nil
+}
+
+type MockDatabaseCenterClient struct {
+	sendMetadataCalled bool
+	sendMetadataErr    error
+}
+
+func (m *MockDatabaseCenterClient) SendMetadataToDatabaseCenter(ctx context.Context) error {
+	m.sendMetadataCalled = true
+	return m.sendMetadataErr
 }
 
 func TestInitDB(t *testing.T) {
@@ -234,6 +246,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
 					},
 				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
 			},
 			wantMetrics: &workloadmanager.WorkloadMetrics{
 				WorkloadType: workloadmanager.POSTGRES,
@@ -256,6 +269,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
 					},
 				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
 			},
 			wantMetrics: &workloadmanager.WorkloadMetrics{
 				WorkloadType: workloadmanager.POSTGRES,
@@ -278,6 +292,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
 					},
 				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
 			},
 			wantMetrics: &workloadmanager.WorkloadMetrics{
 				WorkloadType: workloadmanager.POSTGRES,
@@ -299,6 +314,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
 					},
 				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
 			},
 			wantMetrics: nil,
 			wantErr:     true,
@@ -316,6 +332,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 400}},
 					},
 				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
 			},
 			wantMetrics: nil,
 			wantErr:     true,
@@ -331,6 +348,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 					WriteInsightErrs:      []error{nil},
 					WriteInsightResponses: []*wlm.WriteInsightResponse{nil},
 				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
 			},
 			wantMetrics: &workloadmanager.WorkloadMetrics{
 				WorkloadType: workloadmanager.POSTGRES,
@@ -355,5 +373,116 @@ func TestCollectMetricsOnce(t *testing.T) {
 		if diff := cmp.Diff(tc.wantMetrics, gotMetrics, protocmp.Transform()); diff != "" {
 			t.Errorf("CollectMetricsOnce(%v) returned diff (-want +got):\n%s", tc.name, diff)
 		}
+	}
+}
+
+func TestNew(t *testing.T) {
+	ctx := context.Background()
+	config := &configpb.Configuration{
+		PostgresConfiguration: &configpb.PostgresConfiguration{},
+	}
+	mockWlmClient := &gcefake.TestWLM{}
+	mockDBcenterClient := &MockDatabaseCenterClient{}
+
+	metrics := New(ctx, config, mockWlmClient, mockDBcenterClient)
+
+	if metrics == nil {
+		t.Fatalf("New() returned nil, expected a *PostgresMetrics instance")
+	}
+
+	if metrics.Config != config {
+		t.Errorf("New() returned Config %v, want %v", metrics.Config, config)
+	}
+
+	if metrics.WLMClient != mockWlmClient {
+		t.Errorf("New() returned WLMClient %v, want %v", metrics.WLMClient, mockWlmClient)
+	}
+	if metrics.DBcenterClient != mockDBcenterClient {
+		t.Errorf("New() returned DBcenterClient %v, want %v", metrics.DBcenterClient, mockDBcenterClient)
+	}
+
+	if metrics.execute == nil {
+		t.Errorf("New() returned execute nil, expected a function")
+	}
+
+	if metrics.connect == nil {
+		t.Errorf("New() returned connect nil, expected a function")
+	}
+}
+
+func TestSendMetadataToDatabaseCenter(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name                 string
+		m                    PostgresMetrics
+		sendMetadataErr      error
+		wantSendMetadataCall bool
+		wantErr              bool
+	}{
+		{
+			name: "Send metadata success",
+			m: PostgresMetrics{
+				db: &testDB{
+					workMemRows: &workMemRows{count: 0, size: 1, data: "80MB", shouldErr: false},
+					workMemErr:  nil,
+				},
+				WLMClient: &gcefake.TestWLM{
+					WriteInsightErrs: []error{nil},
+					WriteInsightResponses: []*wlm.WriteInsightResponse{
+						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
+					},
+				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
+			},
+			sendMetadataErr:      nil,
+			wantSendMetadataCall: true,
+			wantErr:              false,
+		},
+		{
+			name: "Send metadata failure, should not return error",
+			m: PostgresMetrics{
+				db: &testDB{
+					workMemRows: &workMemRows{count: 0, size: 1, data: "80MB", shouldErr: false},
+					workMemErr:  nil,
+				},
+				WLMClient: &gcefake.TestWLM{
+					WriteInsightErrs: []error{nil},
+					WriteInsightResponses: []*wlm.WriteInsightResponse{
+						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
+					},
+				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
+			},
+			sendMetadataErr:      fmt.Errorf("db center error"),
+			wantSendMetadataCall: true,
+			wantErr:              false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mockClient := &MockDatabaseCenterClient{
+				sendMetadataCalled: false,
+				sendMetadataErr:    tc.sendMetadataErr,
+			}
+			// Set the mock dbcenter client in the PostgresMetrics object
+			tc.m.DBcenterClient = mockClient
+			// Call the function under test
+			metrics, err := tc.m.CollectMetricsOnce(ctx)
+
+			// Assertions
+			if err != nil && !tc.wantErr {
+				t.Errorf("CollectMetricsOnce returned an unexpected error: %v", err)
+			}
+			if err == nil && tc.wantErr {
+				t.Errorf("CollectMetricsOnce did not return an expected error")
+			}
+			if mockClient.sendMetadataCalled != tc.wantSendMetadataCall {
+				t.Errorf("CollectMetricsOnce: sendMetadataCalled = %v, want %v", mockClient.sendMetadataCalled, tc.wantSendMetadataCall)
+			}
+			if metrics == nil {
+				t.Errorf("CollectMetricsOnce returned nil metrics")
+			}
+		})
 	}
 }

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"go.uber.org/zap/zapcore"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/databasecenter"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/postgresdiscovery"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/postgresmetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
@@ -48,6 +49,7 @@ type Service struct {
 	postgresProcesses []servicecommunication.ProcessWrapper
 	dwActivated       bool
 	WLMClient         workloadmanager.WLMWriter
+	DBcenterClient    databasecenter.Client
 }
 
 type runDiscoveryArgs struct {
@@ -76,7 +78,7 @@ func (s *Service) Start(ctx context.Context, a any) {
 	})()
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-	enabled := s.Config.GetMysqlConfiguration().GetEnabled()
+	enabled := s.Config.GetPostgresConfiguration().GetEnabled()
 EnableCheck:
 	for {
 		select {
@@ -159,7 +161,7 @@ func runMetricCollection(ctx context.Context, a any) {
 		log.CtxLogger(ctx).Errorf("Error while initializing GCE services: %w", err)
 		return
 	}
-	m := postgresmetrics.New(ctx, args.s.Config, args.s.WLMClient)
+	m := postgresmetrics.New(ctx, args.s.Config, args.s.WLMClient, args.s.DBcenterClient)
 	err = m.InitDB(ctx, gceService)
 	if err != nil {
 		log.CtxLogger(ctx).Errorf("Failed to initialize Postgres DB: %w", err)

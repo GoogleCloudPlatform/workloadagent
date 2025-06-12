@@ -27,6 +27,7 @@ import (
 
 	// Register the pq driver for Postgres with the database/sql package.
 	_ "github.com/lib/pq"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/databasecenter"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
@@ -71,11 +72,12 @@ func (d dbWrapper) Ping() error {
 
 // PostgresMetrics contains variables and methods to collect metrics for Postgres databases running on the current host.
 type PostgresMetrics struct {
-	execute   commandlineexecutor.Execute
-	Config    *configpb.Configuration
-	db        dbInterface
-	connect   func(ctx context.Context, dataSource string) (dbInterface, error)
-	WLMClient workloadmanager.WLMWriter
+	execute        commandlineexecutor.Execute
+	Config         *configpb.Configuration
+	db             dbInterface
+	connect        func(ctx context.Context, dataSource string) (dbInterface, error)
+	WLMClient      workloadmanager.WLMWriter
+	DBcenterClient databasecenter.Client
 }
 
 // password gets the password for the Postgres database.
@@ -123,12 +125,13 @@ func (m *PostgresMetrics) dbDSN(ctx context.Context, gceService gceInterface) (s
 }
 
 // New creates a new PostgresMetrics object initialized with default values.
-func New(ctx context.Context, config *configpb.Configuration, wlmClient workloadmanager.WLMWriter) *PostgresMetrics {
+func New(ctx context.Context, config *configpb.Configuration, wlmClient workloadmanager.WLMWriter, dbcenterClient databasecenter.Client) *PostgresMetrics {
 	return &PostgresMetrics{
-		execute:   commandlineexecutor.ExecuteCommand,
-		Config:    config,
-		connect:   defaultConnect,
-		WLMClient: wlmClient,
+		execute:        commandlineexecutor.ExecuteCommand,
+		Config:         config,
+		connect:        defaultConnect,
+		WLMClient:      wlmClient,
+		DBcenterClient: dbcenterClient,
 	}
 }
 
@@ -211,6 +214,14 @@ func (m *PostgresMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmana
 			workMemKey: strconv.Itoa(workMemBytes),
 		},
 	}
+	// Send metadata details to database center
+	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx)
+	if err != nil {
+		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.
+		log.CtxLogger(ctx).Info("Unable to send information to Database Center, please refer to documentation to make sure that all prerequisites are met")
+		log.CtxLogger(ctx).Debugf("Failed to send metadata to database center: %v", err)
+	}
+
 	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
 		WLMetrics:  metrics,
 		CloudProps: m.Config.GetCloudProperties(),
