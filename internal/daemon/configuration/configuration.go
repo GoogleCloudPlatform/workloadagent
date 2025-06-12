@@ -249,6 +249,9 @@ func defaultConfig(cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) 
 		LogLevel:              cpb.Configuration_INFO,
 		CloudProperties:       cloudProps,
 		DataWarehouseEndpoint: "https://workloadmanager-datawarehouse.googleapis.com/",
+		CommonDiscovery: &cpb.CommonDiscovery{
+			Enabled: proto.Bool(true),
+		},
 		OracleConfiguration: &cpb.OracleConfiguration{
 			Enabled: proto.Bool(false),
 			OracleDiscovery: &cpb.OracleDiscovery{

@@ -1,0 +1,21 @@
+{
+  "log_level": "INFO",
+  "common_discovery": {
+    "enabled": false
+  },
+  "sqlserver_configuration": {
+    "enabled": false
+  },
+  "oracle_configuration": {
+    "enabled": false
+  },
+  "mysql_configuration": {
+    "enabled": false
+  },
+  "redis_configuration": {
+    "enabled": false
+  },
+  "postgres_configuration": {
+    "enabled": false
+  }
+}

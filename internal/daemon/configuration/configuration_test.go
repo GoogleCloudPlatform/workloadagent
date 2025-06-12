@@ -92,6 +92,7 @@ func TestLoad(t *testing.T) {
 				AgentProperties:        &cpb.AgentProperties{Name: AgentName, Version: AgentVersion},
 				LogLevel:               cpb.Configuration_INFO,
 				LogToCloud:             proto.Bool(false),
+				CommonDiscovery:        defaultCfg.CommonDiscovery,
 				OracleConfiguration:    defaultCfg.OracleConfiguration,
 				SqlserverConfiguration: defaultCfg.SqlserverConfiguration,
 			},
@@ -182,6 +183,7 @@ func TestLoad(t *testing.T) {
 				AgentProperties:       &cpb.AgentProperties{Name: AgentName, Version: AgentVersion},
 				LogLevel:              cpb.Configuration_DEBUG,
 				LogToCloud:            proto.Bool(false),
+				CommonDiscovery:        defaultCfg.CommonDiscovery,
 				OracleConfiguration: &cpb.OracleConfiguration{
 					Enabled: proto.Bool(true),
 					OracleDiscovery: &cpb.OracleDiscovery{
@@ -331,6 +333,7 @@ func TestLoad(t *testing.T) {
 				AgentProperties:       &cpb.AgentProperties{Name: AgentName, Version: AgentVersion},
 				LogLevel:              cpb.Configuration_DEBUG,
 				LogToCloud:            proto.Bool(false),
+				CommonDiscovery:        defaultCfg.CommonDiscovery,
 				OracleConfiguration: &cpb.OracleConfiguration{
 					Enabled: proto.Bool(true),
 					OracleDiscovery: &cpb.OracleDiscovery{

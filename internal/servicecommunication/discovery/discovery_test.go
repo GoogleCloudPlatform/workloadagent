@@ -25,6 +25,7 @@ import (
 
 	dpb "google.golang.org/protobuf/types/known/durationpb"
 	"github.com/google/go-cmp/cmp"
+	"google.golang.org/protobuf/proto"
 	"github.com/shirou/gopsutil/v3/process"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
@@ -431,6 +432,7 @@ func TestCommonDiscoveryFullChannel(t *testing.T) {
 	d := &Service{
 		Config: &cpb.Configuration{
 			CommonDiscovery: &cpb.CommonDiscovery{
+				Enabled: proto.Bool(true),
 				// every 0.1 seconds
 				CollectionFrequency: &dpb.Duration{Nanos: 1000000000 * 0.1},
 			},
@@ -535,6 +537,7 @@ func TestCommonDiscovery(t *testing.T) {
 				}},
 				Config: &cpb.Configuration{
 					CommonDiscovery: &cpb.CommonDiscovery{
+						Enabled: proto.Bool(true),
 						// 200 milliseconds collection frequency
 						CollectionFrequency: &dpb.Duration{Nanos: 1000 * 1000 * 200},
 					},
@@ -560,6 +563,7 @@ func TestCommonDiscovery(t *testing.T) {
 				}},
 				Config: &cpb.Configuration{
 					CommonDiscovery: &cpb.CommonDiscovery{
+						Enabled:             proto.Bool(true),
 						CollectionFrequency: &dpb.Duration{Seconds: 1},
 					},
 				},

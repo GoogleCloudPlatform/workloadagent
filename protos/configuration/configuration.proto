@@ -88,7 +88,8 @@ message MySQLConfiguration {
 }
 
 message CommonDiscovery {
-  google.protobuf.Duration collection_frequency = 1;
+  optional bool enabled = 1;
+  google.protobuf.Duration collection_frequency = 2;
 }
 
 message RedisConfiguration {

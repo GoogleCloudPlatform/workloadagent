@@ -142,6 +142,11 @@ func (d Service) commonDiscoveryLoop(ctx context.Context) (servicecommunication.
 
 // CommonDiscovery returns a CommonDiscoveryResult and any errors encountered during the discovery process.
 func (d Service) CommonDiscovery(ctx context.Context, a any) {
+	if d.Config.GetCommonDiscovery() != nil && !d.Config.GetCommonDiscovery().GetEnabled() {
+		// If CommonDiscovery is explicitly disabled in the configuration, then return.
+		log.CtxLogger(ctx).Info("CommonDiscovery is disabled in the configuration")
+		return
+	}
 	log.CtxLogger(ctx).Info("CommonDiscovery started")
 	var chs map[string]chan<- *servicecommunication.Message
 	var ok bool
