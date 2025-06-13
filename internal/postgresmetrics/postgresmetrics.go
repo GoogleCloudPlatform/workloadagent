@@ -200,6 +200,29 @@ func (m *PostgresMetrics) getWorkMem(ctx context.Context) (int, error) {
 	return workMemBytes, nil
 }
 
+// Get Version of Postgres
+func (m *PostgresMetrics) version(ctx context.Context) (string, error) {
+	rows, err := executeQuery(ctx, m.db, "SHOW server_version")
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("Postgres version error", "err", err)
+		return "", fmt.Errorf("can't get version in test Postgres connection: %v", err)
+	}
+	log.CtxLogger(ctx).Debugw("Postgres version result", "rows", rows)
+	if rows == nil {
+		return "", fmt.Errorf("no rows returned from version query")
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return "", errors.New("no rows returned from version query")
+	}
+	var version string
+	if err := rows.Scan(&version); err != nil {
+		return "", err
+	}
+	log.CtxLogger(ctx).Debugw("Postgres version", "version", version)
+	return version, nil
+}
+
 // CollectMetricsOnce collects metrics for Postgres databases running on the host.
 func (m *PostgresMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmanager.WorkloadMetrics, error) {
 	workMemBytes, err := m.getWorkMem(ctx)
@@ -214,10 +237,15 @@ func (m *PostgresMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmana
 			workMemKey: strconv.Itoa(workMemBytes),
 		},
 	}
+	version, err := m.version(ctx)
+	if err != nil {
+		// Don't return error here, we want to send metrics to DW even if version send fails.
+		log.CtxLogger(ctx).Warnf("Failed to get version: %w", err)
+	}
 	// Send metadata details to database center
 	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.POSTGRES,
 		Metrics: map[string]string{
-			"version": "15", // TODO: Get the version from the Postgres.
+			"version": version,
 		}})
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.

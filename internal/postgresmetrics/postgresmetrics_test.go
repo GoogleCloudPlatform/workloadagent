@@ -37,6 +37,8 @@ import (
 type testDB struct {
 	workMemRows rowsInterface
 	workMemErr  error
+	versionRows rowsInterface
+	versionErr  error
 	pingErr     error
 }
 
@@ -45,6 +47,9 @@ var emptyDB = &testDB{}
 func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (rowsInterface, error) {
 	if query == "SHOW work_mem" {
 		return t.workMemRows, t.workMemErr
+	}
+	if query == "SHOW server_version" {
+		return t.versionRows, t.versionErr
 	}
 	return nil, nil
 }
@@ -75,6 +80,31 @@ func (f *workMemRows) Next() bool {
 }
 
 func (f *workMemRows) Close() error {
+	return nil
+}
+
+type versionRows struct {
+	count     int
+	size      int
+	data      string
+	shouldErr bool
+}
+
+func (f *versionRows) Scan(dest ...any) error {
+	log.CtxLogger(context.Background()).Infow("fakeRows.Scan", "dest", dest, "dest[0]", dest[0], "data", f.data)
+	if f.shouldErr {
+		return errors.New("test-error")
+	}
+	*dest[0].(*string) = f.data
+	return nil
+}
+
+func (f *versionRows) Next() bool {
+	f.count++
+	return f.count <= f.size
+}
+
+func (f *versionRows) Close() error {
 	return nil
 }
 
@@ -226,11 +256,56 @@ func TestInitDBError(t *testing.T) {
 	}
 }
 
+func TestVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		m       PostgresMetrics
+		version string
+		wantErr bool
+	}{
+		{
+			name: "HappyPath",
+			m: PostgresMetrics{
+				db: &testDB{
+					versionRows: &versionRows{count: 0, size: 1, data: "14.4", shouldErr: false},
+					versionErr:  nil,
+				},
+			},
+			version: "14.4",
+			wantErr: false,
+		},
+		{
+			name: "VersionError",
+			m: PostgresMetrics{
+				db: &testDB{
+					versionErr: errors.New("test-error"),
+				},
+			},
+			version: "",
+			wantErr: true,
+		},
+	}
+	ctx := context.Background()
+	for _, tc := range tests {
+		version, err := tc.m.version(ctx)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("version(%v) returned no error, want error", tc.name)
+			}
+			continue
+		}
+		if version != tc.version {
+			t.Errorf("version(%v) = %v, want %v", tc.name, version, tc.version)
+		}
+	}
+}
+
 func TestCollectMetricsOnce(t *testing.T) {
 	tests := []struct {
 		name        string
 		m           PostgresMetrics
 		wantMetrics *workloadmanager.WorkloadMetrics
+		wantVersion string
 		wantErr     bool
 	}{
 		{
@@ -239,6 +314,8 @@ func TestCollectMetricsOnce(t *testing.T) {
 				db: &testDB{
 					workMemRows: &workMemRows{count: 0, size: 1, data: "80MB", shouldErr: false},
 					workMemErr:  nil,
+					versionRows: &versionRows{count: 0, size: 1, data: "14.4", shouldErr: false},
+					versionErr:  nil,
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -254,7 +331,8 @@ func TestCollectMetricsOnce(t *testing.T) {
 					workMemKey: strconv.Itoa(80 * 1024 * 1024),
 				},
 			},
-			wantErr: false,
+			wantVersion: "14.4",
+			wantErr:     false,
 		},
 		{
 			name: "HappyPathKB",
@@ -262,6 +340,8 @@ func TestCollectMetricsOnce(t *testing.T) {
 				db: &testDB{
 					workMemRows: &workMemRows{count: 0, size: 1, data: "64kB", shouldErr: false},
 					workMemErr:  nil,
+					versionRows: &versionRows{count: 0, size: 1, data: "14.4", shouldErr: false},
+					versionErr:  nil,
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -277,7 +357,8 @@ func TestCollectMetricsOnce(t *testing.T) {
 					workMemKey: strconv.Itoa(64 * 1024),
 				},
 			},
-			wantErr: false,
+			wantVersion: "14.4",
+			wantErr:     false,
 		},
 		{
 			name: "HappyPathGB",
@@ -285,6 +366,8 @@ func TestCollectMetricsOnce(t *testing.T) {
 				db: &testDB{
 					workMemRows: &workMemRows{count: 0, size: 1, data: "4GB", shouldErr: false},
 					workMemErr:  nil,
+					versionRows: &versionRows{count: 0, size: 1, data: "14.4", shouldErr: false},
+					versionErr:  nil,
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -300,13 +383,16 @@ func TestCollectMetricsOnce(t *testing.T) {
 					workMemKey: strconv.Itoa(4 * 1024 * 1024 * 1024),
 				},
 			},
-			wantErr: false,
+			wantVersion: "14.4",
+			wantErr:     false,
 		},
 		{
 			name: "GetWorkMemError",
 			m: PostgresMetrics{
 				db: &testDB{
-					workMemErr: errors.New("test-error"),
+					workMemErr:  errors.New("test-error"),
+					versionRows: &versionRows{count: 0, size: 1, data: "14.4", shouldErr: false},
+					versionErr:  nil,
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -317,7 +403,33 @@ func TestCollectMetricsOnce(t *testing.T) {
 				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
 			},
 			wantMetrics: nil,
+			wantVersion: "14.4",
 			wantErr:     true,
+		},
+		{
+			name: "GetVersionError",
+			m: PostgresMetrics{
+				db: &testDB{
+					workMemRows: &workMemRows{count: 0, size: 1, data: "64MB", shouldErr: false},
+					workMemErr:  nil,
+					versionErr:  errors.New("test-error"),
+				},
+				WLMClient: &gcefake.TestWLM{
+					WriteInsightErrs: []error{nil},
+					WriteInsightResponses: []*wlm.WriteInsightResponse{
+						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
+					},
+				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
+			},
+			wantMetrics: &workloadmanager.WorkloadMetrics{
+				WorkloadType: workloadmanager.POSTGRES,
+				Metrics: map[string]string{
+					workMemKey: strconv.Itoa(64 * 1024 * 1024),
+				},
+			},
+			wantVersion: "",
+			wantErr:     false,
 		},
 		{
 			name: "WLMClientError",
