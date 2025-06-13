@@ -38,6 +38,26 @@ const (
 	channel = "dbcenter-autopush" // "channel for database center"
 )
 
+// EngineType is an enum for the type of database engine.
+type EngineType string
+
+const (
+	// UNKNOWN  engine type.
+	UNKNOWN EngineType = "UNKNOWN"
+	// MYSQL engine type.
+	MYSQL EngineType = "MYSQL"
+	// POSTGRES engine type.
+	POSTGRES EngineType = "POSTGRES"
+	// SQLSERVER engine type.
+	SQLSERVER EngineType = "SQLSERVER"
+)
+
+// DBCenterMetrics is a struct for database center metrics.
+type DBCenterMetrics struct {
+	EngineType EngineType
+	Metrics    map[string]string
+}
+
 // CommunicationClient is an interface for communication client.
 type CommunicationClient interface {
 	EstablishACSConnection(ctx context.Context, endpoint string, channel string) (*client.Connection, error)
@@ -46,7 +66,7 @@ type CommunicationClient interface {
 
 // Client for sending metadata to database center.
 type Client interface {
-	SendMetadataToDatabaseCenter(ctx context.Context) error
+	SendMetadataToDatabaseCenter(ctx context.Context, metrics DBCenterMetrics) error
 }
 
 // Client for sending metadata to database center.
@@ -81,8 +101,21 @@ func (r *realCommunicationClient) SendAgentMessage(ctx context.Context, agentTyp
 	return communication.SendAgentMessage(ctx, agentType, messageType, msg, conn)
 }
 
+func (c *realClient) getEngineType(metrics DBCenterMetrics) dcpb.Engine {
+	switch metrics.EngineType {
+	case MYSQL:
+		return dcpb.Engine_ENGINE_MYSQL
+	case POSTGRES:
+		return dcpb.Engine_ENGINE_POSTGRES
+	case SQLSERVER:
+		return dcpb.Engine_ENGINE_SQL_SERVER
+	default:
+		return dcpb.Engine_ENGINE_UNSPECIFIED
+	}
+}
+
 // buildCondorMessage builds the snapshot message.
-func (c *realClient) buildCondorMessage(ctx context.Context) (*anypb.Any, error) {
+func (c *realClient) buildCondorMessage(ctx context.Context, metrics DBCenterMetrics) (*anypb.Any, error) {
 	cloudProps := c.Config.GetCloudProperties()
 	feedTime := timestamppb.New(time.Now())
 	// construct an object of DatabaseResourceFeed proto.
@@ -106,7 +139,7 @@ func (c *realClient) buildCondorMessage(ctx context.Context) (*anypb.Any, error)
 				InstanceType:      dcpb.InstanceType_SUB_RESOURCE_TYPE_PRIMARY,
 				Product: &dcpb.Product{
 					Type:    dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
-					Engine:  dcpb.Engine_ENGINE_MYSQL,
+					Engine:  c.getEngineType(metrics),
 					Version: "8.0",
 				},
 			},
@@ -121,7 +154,7 @@ func (c *realClient) buildCondorMessage(ctx context.Context) (*anypb.Any, error)
 }
 
 // SendMetadataToDatabaseCenter sends metadata to database center.
-func (c *realClient) SendMetadataToDatabaseCenter(ctx context.Context) error {
+func (c *realClient) SendMetadataToDatabaseCenter(ctx context.Context, metrics DBCenterMetrics) error {
 	flag.Parse()
 	log.CtxLogger(ctx).Debugw("Sending metadata to database center")
 	client.DebugLogging = true
@@ -134,7 +167,7 @@ func (c *realClient) SendMetadataToDatabaseCenter(ctx context.Context) error {
 		c.conn = conn
 	}
 
-	msg, err := c.buildCondorMessage(ctx)
+	msg, err := c.buildCondorMessage(ctx, metrics)
 	if err != nil {
 		return fmt.Errorf("failed to build condor message: %v", err)
 	}

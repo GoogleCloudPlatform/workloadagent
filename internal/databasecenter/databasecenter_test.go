@@ -56,6 +56,7 @@ func TestBuildCondorMessage(t *testing.T) {
 	tests := []struct {
 		name    string
 		config  *configpb.Configuration
+		metrics DBCenterMetrics
 		want    *dcpb.DatabaseResourceFeed
 		wantErr bool
 	}{
@@ -68,6 +69,12 @@ func TestBuildCondorMessage(t *testing.T) {
 					InstanceId:       "test-instance",
 					InstanceName:     "test-instance-name",
 					Region:           "us-central1",
+				},
+			},
+			metrics: DBCenterMetrics{
+				EngineType: MYSQL,
+				Metrics: map[string]string{
+					"version": "8.0",
 				},
 			},
 			want: &dcpb.DatabaseResourceFeed{
@@ -99,8 +106,14 @@ func TestBuildCondorMessage(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "empty config",
-			config:  &configpb.Configuration{},
+			name:   "empty config",
+			config: &configpb.Configuration{},
+			metrics: DBCenterMetrics{
+				EngineType: POSTGRES,
+				Metrics: map[string]string{
+					"version": "8.0",
+				},
+			},
 			wantErr: false, // The function will still build a message with empty values.
 			want: &dcpb.DatabaseResourceFeed{
 				FeedTimestamp: testTimestamp,
@@ -120,7 +133,7 @@ func TestBuildCondorMessage(t *testing.T) {
 						InstanceType:      dcpb.InstanceType_SUB_RESOURCE_TYPE_PRIMARY,
 						Product: &dcpb.Product{
 							Type:    dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
-							Engine:  dcpb.Engine_ENGINE_MYSQL,
+							Engine:  dcpb.Engine_ENGINE_POSTGRES,
 							Version: "8.0",
 						},
 					},
@@ -132,7 +145,7 @@ func TestBuildCondorMessage(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			client := realClient{Config: tc.config, CommClient: &MockCommunication{}}
 
-			gotAny, err := client.buildCondorMessage(context.Background())
+			gotAny, err := client.buildCondorMessage(context.Background(), tc.metrics)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("buildCondorMessage() error = %v, wantErr %v", err, tc.wantErr)
 			}
@@ -154,6 +167,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 	tests := []struct {
 		name                        string
 		config                      *configpb.Configuration
+		metrics                     DBCenterMetrics
 		establishACSConnectionError error
 		sendAgentMessageError       error
 		wantErr                     error
@@ -169,6 +183,12 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 					Region:           "us-central1",
 				},
 			},
+			metrics: DBCenterMetrics{
+				EngineType: SQLSERVER,
+				Metrics: map[string]string{
+					"version": "2019",
+				},
+			},
 			establishACSConnectionError: nil,
 			sendAgentMessageError:       nil,
 			wantErr:                     nil,
@@ -182,6 +202,12 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 					InstanceId:       "test-instance",
 					InstanceName:     "test-instance-name",
 					Region:           "us-central1",
+				},
+			},
+			metrics: DBCenterMetrics{
+				EngineType: MYSQL,
+				Metrics: map[string]string{
+					"version": "8.0",
 				},
 			},
 			establishACSConnectionError: nil,
@@ -206,7 +232,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			client := NewClient(tc.config, mockComm)
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
-			err := client.SendMetadataToDatabaseCenter(ctx)
+			err := client.SendMetadataToDatabaseCenter(ctx, tc.metrics)
 			if err != nil && err.Error() != tc.wantErr.Error() {
 				t.Errorf("SendMetadataToDatabaseCenter() error = %v, wantErr %v", err, tc.wantErr)
 			}

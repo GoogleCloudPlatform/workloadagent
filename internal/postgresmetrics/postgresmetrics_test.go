@@ -83,7 +83,7 @@ type MockDatabaseCenterClient struct {
 	sendMetadataErr    error
 }
 
-func (m *MockDatabaseCenterClient) SendMetadataToDatabaseCenter(ctx context.Context) error {
+func (m *MockDatabaseCenterClient) SendMetadataToDatabaseCenter(ctx context.Context, metrics databasecenter.DBCenterMetrics) error {
 	m.sendMetadataCalled = true
 	return m.sendMetadataErr
 }

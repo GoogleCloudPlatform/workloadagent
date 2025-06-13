@@ -63,7 +63,10 @@ func (s *SQLServerMetrics) CollectMetricsOnce(ctx context.Context) {
 	}
 	log.Logger.Info("SQLServerMetrics SQL Collection ends.")
 	// Send metadata details to database center
-	err := s.DBcenterClient.SendMetadataToDatabaseCenter(ctx)
+	err := s.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.SQLSERVER,
+		Metrics: map[string]string{
+			"version": "2019", // TODO: Get the version from the SQL Server.
+		}})
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.
 		log.CtxLogger(ctx).Info("Unable to send information to Database Center, please refer to documentation to make sure that all prerequisites are met")

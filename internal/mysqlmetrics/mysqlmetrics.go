@@ -435,7 +435,10 @@ func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmanager
 	)
 
 	// send metadata details to database center
-	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx)
+	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.MYSQL,
+		Metrics: map[string]string{
+			"version": "8.0", // TODO: Get the version from the MySQL.
+		}})
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.
 		log.CtxLogger(ctx).Info("Unable to send information to Database Center, please refer to documentation to make sure that all prerequisites are met")
