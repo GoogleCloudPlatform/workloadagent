@@ -88,19 +88,28 @@ type testDB struct {
 	slaveErr             error
 	replicationZonesRows rowsInterface
 	replicationZonesErr  error
+	versionRows          rowsInterface
+	versionErr           error
 }
 
 func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (rowsInterface, error) {
 	if query == "SHOW ENGINES" {
 		return t.engineRows, t.engineErr
-	} else if query == "SELECT @@innodb_buffer_pool_size" {
+	}
+	if query == "SELECT @@innodb_buffer_pool_size" {
 		return t.bufferPoolRows, t.bufferPoolErr
-	} else if query == "SHOW REPLICA STATUS" {
+	}
+	if query == "SHOW REPLICA STATUS" {
 		return t.replicaRows, t.replicaErr
-	} else if query == "SHOW SLAVE STATUS" {
+	}
+	if query == "SHOW SLAVE STATUS" {
 		return t.slaveRows, t.slaveErr
-	} else if query == replicationZonesQuery {
+	}
+	if query == replicationZonesQuery {
 		return t.replicationZonesRows, t.replicationZonesErr
+	}
+	if query == "SELECT @@version" {
+		return t.versionRows, t.versionErr
 	}
 	return nil, nil
 }
@@ -241,6 +250,33 @@ func (f *replicationZonesRows) Next() bool {
 }
 
 func (f *replicationZonesRows) Close() error {
+	return nil
+}
+
+type versionRows struct {
+	count     int
+	size      int
+	data      []string
+	shouldErr bool
+}
+
+func (f *versionRows) Scan(dest ...any) error {
+	log.CtxLogger(context.Background()).Infow("fakeRows.Scan", "dest", dest, "dest[0]", dest[0], "data", f.data)
+	if f.shouldErr {
+		return errors.New("test-error")
+	}
+	for i := range f.data {
+		*dest[i].(*string) = f.data[i]
+	}
+	return nil
+}
+
+func (f *versionRows) Next() bool {
+	f.count++
+	return f.count <= f.size
+}
+
+func (f *versionRows) Close() error {
 	return nil
 }
 
@@ -1342,6 +1378,66 @@ func TestReplicationZones(t *testing.T) {
 			got := m.replicationZones(context.Background(), tc.role, netMock)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("replicationZones() returned diff (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		m       MySQLMetrics
+		version string
+		wantErr bool
+	}{
+		{
+			name: "HappyPath",
+			m: MySQLMetrics{
+				db: &testDB{
+					versionRows: &versionRows{
+						count: 0,
+						size:  1,
+						data: []string{
+							"8.0.26",
+						},
+						shouldErr: false,
+					},
+					versionErr: nil,
+				},
+			},
+			version: "8.0.26",
+			wantErr: false,
+		},
+		{
+			name: "Error",
+			m: MySQLMetrics{
+				db: &testDB{
+					versionRows: &versionRows{
+						count: 0,
+						size:  1,
+						data: []string{
+							"",
+						},
+						shouldErr: false,
+					},
+					versionErr: errors.New("test-error"),
+				},
+			},
+			version: "",
+			wantErr: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := tc.m.version(context.Background())
+			if err != nil && !tc.wantErr {
+				t.Errorf("version() returned an unexpected error: %v", err)
+			}
+			if err == nil && tc.wantErr {
+				t.Errorf("version() did not return an expected error")
+			}
+			if got != tc.version {
+				t.Errorf("version() = %v, want %v", got, tc.version)
 			}
 		})
 	}

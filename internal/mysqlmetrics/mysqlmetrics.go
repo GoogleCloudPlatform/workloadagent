@@ -406,6 +406,29 @@ func (m *MySQLMetrics) totalRAM(ctx context.Context, isWindowsOS bool) (int, err
 	return ram, nil
 }
 
+// Get Version of MySQL
+func (m *MySQLMetrics) version(ctx context.Context) (string, error) {
+	rows, err := executeQuery(ctx, m.db, "SELECT @@version")
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("MySQL version error", "err", err)
+		return "", fmt.Errorf("can't get version in test MySQL connection: %v", err)
+	}
+	log.CtxLogger(ctx).Debugw("MySQL version result", "rows", rows)
+	if rows == nil {
+		return "", fmt.Errorf("no rows returned from version query")
+	}
+	defer rows.Close()
+	var version string
+	if !rows.Next() {
+		return "", errors.New("no rows returned from version query")
+	}
+	if err := rows.Scan(&version); err != nil {
+		return "", err
+	}
+	log.CtxLogger(ctx).Debugw("MySQL version", "version", version)
+	return version, nil
+}
+
 // CollectMetricsOnce collects metrics for MySQL databases running on the host.
 func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmanager.WorkloadMetrics, error) {
 	bufferPoolSize, err := m.bufferPoolSize(ctx)
@@ -434,10 +457,14 @@ func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmanager
 		replicationZonesKey, strings.Join(replicationZones, ","),
 	)
 
+	version, err := m.version(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Debugf("Failed to get MySQL version: %v", err)
+	}
 	// send metadata details to database center
 	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.MYSQL,
 		Metrics: map[string]string{
-			"version": "8.0", // TODO: Get the version from the MySQL.
+			"version": version,
 		}})
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.
