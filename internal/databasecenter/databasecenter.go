@@ -129,7 +129,7 @@ func (c *realClient) buildCondorMessage(ctx context.Context, metrics DBCenterMet
 					UniqueId:     cloudProps.GetInstanceId(),
 					ResourceType: "sqladmin.googleapis.com/Instance",
 				},
-				ResourceName:      "//compute.googleapis.com/projects/" + cloudProps.GetProjectId() + "/instances/" + cloudProps.GetInstanceName(),
+				ResourceName:      "//compute.googleapis.com/projects/" + cloudProps.GetProjectId() + "/zones/" + cloudProps.GetZone() + "/instances/" + cloudProps.GetInstanceName(),
 				ResourceContainer: "projects/" + cloudProps.GetNumericProjectId(),
 				Location:          cloudProps.GetRegion(),
 				CreationTime:      feedTime,
