@@ -61,7 +61,7 @@ func TestBuildCondorMessage(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "valid config",
+			name: "valid config mysql",
 			config: &configpb.Configuration{
 				CloudProperties: &configpb.CloudProperties{
 					ProjectId:        "test-project",
@@ -75,7 +75,7 @@ func TestBuildCondorMessage(t *testing.T) {
 			metrics: DBCenterMetrics{
 				EngineType: MYSQL,
 				Metrics: map[string]string{
-					"version": "8.0",
+					"version": "8.0.26",
 				},
 			},
 			want: &dcpb.DatabaseResourceFeed{
@@ -86,7 +86,7 @@ func TestBuildCondorMessage(t *testing.T) {
 						Id: &dcpb.DatabaseResourceId{
 							Provider:     dcpb.DatabaseResourceId_GCP,
 							UniqueId:     "test-instance",
-							ResourceType: "sqladmin.googleapis.com/Instance",
+							ResourceType: "compute.googleapis.com/Instance",
 						},
 						ResourceName:      "//compute.googleapis.com/projects/test-project/zones/us-central1-a/instances/test-instance-name",
 						ResourceContainer: "projects/12345",
@@ -99,7 +99,99 @@ func TestBuildCondorMessage(t *testing.T) {
 						Product: &dcpb.Product{
 							Type:    dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
 							Engine:  dcpb.Engine_ENGINE_MYSQL,
-							Version: "8.0",
+							Version: "8.0.26",
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid config postgres",
+			config: &configpb.Configuration{
+				CloudProperties: &configpb.CloudProperties{
+					ProjectId:        "test-project",
+					NumericProjectId: "12345",
+					InstanceId:       "test-instance",
+					InstanceName:     "test-instance-name",
+					Region:           "us-central1",
+					Zone:             "us-central1-a",
+				},
+			},
+			metrics: DBCenterMetrics{
+				EngineType: POSTGRES,
+				Metrics: map[string]string{
+					"version": "17.0",
+				},
+			},
+			want: &dcpb.DatabaseResourceFeed{
+				FeedTimestamp: testTimestamp,
+				FeedType:      dcpb.DatabaseResourceFeed_RESOURCE_METADATA,
+				Content: &dcpb.DatabaseResourceFeed_ResourceMetadata{
+					ResourceMetadata: &dcpb.DatabaseResourceMetadata{
+						Id: &dcpb.DatabaseResourceId{
+							Provider:     dcpb.DatabaseResourceId_GCP,
+							UniqueId:     "test-instance",
+							ResourceType: "compute.googleapis.com/Instance",
+						},
+						ResourceName:      "//compute.googleapis.com/projects/test-project/zones/us-central1-a/instances/test-instance-name",
+						ResourceContainer: "projects/12345",
+						Location:          "us-central1",
+						CreationTime:      testTimestamp,
+						UpdationTime:      testTimestamp,
+						ExpectedState:     dcpb.DatabaseResourceMetadata_HEALTHY,
+						CurrentState:      dcpb.DatabaseResourceMetadata_HEALTHY,
+						InstanceType:      dcpb.InstanceType_SUB_RESOURCE_TYPE_PRIMARY,
+						Product: &dcpb.Product{
+							Type:    dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
+							Engine:  dcpb.Engine_ENGINE_POSTGRES,
+							Version: "17.0",
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid config sqlserver",
+			config: &configpb.Configuration{
+				CloudProperties: &configpb.CloudProperties{
+					ProjectId:        "test-project",
+					NumericProjectId: "12345",
+					InstanceId:       "test-instance",
+					InstanceName:     "test-instance-name",
+					Region:           "us-central1",
+					Zone:             "us-central1-a",
+				},
+			},
+			metrics: DBCenterMetrics{
+				EngineType: SQLSERVER,
+				Metrics: map[string]string{
+					"version": "2019",
+				},
+			},
+			want: &dcpb.DatabaseResourceFeed{
+				FeedTimestamp: testTimestamp,
+				FeedType:      dcpb.DatabaseResourceFeed_RESOURCE_METADATA,
+				Content: &dcpb.DatabaseResourceFeed_ResourceMetadata{
+					ResourceMetadata: &dcpb.DatabaseResourceMetadata{
+						Id: &dcpb.DatabaseResourceId{
+							Provider:     dcpb.DatabaseResourceId_GCP,
+							UniqueId:     "test-instance",
+							ResourceType: "compute.googleapis.com/Instance",
+						},
+						ResourceName:      "//compute.googleapis.com/projects/test-project/zones/us-central1-a/instances/test-instance-name",
+						ResourceContainer: "projects/12345",
+						Location:          "us-central1",
+						CreationTime:      testTimestamp,
+						UpdationTime:      testTimestamp,
+						ExpectedState:     dcpb.DatabaseResourceMetadata_HEALTHY,
+						CurrentState:      dcpb.DatabaseResourceMetadata_HEALTHY,
+						InstanceType:      dcpb.InstanceType_SUB_RESOURCE_TYPE_PRIMARY,
+						Product: &dcpb.Product{
+							Type:    dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
+							Engine:  dcpb.Engine_ENGINE_SQL_SERVER,
+							Version: "2019",
 						},
 					},
 				},
@@ -112,7 +204,7 @@ func TestBuildCondorMessage(t *testing.T) {
 			metrics: DBCenterMetrics{
 				EngineType: POSTGRES,
 				Metrics: map[string]string{
-					"version": "8.0",
+					"version": "17.0",
 				},
 			},
 			wantErr: false, // The function will still build a message with empty values.
@@ -123,7 +215,7 @@ func TestBuildCondorMessage(t *testing.T) {
 					ResourceMetadata: &dcpb.DatabaseResourceMetadata{
 						Id: &dcpb.DatabaseResourceId{
 							Provider:     dcpb.DatabaseResourceId_GCP,
-							ResourceType: "sqladmin.googleapis.com/Instance",
+							ResourceType: "compute.googleapis.com/Instance",
 						},
 						ResourceName:      "//compute.googleapis.com/projects//zones//instances/",
 						ResourceContainer: "projects/",
@@ -135,7 +227,7 @@ func TestBuildCondorMessage(t *testing.T) {
 						Product: &dcpb.Product{
 							Type:    dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
 							Engine:  dcpb.Engine_ENGINE_POSTGRES,
-							Version: "8.0",
+							Version: "17.0",
 						},
 					},
 				},

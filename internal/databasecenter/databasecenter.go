@@ -127,7 +127,7 @@ func (c *realClient) buildCondorMessage(ctx context.Context, metrics DBCenterMet
 				Id: &dcpb.DatabaseResourceId{
 					Provider:     dcpb.DatabaseResourceId_GCP,
 					UniqueId:     cloudProps.GetInstanceId(),
-					ResourceType: "sqladmin.googleapis.com/Instance",
+					ResourceType: "compute.googleapis.com/Instance",
 				},
 				ResourceName:      "//compute.googleapis.com/projects/" + cloudProps.GetProjectId() + "/zones/" + cloudProps.GetZone() + "/instances/" + cloudProps.GetInstanceName(),
 				ResourceContainer: "projects/" + cloudProps.GetNumericProjectId(),
@@ -140,7 +140,7 @@ func (c *realClient) buildCondorMessage(ctx context.Context, metrics DBCenterMet
 				Product: &dcpb.Product{
 					Type:    dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
 					Engine:  c.getEngineType(metrics),
-					Version: "8.0",
+					Version: metrics.Metrics["version"],
 				},
 			},
 		},
