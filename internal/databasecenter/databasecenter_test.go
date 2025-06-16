@@ -69,6 +69,7 @@ func TestBuildCondorMessage(t *testing.T) {
 					InstanceId:       "test-instance",
 					InstanceName:     "test-instance-name",
 					Region:           "us-central1",
+					Zone:             "us-central1-a",
 				},
 			},
 			metrics: DBCenterMetrics{
@@ -87,7 +88,7 @@ func TestBuildCondorMessage(t *testing.T) {
 							UniqueId:     "test-instance",
 							ResourceType: "sqladmin.googleapis.com/Instance",
 						},
-						ResourceName:      "//compute.googleapis.com/projects/test-project/instances/test-instance-name",
+						ResourceName:      "//compute.googleapis.com/projects/test-project/zones/us-central1-a/instances/test-instance-name",
 						ResourceContainer: "projects/12345",
 						Location:          "us-central1",
 						CreationTime:      testTimestamp,
@@ -124,7 +125,7 @@ func TestBuildCondorMessage(t *testing.T) {
 							Provider:     dcpb.DatabaseResourceId_GCP,
 							ResourceType: "sqladmin.googleapis.com/Instance",
 						},
-						ResourceName:      "//compute.googleapis.com/projects//instances/",
+						ResourceName:      "//compute.googleapis.com/projects//zones//instances/",
 						ResourceContainer: "projects/",
 						CreationTime:      testTimestamp,
 						UpdationTime:      testTimestamp,
@@ -181,6 +182,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 					InstanceId:       "test-instance",
 					InstanceName:     "test-instance-name",
 					Region:           "us-central1",
+					Zone:             "us-central1-a",
 				},
 			},
 			metrics: DBCenterMetrics{
@@ -202,6 +204,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 					InstanceId:       "test-instance",
 					InstanceName:     "test-instance-name",
 					Region:           "us-central1",
+					Zone:             "us-central1-a",
 				},
 			},
 			metrics: DBCenterMetrics{
