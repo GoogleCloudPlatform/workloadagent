@@ -75,7 +75,8 @@ func TestBuildCondorMessage(t *testing.T) {
 			metrics: DBCenterMetrics{
 				EngineType: MYSQL,
 				Metrics: map[string]string{
-					"version": "8.0.26",
+					"major_version": "8.0",
+					"minor_version": "8.0.26",
 				},
 			},
 			want: &dcpb.DatabaseResourceFeed{
@@ -99,7 +100,7 @@ func TestBuildCondorMessage(t *testing.T) {
 						Product: &dcpb.Product{
 							Type:    dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
 							Engine:  dcpb.Engine_ENGINE_MYSQL,
-							Version: "8.0.26",
+							Version: "8.0",
 						},
 					},
 				},
@@ -121,7 +122,8 @@ func TestBuildCondorMessage(t *testing.T) {
 			metrics: DBCenterMetrics{
 				EngineType: POSTGRES,
 				Metrics: map[string]string{
-					"version": "17.0",
+					"major_version": "17",
+					"minor_version": "17.4",
 				},
 			},
 			want: &dcpb.DatabaseResourceFeed{
@@ -145,7 +147,7 @@ func TestBuildCondorMessage(t *testing.T) {
 						Product: &dcpb.Product{
 							Type:    dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
 							Engine:  dcpb.Engine_ENGINE_POSTGRES,
-							Version: "17.0",
+							Version: "17",
 						},
 					},
 				},
@@ -167,7 +169,7 @@ func TestBuildCondorMessage(t *testing.T) {
 			metrics: DBCenterMetrics{
 				EngineType: SQLSERVER,
 				Metrics: map[string]string{
-					"version": "2019",
+					"major_version": "2019",
 				},
 			},
 			want: &dcpb.DatabaseResourceFeed{
@@ -204,7 +206,7 @@ func TestBuildCondorMessage(t *testing.T) {
 			metrics: DBCenterMetrics{
 				EngineType: POSTGRES,
 				Metrics: map[string]string{
-					"version": "17.0",
+					"major_version": "17",
 				},
 			},
 			wantErr: false, // The function will still build a message with empty values.
@@ -227,7 +229,7 @@ func TestBuildCondorMessage(t *testing.T) {
 						Product: &dcpb.Product{
 							Type:    dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
 							Engine:  dcpb.Engine_ENGINE_POSTGRES,
-							Version: "17.0",
+							Version: "17",
 						},
 					},
 				},

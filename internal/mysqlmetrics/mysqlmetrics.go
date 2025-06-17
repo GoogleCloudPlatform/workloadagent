@@ -43,6 +43,8 @@ const (
 	totalRAMKey           = "total_ram"
 	currentRoleKey        = "current_role"
 	replicationZonesKey   = "replication_zones"
+	majorVersionKey       = "major_version"
+	minorVersionKey       = "minor_version"
 	sourceRole            = "source"
 	replicaRole           = "replica"
 	replicationZonesQuery = "SELECT HOST FROM information_schema.PROCESSLIST AS p WHERE p.COMMAND = 'Binlog Dump'"
@@ -407,26 +409,46 @@ func (m *MySQLMetrics) totalRAM(ctx context.Context, isWindowsOS bool) (int, err
 }
 
 // Get Version of MySQL
-func (m *MySQLMetrics) version(ctx context.Context) (string, error) {
+func (m *MySQLMetrics) version(ctx context.Context) (string, string, error) {
 	rows, err := executeQuery(ctx, m.db, "SELECT @@version")
 	if err != nil {
 		log.CtxLogger(ctx).Debugw("MySQL version error", "err", err)
-		return "", fmt.Errorf("can't get version in test MySQL connection: %v", err)
+		return "", "", fmt.Errorf("can't get version in test MySQL connection: %v", err)
 	}
 	log.CtxLogger(ctx).Debugw("MySQL version result", "rows", rows)
 	if rows == nil {
-		return "", fmt.Errorf("no rows returned from version query")
+		return "", "", fmt.Errorf("no rows returned from version query")
 	}
 	defer rows.Close()
 	var version string
 	if !rows.Next() {
-		return "", errors.New("no rows returned from version query")
+		return "", "", errors.New("no rows returned from version query")
 	}
 	if err := rows.Scan(&version); err != nil {
-		return "", err
+		return "", "", err
 	}
-	log.CtxLogger(ctx).Debugw("MySQL version", "version", version)
-	return version, nil
+	log.CtxLogger(ctx).Debugf("MySQL full version: %s", version)
+	// extract the major version from the version string
+	// example: "8.0.31" -> "8.0"
+	// example: "8.0" -> "8.0"
+	parts := strings.Split(version, ".")
+
+	// Initialize a variable for the extracted major version
+	var majorVersion string
+
+	// We expect at least two parts (Major.Minor) for the version format "X.Y.Z"
+	if len(parts) >= 2 {
+		// Join the first two parts with a dot
+		majorVersion = parts[0] + "." + parts[1]
+	} else if len(parts) == 1 {
+		// Handle cases like "8" where only the major component is present
+		majorVersion = parts[0]
+	} else {
+		// Handle empty or unexpected input gracefully
+		majorVersion = ""
+		log.CtxLogger(ctx).Infof("unexpected MySQL version: %s", majorVersion)
+	}
+	return majorVersion, version, nil
 }
 
 // CollectMetricsOnce collects metrics for MySQL databases running on the host.
@@ -457,14 +479,15 @@ func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmanager
 		replicationZonesKey, strings.Join(replicationZones, ","),
 	)
 
-	version, err := m.version(ctx)
+	majorVersion, minorVersion, err := m.version(ctx)
 	if err != nil {
 		log.CtxLogger(ctx).Debugf("Failed to get MySQL version: %v", err)
 	}
 	// send metadata details to database center
 	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.MYSQL,
 		Metrics: map[string]string{
-			"version": version,
+			majorVersionKey: majorVersion,
+			minorVersionKey: minorVersion,
 		}})
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.

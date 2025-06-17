@@ -36,10 +36,12 @@ import (
 )
 
 const (
-	workMemKey = "work_mem"
-	kilobyte   = 1024
-	megabyte   = 1024 * 1024
-	gigabyte   = 1024 * 1024 * 1024
+	workMemKey      = "work_mem"
+	majorVersionKey = "major_version"
+	minorVersionKey = "minor_version"
+	kilobyte        = 1024
+	megabyte        = 1024 * 1024
+	gigabyte        = 1024 * 1024 * 1024
 )
 
 type gceInterface interface {
@@ -264,8 +266,8 @@ func (m *PostgresMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmana
 	// Send metadata details to database center
 	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.POSTGRES,
 		Metrics: map[string]string{
-			"majorversion": majorVersion,
-			"minorversion": minorVersion,
+			majorVersionKey: majorVersion,
+			minorVersionKey: minorVersion,
 		}})
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.

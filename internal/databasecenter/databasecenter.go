@@ -35,7 +35,9 @@ import (
 const (
 	endpoint = "" // endpoint override for database center, don't set if not needed
 	// TODO: Update the channel to prod channel once the integration is tested.
-	channel = "dbcenter-autopush" // "channel for database center"
+	channel         = "dbcenter-autopush" // "channel for database center"
+	majorVersionKey = "major_version"
+	minorVersionKey = "minor_version"
 )
 
 // EngineType is an enum for the type of database engine.
@@ -140,7 +142,7 @@ func (c *realClient) buildCondorMessage(ctx context.Context, metrics DBCenterMet
 				Product: &dcpb.Product{
 					Type:    dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
 					Engine:  c.getEngineType(metrics),
-					Version: metrics.Metrics["version"],
+					Version: metrics.Metrics[majorVersionKey],
 				},
 			},
 		},

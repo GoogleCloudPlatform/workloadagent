@@ -1385,10 +1385,11 @@ func TestReplicationZones(t *testing.T) {
 
 func TestVersion(t *testing.T) {
 	tests := []struct {
-		name    string
-		m       MySQLMetrics
-		version string
-		wantErr bool
+		name         string
+		m            MySQLMetrics
+		majorVersion string
+		minorVersion string
+		wantErr      bool
 	}{
 		{
 			name: "HappyPath",
@@ -1405,8 +1406,66 @@ func TestVersion(t *testing.T) {
 					versionErr: nil,
 				},
 			},
-			version: "8.0.26",
-			wantErr: false,
+			majorVersion: "8.0",
+			minorVersion: "8.0.26",
+			wantErr:      false,
+		},
+		{
+			name: "HappyPath2",
+			m: MySQLMetrics{
+				db: &testDB{
+					versionRows: &versionRows{
+						count: 0,
+						size:  1,
+						data: []string{
+							"8.0",
+						},
+						shouldErr: false,
+					},
+					versionErr: nil,
+				},
+			},
+			majorVersion: "8.0",
+			minorVersion: "8.0",
+			wantErr:      false,
+		},
+		{
+			name: "HappyPath3",
+			m: MySQLMetrics{
+				db: &testDB{
+					versionRows: &versionRows{
+						count: 0,
+						size:  1,
+						data: []string{
+							"8",
+						},
+						shouldErr: false,
+					},
+					versionErr: nil,
+				},
+			},
+			majorVersion: "8",
+			minorVersion: "8",
+			wantErr:      false,
+		},
+		{
+			name: "EmptyVersion",
+			m: MySQLMetrics{
+				db: &testDB{
+					versionRows: &versionRows{
+						count: 0,
+						size:  1,
+						data: []string{
+							"",
+						},
+						shouldErr: false,
+					},
+					versionErr: nil,
+				},
+			},
+			majorVersion: "",
+			minorVersion: "",
+			wantErr:      false,
 		},
 		{
 			name: "Error",
@@ -1423,21 +1482,25 @@ func TestVersion(t *testing.T) {
 					versionErr: errors.New("test-error"),
 				},
 			},
-			version: "",
-			wantErr: true,
+			majorVersion: "",
+			minorVersion: "",
+			wantErr:      true,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := tc.m.version(context.Background())
+			majorVersion, minorVersion, err := tc.m.version(context.Background())
 			if err != nil && !tc.wantErr {
 				t.Errorf("version() returned an unexpected error: %v", err)
 			}
 			if err == nil && tc.wantErr {
 				t.Errorf("version() did not return an expected error")
 			}
-			if got != tc.version {
-				t.Errorf("version() = %v, want %v", got, tc.version)
+			if majorVersion != tc.majorVersion {
+				t.Errorf("version() majorVersion = %v, want %v", majorVersion, tc.majorVersion)
+			}
+			if minorVersion != tc.minorVersion {
+				t.Errorf("version() minorVersion = %v, want %v", minorVersion, tc.minorVersion)
 			}
 		})
 	}
