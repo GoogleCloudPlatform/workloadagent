@@ -201,26 +201,45 @@ func (m *PostgresMetrics) getWorkMem(ctx context.Context) (int, error) {
 }
 
 // Get Version of Postgres
-func (m *PostgresMetrics) version(ctx context.Context) (string, error) {
+func (m *PostgresMetrics) version(ctx context.Context) (string, string, error) {
 	rows, err := executeQuery(ctx, m.db, "SHOW server_version")
 	if err != nil {
 		log.CtxLogger(ctx).Debugw("Postgres version error", "err", err)
-		return "", fmt.Errorf("can't get version in test Postgres connection: %v", err)
+		return "", "", fmt.Errorf("can't get version in test Postgres connection: %v", err)
 	}
-	log.CtxLogger(ctx).Debugw("Postgres version result", "rows", rows)
 	if rows == nil {
-		return "", fmt.Errorf("no rows returned from version query")
+		return "", "", fmt.Errorf("no rows returned from version query")
 	}
 	defer rows.Close()
 	if !rows.Next() {
-		return "", errors.New("no rows returned from version query")
+		return "", "", errors.New("no rows returned from version query")
 	}
-	var version string
-	if err := rows.Scan(&version); err != nil {
-		return "", err
+	var fullVersion string
+	if err := rows.Scan(&fullVersion); err != nil {
+		return "", "", err
 	}
-	log.CtxLogger(ctx).Debugw("Postgres version", "version", version)
-	return version, nil
+	// full version output example: "16.4 (Debian 16.4-1.pgdg110+1)"
+	log.CtxLogger(ctx).Debugf("Postgres fullversion: %s", fullVersion)
+	// Step 1: Extract the primary version string (e.g., "16.4")
+	// We split by space and take the first field.
+	parts := strings.Fields(fullVersion)
+	var primaryVersion string
+	if len(parts) > 0 {
+		log.CtxLogger(ctx).Debugf("Postgres parts: %s", parts)
+		primaryVersion = parts[0]
+	}
+	log.CtxLogger(ctx).Debugf("Postgres primaryVersion: %s", primaryVersion)
+	// Step 2: Extract the major version from the primary version string
+	// Split "16.4" by '.' and take the first part.
+	versionComponents := strings.Split(primaryVersion, ".")
+	log.CtxLogger(ctx).Debugf("Postgres versionComponents: %s", versionComponents)
+	majorVersion := versionComponents[0]
+
+	// The "minor version" is the full primary version string (e.g., "17.4")
+	minorVersion := primaryVersion
+
+	log.CtxLogger(ctx).Debugf("Postgres majorVersion: %s, minorVersion: %s", majorVersion, minorVersion)
+	return majorVersion, minorVersion, nil
 }
 
 // CollectMetricsOnce collects metrics for Postgres databases running on the host.
@@ -237,7 +256,7 @@ func (m *PostgresMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmana
 			workMemKey: strconv.Itoa(workMemBytes),
 		},
 	}
-	version, err := m.version(ctx)
+	majorVersion, minorVersion, err := m.version(ctx)
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if version send fails.
 		log.CtxLogger(ctx).Warnf("Failed to get version: %w", err)
@@ -245,7 +264,8 @@ func (m *PostgresMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmana
 	// Send metadata details to database center
 	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.POSTGRES,
 		Metrics: map[string]string{
-			"version": version,
+			"majorversion": majorVersion,
+			"minorversion": minorVersion,
 		}})
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.

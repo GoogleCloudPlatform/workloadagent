@@ -258,21 +258,59 @@ func TestInitDBError(t *testing.T) {
 
 func TestVersion(t *testing.T) {
 	tests := []struct {
-		name    string
-		m       PostgresMetrics
-		version string
-		wantErr bool
+		name         string
+		m            PostgresMetrics
+		majorVersion string
+		minorVersion string
+		wantErr      bool
 	}{
 		{
 			name: "HappyPath",
 			m: PostgresMetrics{
 				db: &testDB{
-					versionRows: &versionRows{count: 0, size: 1, data: "14.4", shouldErr: false},
+					versionRows: &versionRows{count: 0, size: 1, data: "16.4 (Debian 16.4-1.pgdg110+1)", shouldErr: false},
 					versionErr:  nil,
 				},
 			},
-			version: "14.4",
-			wantErr: false,
+			majorVersion: "16",
+			minorVersion: "16.4",
+			wantErr:      false,
+		},
+		{
+			name: "FallbackPath",
+			m: PostgresMetrics{
+				db: &testDB{
+					versionRows: &versionRows{count: 0, size: 1, data: "16.4", shouldErr: false},
+					versionErr:  nil,
+				},
+			},
+			majorVersion: "16",
+			minorVersion: "16.4",
+			wantErr:      false,
+		},
+		{
+			name: "FallbackPath2",
+			m: PostgresMetrics{
+				db: &testDB{
+					versionRows: &versionRows{count: 0, size: 1, data: "16", shouldErr: false},
+					versionErr:  nil,
+				},
+			},
+			majorVersion: "16",
+			minorVersion: "16",
+			wantErr:      false,
+		},
+		{
+			name: "FallbackPath3",
+			m: PostgresMetrics{
+				db: &testDB{
+					versionRows: &versionRows{count: 0, size: 1, data: "", shouldErr: false},
+					versionErr:  nil,
+				},
+			},
+			majorVersion: "",
+			minorVersion: "",
+			wantErr:      false,
 		},
 		{
 			name: "VersionError",
@@ -281,21 +319,25 @@ func TestVersion(t *testing.T) {
 					versionErr: errors.New("test-error"),
 				},
 			},
-			version: "",
-			wantErr: true,
+			majorVersion: "",
+			minorVersion: "",
+			wantErr:      true,
 		},
 	}
 	ctx := context.Background()
 	for _, tc := range tests {
-		version, err := tc.m.version(ctx)
+		majorversion, minorversion, err := tc.m.version(ctx)
 		if tc.wantErr {
 			if err == nil {
 				t.Errorf("version(%v) returned no error, want error", tc.name)
 			}
 			continue
 		}
-		if version != tc.version {
-			t.Errorf("version(%v) = %v, want %v", tc.name, version, tc.version)
+		if majorversion != tc.majorVersion {
+			t.Errorf("version(%v) = %v, want %v", tc.name, majorversion, tc.majorVersion)
+		}
+		if minorversion != tc.minorVersion {
+			t.Errorf("version(%v) = %v, want %v", tc.name, minorversion, tc.minorVersion)
 		}
 	}
 }
@@ -314,7 +356,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 				db: &testDB{
 					workMemRows: &workMemRows{count: 0, size: 1, data: "80MB", shouldErr: false},
 					workMemErr:  nil,
-					versionRows: &versionRows{count: 0, size: 1, data: "14.4", shouldErr: false},
+					versionRows: &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
 					versionErr:  nil,
 				},
 				WLMClient: &gcefake.TestWLM{
@@ -340,7 +382,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 				db: &testDB{
 					workMemRows: &workMemRows{count: 0, size: 1, data: "64kB", shouldErr: false},
 					workMemErr:  nil,
-					versionRows: &versionRows{count: 0, size: 1, data: "14.4", shouldErr: false},
+					versionRows: &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
 					versionErr:  nil,
 				},
 				WLMClient: &gcefake.TestWLM{
@@ -366,7 +408,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 				db: &testDB{
 					workMemRows: &workMemRows{count: 0, size: 1, data: "4GB", shouldErr: false},
 					workMemErr:  nil,
-					versionRows: &versionRows{count: 0, size: 1, data: "14.4", shouldErr: false},
+					versionRows: &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
 					versionErr:  nil,
 				},
 				WLMClient: &gcefake.TestWLM{
@@ -391,7 +433,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 			m: PostgresMetrics{
 				db: &testDB{
 					workMemErr:  errors.New("test-error"),
-					versionRows: &versionRows{count: 0, size: 1, data: "14.4", shouldErr: false},
+					versionRows: &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
 					versionErr:  nil,
 				},
 				WLMClient: &gcefake.TestWLM{
