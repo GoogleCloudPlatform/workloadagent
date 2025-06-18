@@ -29,6 +29,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/mysql"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/openshift"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/oracle"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/postgres"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/redis"
@@ -206,12 +207,14 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 	redisCh := make(chan *servicecommunication.Message, 3)
 	sqlserverCh := make(chan *servicecommunication.Message, 3)
 	postgresCh := make(chan *servicecommunication.Message, 3)
+	openshiftCh := make(chan *servicecommunication.Message, 3)
 	scChs := map[string]chan<- *servicecommunication.Message{
 		"mysql":     mySQLCh,
 		"oracle":    oracleCh,
 		"redis":     redisCh,
 		"sqlserver": sqlserverCh,
 		"postgres":  postgresCh,
+		"openshift": openshiftCh,
 	}
 	commondiscovery := discovery.Service{
 		ProcessLister: discovery.DefaultProcessLister{},
@@ -248,6 +251,7 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 		&redis.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: redisCh, WLMClient: wlmClient, OSData: d.osData},
 		&sqlserver.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: sqlserverCh, DBcenterClient: dbcenterClient},
 		&postgres.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: postgresCh, WLMClient: wlmClient, DBcenterClient: dbcenterClient},
+		&openshift.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: openshiftCh, WLMClient: wlmClient},
 	}
 	for _, service := range d.services {
 		log.Logger.Infof("Starting %s", service.String())

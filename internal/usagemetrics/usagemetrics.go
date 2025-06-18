@@ -65,6 +65,8 @@ const (
 	PostgresServiceError                  = 27
 	PostgresMetricCollectionFailure       = 28
 	PostgresDiscoveryFailure              = 29
+	OpenShiftServiceError                 = 30
+	OpenShiftMetricCollectionFailure      = 31
 )
 
 // Agent wide action mappings.

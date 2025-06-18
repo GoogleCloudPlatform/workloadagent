@@ -42,6 +42,7 @@ message Configuration {
   SQLServerConfiguration sqlserver_configuration = 10;
   string data_warehouse_endpoint = 11;
   PostgresConfiguration postgres_configuration = 12;
+  OpenShiftConfiguration openshift_configuration = 13;
 }
 
 message CloudProperties {
@@ -83,6 +84,11 @@ message OracleMetrics {
 }
 
 message MySQLConfiguration {
+  optional bool enabled = 1;
+  ConnectionParameters connection_parameters = 2;
+}
+
+message OpenShiftConfiguration {
   optional bool enabled = 1;
   ConnectionParameters connection_parameters = 2;
 }
