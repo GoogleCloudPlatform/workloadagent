@@ -38,6 +38,7 @@ type Service struct {
 	CommonCh         <-chan *servicecommunication.Message
 	isProcessPresent bool
 	DBcenterClient   databasecenter.Client
+	dwActivated      bool
 }
 
 type runMetricCollectionArgs struct {
@@ -119,7 +120,7 @@ func runMetricCollection(ctx context.Context, a any) {
 	ticker := time.NewTicker(args.s.Config.GetSqlserverConfiguration().GetCollectionConfiguration().GetCollectionFrequency().AsDuration())
 	defer ticker.Stop()
 	for {
-		r.CollectMetricsOnce(ctx)
+		r.CollectMetricsOnce(ctx, args.s.dwActivated)
 		select {
 		case <-ctx.Done():
 			log.CtxLogger(ctx).Info("SQL Server metric collection cancellation requested")
@@ -144,7 +145,7 @@ func (s *Service) checkServiceCommunication(ctx context.Context) {
 		log.CtxLogger(ctx).Debugw("SQL Server workload agent service received a message on the common channel", "message", msg)
 		switch msg.Origin {
 		case servicecommunication.Discovery:
-			log.CtxLogger(ctx).Debugw("SQL Server workload agent service received a discovery message")
+			log.CtxLogger(ctx).Debug("SQL Server workload agent service received a discovery message")
 			for _, p := range msg.DiscoveryResult.Processes {
 				name, err := p.Name()
 				if err == nil && strings.Contains(name, sqlserverProcessSubstring) {
@@ -153,7 +154,8 @@ func (s *Service) checkServiceCommunication(ctx context.Context) {
 				}
 			}
 		case servicecommunication.DWActivation:
-			log.CtxLogger(ctx).Debugw("SQL Server workload agent service received a DW activation message")
+			log.CtxLogger(ctx).Debug("SQL Server workload agent service received a DW activation message")
+			s.dwActivated = msg.DWActivationResult.Activated
 		default:
 			log.CtxLogger(ctx).Debugw("SQL Server workload agent service received a message with an unexpected origin", "origin", msg.Origin)
 		}

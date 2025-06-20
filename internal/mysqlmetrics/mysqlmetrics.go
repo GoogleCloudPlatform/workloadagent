@@ -452,7 +452,7 @@ func (m *MySQLMetrics) version(ctx context.Context) (string, string, error) {
 }
 
 // CollectMetricsOnce collects metrics for MySQL databases running on the host.
-func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmanager.WorkloadMetrics, error) {
+func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
 	bufferPoolSize, err := m.bufferPoolSize(ctx)
 	if err != nil {
 		log.CtxLogger(ctx).Warnf("Failed to get buffer pool size: %v", err)
@@ -494,6 +494,7 @@ func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmanager
 		log.CtxLogger(ctx).Info("Unable to send information to Database Center, please refer to documentation to make sure that all prerequisites are met")
 		log.CtxLogger(ctx).Debugf("Failed to send metadata to database center: %v", err)
 	}
+
 	metrics := workloadmanager.WorkloadMetrics{
 		WorkloadType: workloadmanager.MYSQL,
 		Metrics: map[string]string{
@@ -503,6 +504,10 @@ func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmanager
 			currentRoleKey:      currentRole,
 			replicationZonesKey: strings.Join(replicationZones, ","),
 		},
+	}
+	if !dwActivated {
+		log.CtxLogger(ctx).Debugw("Data Warehouse is not activated, not sending metrics to Data Warehouse")
+		return &metrics, nil
 	}
 	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
 		WLMetrics:  metrics,

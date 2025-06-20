@@ -325,7 +325,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 			testDB.appendConfig.SetVal(tc.appendMapContent)
 			tc.r.db = testDB
 
-			got, err := tc.r.CollectMetricsOnce(ctx)
+			got, err := tc.r.CollectMetricsOnce(ctx, true)
 			if tc.wantErr {
 				if err == nil {
 					t.Errorf("CollectMetricsOnce(%v) returned no error, want error", tc.name)

@@ -245,19 +245,13 @@ func (m *PostgresMetrics) version(ctx context.Context) (string, string, error) {
 }
 
 // CollectMetricsOnce collects metrics for Postgres databases running on the host.
-func (m *PostgresMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmanager.WorkloadMetrics, error) {
+func (m *PostgresMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
 	workMemBytes, err := m.getWorkMem(ctx)
 	if err != nil {
 		log.CtxLogger(ctx).Warnf("Failed to get work mem: %w", err)
 		return nil, err
 	}
 	log.CtxLogger(ctx).Debugw("Finished collecting Postgres metrics once. Next step is to send to WLM (DW).", workMemKey, workMemBytes)
-	metrics := workloadmanager.WorkloadMetrics{
-		WorkloadType: workloadmanager.POSTGRES,
-		Metrics: map[string]string{
-			workMemKey: strconv.Itoa(workMemBytes),
-		},
-	}
 	majorVersion, minorVersion, err := m.version(ctx)
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if version send fails.
@@ -275,6 +269,16 @@ func (m *PostgresMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmana
 		log.CtxLogger(ctx).Debugf("Failed to send metadata to database center: %v", err)
 	}
 
+	metrics := workloadmanager.WorkloadMetrics{
+		WorkloadType: workloadmanager.POSTGRES,
+		Metrics: map[string]string{
+			workMemKey: strconv.Itoa(workMemBytes),
+		},
+	}
+	if !dwActivated {
+		log.CtxLogger(ctx).Debugw("Data Warehouse is not activated, not sending metrics to Data Warehouse")
+		return &metrics, nil
+	}
 	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
 		WLMetrics:  metrics,
 		CloudProps: m.Config.GetCloudProperties(),

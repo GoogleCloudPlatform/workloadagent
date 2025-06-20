@@ -61,12 +61,8 @@ type SQLServerMetrics struct {
 }
 
 // CollectMetricsOnce collects metrics for SQL Server databases running on the host.
-func (s *SQLServerMetrics) CollectMetricsOnce(ctx context.Context) {
+func (s *SQLServerMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool) {
 	log.Logger.Info("SQLServerMetrics SQL Collection starts.")
-	if err := s.sqlCollection(ctx); err != nil {
-		log.Logger.Errorw("SQLServerMetrics SQL Collection failed", "error", err)
-	}
-	log.Logger.Info("SQLServerMetrics SQL Collection ends.")
 	// Send metadata details to database center
 	err := s.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.SQLSERVER,
 		Metrics: map[string]string{
@@ -78,8 +74,13 @@ func (s *SQLServerMetrics) CollectMetricsOnce(ctx context.Context) {
 		log.CtxLogger(ctx).Debugf("Failed to send metadata to database center: %v", err)
 	}
 
+	if err := s.sqlCollection(ctx, dwActivated); err != nil {
+		log.Logger.Errorw("SQLServerMetrics SQL Collection failed", "error", err)
+	}
+	log.Logger.Info("SQLServerMetrics SQL Collection ends.")
+
 	log.Logger.Info("SQLServerMetrics OS Collection starts.")
-	if err := s.osCollection(ctx); err != nil {
+	if err := s.osCollection(ctx, dwActivated); err != nil {
 		log.Logger.Errorw("SQLServerMetrics OS Collection failed", "error", err)
 	}
 	log.Logger.Info("SQLServerMetrics OS Collection ends.")

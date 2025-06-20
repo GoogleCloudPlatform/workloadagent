@@ -277,7 +277,7 @@ func (r *RedisMetrics) serviceRestart(ctx context.Context) bool {
 }
 
 // CollectMetricsOnce collects metrics for Redis databases running on the host.
-func (r *RedisMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmanager.WorkloadMetrics, error) {
+func (r *RedisMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
 	currentRole := r.getCurrentRole(ctx)
 	replicationOn := r.replicationModeActive(ctx, currentRole)
 	persistenceOn := r.persistenceEnabled(ctx)
@@ -302,6 +302,10 @@ func (r *RedisMetrics) CollectMetricsOnce(ctx context.Context) (*workloadmanager
 			replicationZonesKey: strings.Join(replicationZones, ","),
 			currentRoleKey:      currentRole,
 		},
+	}
+	if !dwActivated {
+		log.CtxLogger(ctx).Debugw("Data Warehouse is not activated, not sending metrics to Data Warehouse")
+		return &metrics, nil
 	}
 	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
 		WLMetrics:  metrics,

@@ -39,7 +39,7 @@ const (
 )
 
 // osCollection is the windows implementation of OSCollection.
-func (s *SQLServerMetrics) osCollection(ctx context.Context) error {
+func (s *SQLServerMetrics) osCollection(ctx context.Context, dwActivated bool) error {
 	if !s.Config.GetCollectionConfiguration().GetCollectGuestOsMetrics() {
 		return nil
 	}
@@ -108,6 +108,10 @@ func (s *SQLServerMetrics) osCollection(ctx context.Context) error {
 
 		log.Logger.Debugf("Source vm %s is sending os collected data on target machine, %s, to workload manager.", sip.Instance, targetInstanceProps.Instance)
 		updateCollectedData(wlm, sip, targetInstanceProps, details)
+		if !dwActivated {
+			log.Logger.Debug("Data Warehouse is not activated, not sending metrics to Data Warehouse")
+			continue
+		}
 		sendRequestToWLM(ctx, wlm, sip.Name, s.Config.GetMaxRetries(), s.Config.GetRetryFrequency().AsDuration())
 
 		// Local collection.
@@ -121,7 +125,7 @@ func (s *SQLServerMetrics) osCollection(ctx context.Context) error {
 }
 
 // sqlCollection is the windows implementation of SQLCollection.
-func (s *SQLServerMetrics) sqlCollection(ctx context.Context) error {
+func (s *SQLServerMetrics) sqlCollection(ctx context.Context, dwActivated bool) error {
 	if !s.Config.GetCollectionConfiguration().GetCollectSqlMetrics() {
 		return nil
 	}
@@ -206,6 +210,10 @@ func (s *SQLServerMetrics) sqlCollection(ctx context.Context) error {
 		}
 		updateCollectedData(wlm, sip, targetInstanceProps, validationDetails)
 		log.Logger.Debugf("Source vm %s is sending collected sql data on target machine, %s, to workload manager.", sip.Instance, targetInstanceProps.Instance)
+		if !dwActivated {
+			log.Logger.Debug("Data Warehouse is not activated, not sending metrics to Data Warehouse")
+			continue
+		}
 		sendRequestToWLM(ctx, wlm, sip.Name, s.Config.GetMaxRetries(), s.Config.GetRetryFrequency().AsDuration())
 	}
 	return nil

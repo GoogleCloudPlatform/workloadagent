@@ -86,9 +86,9 @@ EnableCheck:
 			log.CtxLogger(ctx).Info("Postgres workload agent service cancellation requested")
 			return
 		case <-ticker.C:
-			// Once DW is enabled and the workload is present/enabled, start discovery and metric collection.
-			if s.dwActivated && (s.isWorkloadPresent() || enabled) {
-				log.CtxLogger(ctx).Info("Postgres workload agent service is enabled and DW is activated. Starting discovery and metric collection")
+			// Once the workload is present/enabled, start discovery and metric collection.
+			if s.isWorkloadPresent() || enabled {
+				log.CtxLogger(ctx).Info("Postgres workload agent service is enabled. Starting discovery and metric collection")
 				break EnableCheck
 			}
 		}
@@ -149,7 +149,7 @@ func runMetricCollection(ctx context.Context, a any) {
 	var args runMetricCollectionArgs
 	var ok bool
 	if args, ok = a.(runMetricCollectionArgs); !ok {
-		log.CtxLogger(ctx).Errorf("Failed to parse metric collection args", "args", a)
+		log.CtxLogger(ctx).Errorw("Failed to parse metric collection args", "args", a)
 		return
 	}
 	log.CtxLogger(ctx).Debugw("Postgres metric collection args", "args", args)
@@ -161,14 +161,17 @@ func runMetricCollection(ctx context.Context, a any) {
 		log.CtxLogger(ctx).Errorf("Error while initializing GCE services: %w", err)
 		return
 	}
-	m := postgresmetrics.New(ctx, args.s.Config, args.s.WLMClient, args.s.DBcenterClient)
-	err = m.InitDB(ctx, gceService)
+	p := postgresmetrics.New(ctx, args.s.Config, args.s.WLMClient, args.s.DBcenterClient)
+	err = p.InitDB(ctx, gceService)
 	if err != nil {
 		log.CtxLogger(ctx).Errorf("Failed to initialize Postgres DB: %w", err)
 		return
 	}
 	for {
-		m.CollectMetricsOnce(ctx)
+		_, err := p.CollectMetricsOnce(ctx, args.s.dwActivated)
+		if err != nil {
+			log.CtxLogger(ctx).Debugf("failed to collect Postgres metrics: %v", err)
+		}
 		select {
 		case <-ctx.Done():
 			log.CtxLogger(ctx).Info("Postgres metric collection cancellation requested")

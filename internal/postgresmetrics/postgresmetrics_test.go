@@ -517,7 +517,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 	ctx := context.Background()
 
 	for _, tc := range tests {
-		gotMetrics, err := tc.m.CollectMetricsOnce(ctx)
+		gotMetrics, err := tc.m.CollectMetricsOnce(ctx, true)
 		if tc.wantErr {
 			if err == nil {
 				t.Errorf("CollectMetricsOnce(%v) returned no error, want error", tc.name)
@@ -622,7 +622,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			// Set the mock dbcenter client in the PostgresMetrics object
 			tc.m.DBcenterClient = mockClient
 			// Call the function under test
-			metrics, err := tc.m.CollectMetricsOnce(ctx)
+			metrics, err := tc.m.CollectMetricsOnce(ctx, true)
 
 			// Assertions
 			if err != nil && !tc.wantErr {

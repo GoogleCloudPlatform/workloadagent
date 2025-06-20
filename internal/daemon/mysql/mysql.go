@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	discoveryFrequency = 10 * time.Minute
+	discoveryFrequency     = 10 * time.Minute
 	wlmCollectionFrequency = 5 * time.Minute
 )
 
@@ -82,9 +82,9 @@ EnableCheck:
 			log.CtxLogger(ctx).Info("MySQL workload agent service cancellation requested")
 			return
 		case <-ticker.C:
-			// Once DW is enabled and the workload is present/enabled, start discovery and metric collection.
-			if s.dwActivated && (s.isWorkloadPresent() || enabled) {
-				log.CtxLogger(ctx).Info("MySQL workload agent service is enabled and DW is activated. Starting discovery and metric collection")
+			// Once the workload is present/enabled, start discovery and metric collection.
+			if s.isWorkloadPresent() || enabled {
+				log.CtxLogger(ctx).Info("MySQL workload agent service is enabled. Starting discovery and metric collection")
 				break EnableCheck
 			}
 		}
@@ -145,7 +145,7 @@ func runMetricCollection(ctx context.Context, a any) {
 	var args runMetricCollectionArgs
 	var ok bool
 	if args, ok = a.(runMetricCollectionArgs); !ok {
-		log.CtxLogger(ctx).Errorf("failed to parse metric collection args", "args", a)
+		log.CtxLogger(ctx).Errorw("failed to parse metric collection args", "args", a)
 		return
 	}
 	log.CtxLogger(ctx).Debugw("MySQL metric collection args", "args", args)
@@ -164,7 +164,10 @@ func runMetricCollection(ctx context.Context, a any) {
 		return
 	}
 	for {
-		m.CollectMetricsOnce(ctx)
+		_, err := m.CollectMetricsOnce(ctx, args.s.dwActivated)
+		if err != nil {
+			log.CtxLogger(ctx).Debugf("failed to collect MySQL metrics: %v", err)
+		}
 		select {
 		case <-ctx.Done():
 			log.CtxLogger(ctx).Info("MySQL metric collection cancellation requested")
