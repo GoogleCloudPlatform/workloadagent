@@ -38,11 +38,6 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 )
 
-const (
-	majorVersionKey = "major_version"
-	minorVersionKey = "minor_version"
-)
-
 // instanceProperties represents properties of instance.
 type instanceProperties struct {
 	Name          string
@@ -64,10 +59,7 @@ type SQLServerMetrics struct {
 func (s *SQLServerMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool) {
 	log.Logger.Info("SQLServerMetrics SQL Collection starts.")
 	// Send metadata details to database center
-	err := s.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.SQLSERVER,
-		Metrics: map[string]string{
-			majorVersionKey: "2019", // TODO: Get the version from the SQL Server.
-		}})
+	err := s.DBcenterClient.SendMetadataToDatabaseCenter(ctx, s.dbCenterMetrics(ctx))
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.
 		log.CtxLogger(ctx).Info("Unable to send information to Database Center, please refer to documentation to make sure that all prerequisites are met")
