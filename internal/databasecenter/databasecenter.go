@@ -142,9 +142,10 @@ func (c *realClient) buildCondorMessage(ctx context.Context, metrics DBCenterMet
 				CurrentState:      dcpb.DatabaseResourceMetadata_HEALTHY,
 				InstanceType:      dcpb.InstanceType_SUB_RESOURCE_TYPE_PRIMARY,
 				Product: &dcpb.Product{
-					Type:    dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
-					Engine:  c.getEngineType(metrics),
-					Version: metrics.Metrics[MajorVersionKey],
+					Type:         dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
+					Engine:       c.getEngineType(metrics),
+					Version:      metrics.Metrics[MajorVersionKey],
+					MinorVersion: metrics.Metrics[MinorVersionKey],
 				},
 			},
 		},

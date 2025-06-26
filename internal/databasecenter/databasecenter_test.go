@@ -98,9 +98,10 @@ func TestBuildCondorMessage(t *testing.T) {
 						CurrentState:      dcpb.DatabaseResourceMetadata_HEALTHY,
 						InstanceType:      dcpb.InstanceType_SUB_RESOURCE_TYPE_PRIMARY,
 						Product: &dcpb.Product{
-							Type:    dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
-							Engine:  dcpb.Engine_ENGINE_MYSQL,
-							Version: "8.0",
+							Type:         dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
+							Engine:       dcpb.Engine_ENGINE_MYSQL,
+							Version:      "8.0",
+							MinorVersion: "8.0.26",
 						},
 					},
 				},
@@ -145,9 +146,10 @@ func TestBuildCondorMessage(t *testing.T) {
 						CurrentState:      dcpb.DatabaseResourceMetadata_HEALTHY,
 						InstanceType:      dcpb.InstanceType_SUB_RESOURCE_TYPE_PRIMARY,
 						Product: &dcpb.Product{
-							Type:    dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
-							Engine:  dcpb.Engine_ENGINE_POSTGRES,
-							Version: "17",
+							Type:         dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
+							Engine:       dcpb.Engine_ENGINE_POSTGRES,
+							Version:      "17",
+							MinorVersion: "17.4",
 						},
 					},
 				},
@@ -169,7 +171,8 @@ func TestBuildCondorMessage(t *testing.T) {
 			metrics: DBCenterMetrics{
 				EngineType: SQLSERVER,
 				Metrics: map[string]string{
-					"major_version": "2019",
+					"major_version": "SQL Server 2022 Express",
+					"minor_version": "CU13",
 				},
 			},
 			want: &dcpb.DatabaseResourceFeed{
@@ -191,9 +194,10 @@ func TestBuildCondorMessage(t *testing.T) {
 						CurrentState:      dcpb.DatabaseResourceMetadata_HEALTHY,
 						InstanceType:      dcpb.InstanceType_SUB_RESOURCE_TYPE_PRIMARY,
 						Product: &dcpb.Product{
-							Type:    dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
-							Engine:  dcpb.Engine_ENGINE_SQL_SERVER,
-							Version: "2019",
+							Type:         dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
+							Engine:       dcpb.Engine_ENGINE_SQL_SERVER,
+							Version:      "SQL Server 2022 Express",
+							MinorVersion: "CU13",
 						},
 					},
 				},
@@ -207,6 +211,7 @@ func TestBuildCondorMessage(t *testing.T) {
 				EngineType: POSTGRES,
 				Metrics: map[string]string{
 					"major_version": "17",
+					"minor_version": "17.4",
 				},
 			},
 			wantErr: false, // The function will still build a message with empty values.
@@ -227,9 +232,10 @@ func TestBuildCondorMessage(t *testing.T) {
 						CurrentState:      dcpb.DatabaseResourceMetadata_HEALTHY,
 						InstanceType:      dcpb.InstanceType_SUB_RESOURCE_TYPE_PRIMARY,
 						Product: &dcpb.Product{
-							Type:    dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
-							Engine:  dcpb.Engine_ENGINE_POSTGRES,
-							Version: "17",
+							Type:         dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
+							Engine:       dcpb.Engine_ENGINE_POSTGRES,
+							Version:      "17",
+							MinorVersion: "17.4",
 						},
 					},
 				},
@@ -282,7 +288,8 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			metrics: DBCenterMetrics{
 				EngineType: SQLSERVER,
 				Metrics: map[string]string{
-					"version": "2019",
+					"version":       "SQL Server 2022 Express",
+					"minor_version": "CU13",
 				},
 			},
 			establishACSConnectionError: nil,
@@ -304,7 +311,8 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			metrics: DBCenterMetrics{
 				EngineType: MYSQL,
 				Metrics: map[string]string{
-					"version": "8.0",
+					"version":       "8.0",
+					"minor_version": "8.0.26",
 				},
 			},
 			establishACSConnectionError: nil,
