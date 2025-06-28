@@ -451,6 +451,63 @@ func (m *MySQLMetrics) version(ctx context.Context) (string, string, error) {
 	return majorVersion, version, nil
 }
 
+// mysqlUserRow represents a partial row from the mysql.user table.
+type mysqlUserRow struct {
+	User                 string
+	Host                 string
+	Plugin               string
+	AuthenticationString sql.NullString // authentication_string can be NULL
+}
+
+// CheckRootPasswordNotSet checks if any MySQL root user account using password-based
+// authentication (like mysql_native_password or caching_sha2_password) has no password set.
+// It returns true if at least one such root account has no password, false otherwise.
+// An error is returned if the query fails or data scanning issues occur.
+func (m *MySQLMetrics) CheckRootPasswordNotSet(ctx context.Context) (bool, error) {
+	query := `
+		SELECT user, host, plugin, authentication_string
+		FROM mysql.user
+		WHERE user = 'root'
+	`
+	rows, err := executeQuery(ctx, m.db, query)
+	if err != nil {
+		return false, fmt.Errorf("failed to query mysql.user table with error: %v", err)
+	}
+	defer rows.Close()
+
+	var users []mysqlUserRow
+	for rows.Next() {
+		var u mysqlUserRow
+		if err := rows.Scan(&u.User, &u.Host, &u.Plugin, &u.AuthenticationString); err != nil {
+			return false, fmt.Errorf("failed to scan row from mysql.user table with error: %v", err)
+		}
+		users = append(users, u)
+	}
+
+	if len(users) == 0 {
+		// This state is unusual in a typical MySQL installation.
+		return false, errors.New("no root users found in mysql.user table")
+	}
+
+	for _, u := range users {
+		// Check for empty passwords only on password-based authentication plugins.
+		if u.Plugin == "mysql_native_password" || u.Plugin == "caching_sha2_password" {
+			if !u.AuthenticationString.Valid || u.AuthenticationString.String == "" {
+				// Found a root user configured with a password-based auth plugin but has no password hash.
+				log.CtxLogger(ctx).Debugf("Security Warning: root user '%s'@'%s' is using plugin %s and has no password set.", u.User, u.Host, u.Plugin)
+				return true, nil
+			}
+		}
+		// Note: Users with the 'auth_socket' plugin (common for root@localhost) authenticate
+		// using system user credentials via the Unix socket, not the password hash stored
+		// in mysql.user.authentication_string. Such cases are not treated as 'no password set'
+		// in the context of password-based authentication.
+	}
+
+	// No root users found with empty passwords for standard password authentication methods.
+	return false, nil
+}
+
 // CollectMetricsOnce collects metrics for MySQL databases running on the host.
 func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
 	bufferPoolSize, err := m.bufferPoolSize(ctx)

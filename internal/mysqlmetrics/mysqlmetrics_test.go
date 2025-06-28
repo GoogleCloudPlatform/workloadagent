@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -90,6 +91,8 @@ type testDB struct {
 	replicationZonesErr  error
 	versionRows          rowsInterface
 	versionErr           error
+	mysqlUserRows        rowsInterface
+	mysqlUserErr         error
 }
 
 func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (rowsInterface, error) {
@@ -110,6 +113,13 @@ func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (r
 	}
 	if query == "SELECT @@version" {
 		return t.versionRows, t.versionErr
+	}
+	if strings.TrimSpace(query) == strings.TrimSpace(`
+		SELECT user, host, plugin, authentication_string
+		FROM mysql.user
+		WHERE user = 'root'
+	`) {
+		return t.mysqlUserRows, t.mysqlUserErr
 	}
 	return nil, nil
 }
@@ -277,6 +287,58 @@ func (f *versionRows) Next() bool {
 }
 
 func (f *versionRows) Close() error {
+	return nil
+}
+
+type mysqlUserMockRows struct {
+	count   int
+	size    int
+	data    [][]any // Each inner slice represents a row's columns
+	scanErr bool    // To trigger an error in Scan
+}
+
+func (f *mysqlUserMockRows) Scan(dest ...any) error {
+	if f.scanErr {
+		return errors.New("test scan error")
+	}
+	if f.count == 0 || f.count > f.size {
+		return errors.New("Scan called on invalid row")
+	}
+	currentRow := f.data[f.count-1]
+	if len(dest) != len(currentRow) {
+		return fmt.Errorf("scan destination count mismatch: got %d, want %d", len(dest), len(currentRow))
+	}
+
+	for i := 0; i < len(dest); i++ {
+		switch d := dest[i].(type) {
+		case *string:
+			val, ok := currentRow[i].(string)
+			if !ok {
+				return fmt.Errorf("type assertion failed for column %d to string", i)
+			}
+			*d = val
+		case *sql.NullString:
+			val, ok := currentRow[i].(sql.NullString)
+			if !ok {
+				return fmt.Errorf("type assertion failed for column %d to sql.NullString", i)
+			}
+			*d = val
+		default:
+			return fmt.Errorf("unsupported type for Scan: %T at column %d", dest[i], i)
+		}
+	}
+	return nil
+}
+
+func (f *mysqlUserMockRows) Next() bool {
+	if f.count < f.size {
+		f.count++
+		return true
+	}
+	return false
+}
+
+func (f *mysqlUserMockRows) Close() error {
 	return nil
 }
 
@@ -1501,6 +1563,158 @@ func TestVersion(t *testing.T) {
 			}
 			if minorVersion != tc.minorVersion {
 				t.Errorf("version() minorVersion = %v, want %v", minorVersion, tc.minorVersion)
+			}
+		})
+	}
+}
+
+func TestCheckRootPasswordNotSet(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name         string
+		db           *testDB
+		expectResult bool
+		expectErr    bool
+	}{
+		{
+			name: "root_native_no_password",
+			db: &testDB{
+				mysqlUserRows: &mysqlUserMockRows{
+					size: 1,
+					data: [][]any{
+						{"root", "%", "mysql_native_password", sql.NullString{String: "", Valid: true}},
+					},
+				},
+			},
+			expectResult: true,
+			expectErr:    false,
+		},
+		{
+			name: "root_caching_sha2_null_password",
+			db: &testDB{
+				mysqlUserRows: &mysqlUserMockRows{
+					size: 1,
+					data: [][]any{
+						{"root", "%", "caching_sha2_password", sql.NullString{Valid: false}},
+					},
+				},
+			},
+			expectResult: true,
+			expectErr:    false,
+		},
+		{
+			name: "root_native_with_password",
+			db: &testDB{
+				mysqlUserRows: &mysqlUserMockRows{
+					size: 1,
+					data: [][]any{
+						{"root", "%", "mysql_native_password", sql.NullString{String: "somehash", Valid: true}},
+					},
+				},
+			},
+			expectResult: false,
+			expectErr:    false,
+		},
+		{
+			name: "root_caching_sha2_with_password",
+			db: &testDB{
+				mysqlUserRows: &mysqlUserMockRows{
+					size: 1,
+					data: [][]any{
+						{"root", "%", "caching_sha2_password", sql.NullString{String: "anotherhash", Valid: true}},
+					},
+				},
+			},
+			expectResult: false,
+			expectErr:    false,
+		},
+		{
+			name: "root_auth_socket",
+			db: &testDB{
+				mysqlUserRows: &mysqlUserMockRows{
+					size: 1,
+					data: [][]any{
+						{"root", "localhost", "auth_socket", sql.NullString{String: "", Valid: true}},
+					},
+				},
+			},
+			expectResult: false,
+			expectErr:    false,
+		},
+		{
+			name: "multiple_root_one_insecure",
+			db: &testDB{
+				mysqlUserRows: &mysqlUserMockRows{
+					size: 2,
+					data: [][]any{
+						{"root", "localhost", "auth_socket", sql.NullString{String: "", Valid: true}},
+						{"root", "%", "mysql_native_password", sql.NullString{String: "", Valid: true}},
+					},
+				},
+			},
+			expectResult: true,
+			expectErr:    false,
+		},
+		{
+			name: "multiple_root_all_secure",
+			db: &testDB{
+				mysqlUserRows: &mysqlUserMockRows{
+					size: 2,
+					data: [][]any{
+						{"root", "localhost", "auth_socket", sql.NullString{String: "", Valid: true}},
+						{"root", "%", "caching_sha2_password", sql.NullString{String: "somehash", Valid: true}},
+					},
+				},
+			},
+			expectResult: false,
+			expectErr:    false,
+		},
+		{
+			name: "no_root_users",
+			db: &testDB{
+				mysqlUserRows: &mysqlUserMockRows{
+					size: 0,
+					data: [][]any{},
+				},
+			},
+			expectResult: false,
+			expectErr:    true,
+		},
+		{
+			name: "query_error",
+			db: &testDB{
+				mysqlUserErr: errors.New("db connection failed"),
+			},
+			expectResult: false,
+			expectErr:    true,
+		},
+		{
+			name: "scan_error",
+			db: &testDB{
+				mysqlUserRows: &mysqlUserMockRows{
+					size: 1,
+					data: [][]any{
+						{"root", "%", "mysql_native_password", sql.NullString{String: "", Valid: true}},
+					},
+					scanErr: true,
+				},
+			},
+			expectResult: false,
+			expectErr:    true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := MySQLMetrics{db: tc.db}
+			result, err := m.CheckRootPasswordNotSet(ctx)
+
+			if (err != nil) != tc.expectErr {
+				t.Errorf("CheckRootPasswordNotSet() got error: %v, want error presence: %v", err, tc.expectErr)
+			}
+
+			if result != tc.expectResult {
+				t.Errorf("CheckRootPasswordNotSet() got result: %v, want result: %v", result, tc.expectResult)
 			}
 		})
 	}
