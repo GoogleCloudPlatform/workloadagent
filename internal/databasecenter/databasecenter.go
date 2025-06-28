@@ -40,6 +40,14 @@ const (
 	MajorVersionKey = "major_version"
 	// MinorVersionKey is the key for the minor version in metrics.
 	MinorVersionKey = "minor_version"
+	// NoRootPasswordKey is the key for the no root password signal in metrics.
+	NoRootPasswordKey = "no_root_password"
+	// ExposedToPublicAccessKey is the key for the exposed to public access signal in metrics.
+	ExposedToPublicAccessKey = "exposed_to_public_access"
+	// UnencryptedConnectionsKey is the key for the unencrypted connections signal in metrics.
+	UnencryptedConnectionsKey = "unencrypted_connections"
+	// DatabaseAuditingDisabledKey is the key for the database auditing disabled signal in metrics.
+	DatabaseAuditingDisabledKey = "database_auditing_disabled"
 )
 
 // EngineType is an enum for the type of database engine.
@@ -118,8 +126,8 @@ func (c *realClient) getEngineType(metrics DBCenterMetrics) dcpb.Engine {
 	}
 }
 
-// buildCondorMessage builds the snapshot message.
-func (c *realClient) buildCondorMessage(ctx context.Context, metrics DBCenterMetrics) (*anypb.Any, error) {
+// buildDatabaseResourceMetadataMessage builds the snapshot message.
+func (c *realClient) buildDatabaseResourceMetadataMessage(ctx context.Context, metrics DBCenterMetrics) (*anypb.Any, error) {
 	cloudProps := c.Config.GetCloudProperties()
 	feedTime := timestamppb.New(time.Now())
 	// construct an object of DatabaseResourceFeed proto.
@@ -158,6 +166,56 @@ func (c *realClient) buildCondorMessage(ctx context.Context, metrics DBCenterMet
 	return body, nil
 }
 
+// Get the signal type from the metric key
+func (c *realClient) getSignalType(key string) dcpb.SignalType {
+	switch key {
+	case NoRootPasswordKey:
+		return dcpb.SignalType_SIGNAL_TYPE_NO_ROOT_PASSWORD
+	case ExposedToPublicAccessKey:
+		return dcpb.SignalType_SIGNAL_TYPE_EXPOSED_TO_PUBLIC_ACCESS
+	case UnencryptedConnectionsKey:
+		return dcpb.SignalType_SIGNAL_TYPE_UNENCRYPTED_CONNECTIONS
+	case DatabaseAuditingDisabledKey:
+		return dcpb.SignalType_SIGNAL_TYPE_DATABASE_AUDITING_DISABLED
+	default:
+		return dcpb.SignalType_SIGNAL_TYPE_UNSPECIFIED
+	}
+}
+
+// Get the signal value from the metric value
+func (c *realClient) getSignalValue(value string) bool {
+	return value == "true"
+}
+
+// buildConfigBasedSignalMessage builds the config based signal message.
+func (c *realClient) buildConfigBasedSignalMessage(ctx context.Context, key string, value string) (*anypb.Any, error) {
+	cloudProps := c.Config.GetCloudProperties()
+	feedTime := timestamppb.New(time.Now())
+	// construct an object of DatabaseResourceFeed proto.
+	body, err := anypb.New(&dcpb.DatabaseResourceFeed{
+		FeedTimestamp: feedTime,
+		FeedType:      dcpb.DatabaseResourceFeed_CONFIG_BASED_SIGNAL_DATA,
+		Content: &dcpb.DatabaseResourceFeed_ConfigBasedSignalData{
+			ConfigBasedSignalData: &dcpb.ConfigBasedSignalData{
+				ResourceId: &dcpb.DatabaseResourceId{
+					Provider:     dcpb.DatabaseResourceId_GCP,
+					UniqueId:     cloudProps.GetInstanceId(),
+					ResourceType: "compute.googleapis.com/Instance",
+				},
+				FullResourceName: "//compute.googleapis.com/projects/" + cloudProps.GetProjectId() + "/zones/" + cloudProps.GetZone() + "/instances/" + cloudProps.GetInstanceName(),
+				LastRefreshTime:  feedTime,
+				SignalType:       c.getSignalType(key),
+				SignalMetadata:   &dcpb.ConfigBasedSignalData_SignalBoolValue{SignalBoolValue: c.getSignalValue(value)},
+			},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to create DatabaseResourceFeed: %v", err)
+	}
+	log.CtxLogger(ctx).Debugf("Sending message configbasedsignal: %v", body)
+	return body, nil
+}
+
 // SendMetadataToDatabaseCenter sends metadata to database center.
 func (c *realClient) SendMetadataToDatabaseCenter(ctx context.Context, metrics DBCenterMetrics) error {
 	flag.Parse()
@@ -172,13 +230,30 @@ func (c *realClient) SendMetadataToDatabaseCenter(ctx context.Context, metrics D
 		c.conn = conn
 	}
 
-	msg, err := c.buildCondorMessage(ctx, metrics)
+	msg, err := c.buildDatabaseResourceMetadataMessage(ctx, metrics)
 	if err != nil {
-		return fmt.Errorf("failed to build condor message: %v", err)
+		return fmt.Errorf("failed to build database resource metadata message: %v", err)
 	}
-	err = c.CommClient.SendAgentMessage(ctx, "mysql", "databaseresourcefeed", msg, c.conn)
+	err = c.CommClient.SendAgentMessage(ctx, string(metrics.EngineType), "databaseresourcefeed", msg, c.conn)
 	if err != nil {
-		return fmt.Errorf("failed to send message to database center: %v", err)
+		return fmt.Errorf("failed to send metadata message to database center: %v", err)
+	}
+
+	log.CtxLogger(ctx).Debugf("Send signals to database center")
+	for key, value := range metrics.Metrics {
+		log.CtxLogger(ctx).Debugf("Key: %v, Value: %v", key, value)
+		// skip for major version and minor version
+		if key == MajorVersionKey || key == MinorVersionKey {
+			continue
+		}
+		msg, err := c.buildConfigBasedSignalMessage(ctx, key, value)
+		if err != nil {
+			return fmt.Errorf("failed to build config based signal message: %v", err)
+		}
+		err = c.CommClient.SendAgentMessage(ctx, string(metrics.EngineType), "configbasedsignal", msg, c.conn)
+		if err != nil {
+			return fmt.Errorf("failed to send config based signal message to database center: %v", err)
+		}
 	}
 	return nil
 }

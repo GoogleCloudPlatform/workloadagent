@@ -32,8 +32,33 @@ import (
 	dcpb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/databasecenter"
 )
 
+var (
+	defaultConfig = &configpb.Configuration{
+		CloudProperties: &configpb.CloudProperties{
+			ProjectId:        "test-project",
+			NumericProjectId: "12345",
+			InstanceId:       "test-instance-id",
+			InstanceName:     "test-instance-name",
+			Region:           "us-central1",
+			Zone:             "us-central1-a",
+		},
+	}
+	defaultResourceName = "//compute.googleapis.com/projects/test-project/zones/us-central1-a/instances/test-instance-name"
+	defaultResourceID   = &dcpb.DatabaseResourceId{
+		Provider:     dcpb.DatabaseResourceId_GCP,
+		UniqueId:     "test-instance-id",
+		ResourceType: "compute.googleapis.com/Instance",
+	}
+)
+
+type sendAgentMessageCall struct {
+	AgentType   string
+	MessageType string
+	Msg         *anypb.Any
+}
+
 type MockCommunication struct {
-	sendAgentMessageCalled       bool
+	Calls                        []sendAgentMessageCall
 	establishACSConnectionCalled bool
 	sendAgentMessageError        error
 	establishACSConnectionError  error
@@ -45,11 +70,179 @@ func (m *MockCommunication) EstablishACSConnection(ctx context.Context, endpoint
 }
 
 func (m *MockCommunication) SendAgentMessage(ctx context.Context, agentType string, messageType string, msg *anypb.Any, conn *client.Connection) error {
-	m.sendAgentMessageCalled = true
+	m.Calls = append(m.Calls, sendAgentMessageCall{AgentType: agentType, MessageType: messageType, Msg: msg})
 	return m.sendAgentMessageError
 }
 
-func TestBuildCondorMessage(t *testing.T) {
+func TestGetSignalType(t *testing.T) {
+	tests := []struct {
+		key  string
+		want dcpb.SignalType
+	}{
+		{
+			key:  NoRootPasswordKey,
+			want: dcpb.SignalType_SIGNAL_TYPE_NO_ROOT_PASSWORD,
+		},
+		{
+			key:  ExposedToPublicAccessKey,
+			want: dcpb.SignalType_SIGNAL_TYPE_EXPOSED_TO_PUBLIC_ACCESS,
+		},
+		{
+			key:  UnencryptedConnectionsKey,
+			want: dcpb.SignalType_SIGNAL_TYPE_UNENCRYPTED_CONNECTIONS,
+		},
+		{
+			key:  DatabaseAuditingDisabledKey,
+			want: dcpb.SignalType_SIGNAL_TYPE_DATABASE_AUDITING_DISABLED,
+		},
+		{
+			key:  "unknown_key",
+			want: dcpb.SignalType_SIGNAL_TYPE_UNSPECIFIED,
+		},
+	}
+
+	client := &realClient{}
+	for _, tc := range tests {
+		got := client.getSignalType(tc.key)
+		if got != tc.want {
+			t.Errorf("getSignalType(%q) = %v, want %v", tc.key, got, tc.want)
+		}
+	}
+}
+
+func TestGetSignalValue(t *testing.T) {
+	tests := []struct {
+		value string
+		want  bool
+	}{
+		{value: "true", want: true},
+		{value: "false", want: false},
+		{value: "TRUE", want: false},
+		{value: "False", want: false},
+		{value: "1", want: false},
+		{value: "", want: false},
+	}
+
+	client := &realClient{}
+	for _, tc := range tests {
+		got := client.getSignalValue(tc.value)
+		if got != tc.want {
+			t.Errorf("getSignalValue(%q) = %v, want %v", tc.value, got, tc.want)
+		}
+	}
+}
+
+func TestBuildConfigBasedSignalMessage(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  *configpb.Configuration
+		key     string
+		value   string
+		want    *dcpb.DatabaseResourceFeed
+		wantErr bool
+	}{
+		{
+			name:   "no root password true",
+			config: defaultConfig,
+			key:    NoRootPasswordKey,
+			value:  "true",
+			want: &dcpb.DatabaseResourceFeed{
+				FeedType: dcpb.DatabaseResourceFeed_CONFIG_BASED_SIGNAL_DATA,
+				Content: &dcpb.DatabaseResourceFeed_ConfigBasedSignalData{
+					ConfigBasedSignalData: &dcpb.ConfigBasedSignalData{
+						ResourceId:       defaultResourceID,
+						FullResourceName: defaultResourceName,
+						SignalType:       dcpb.SignalType_SIGNAL_TYPE_NO_ROOT_PASSWORD,
+						SignalMetadata:   &dcpb.ConfigBasedSignalData_SignalBoolValue{SignalBoolValue: true},
+					},
+				},
+			},
+		},
+		{
+			name:   "exposed to public false",
+			config: defaultConfig,
+			key:    ExposedToPublicAccessKey,
+			value:  "false",
+			want: &dcpb.DatabaseResourceFeed{
+				FeedType: dcpb.DatabaseResourceFeed_CONFIG_BASED_SIGNAL_DATA,
+				Content: &dcpb.DatabaseResourceFeed_ConfigBasedSignalData{
+					ConfigBasedSignalData: &dcpb.ConfigBasedSignalData{
+						ResourceId:       defaultResourceID,
+						FullResourceName: defaultResourceName,
+						SignalType:       dcpb.SignalType_SIGNAL_TYPE_EXPOSED_TO_PUBLIC_ACCESS,
+						SignalMetadata:   &dcpb.ConfigBasedSignalData_SignalBoolValue{SignalBoolValue: false},
+					},
+				},
+			},
+		},
+		{
+			name:   "empty config",
+			config: &configpb.Configuration{},
+			key:    UnencryptedConnectionsKey,
+			value:  "true",
+			want: &dcpb.DatabaseResourceFeed{
+				FeedType: dcpb.DatabaseResourceFeed_CONFIG_BASED_SIGNAL_DATA,
+				Content: &dcpb.DatabaseResourceFeed_ConfigBasedSignalData{
+					ConfigBasedSignalData: &dcpb.ConfigBasedSignalData{
+						ResourceId: &dcpb.DatabaseResourceId{
+							Provider:     dcpb.DatabaseResourceId_GCP,
+							UniqueId:     "",
+							ResourceType: "compute.googleapis.com/Instance",
+						},
+						FullResourceName: "//compute.googleapis.com/projects//zones//instances/",
+						SignalType:       dcpb.SignalType_SIGNAL_TYPE_UNENCRYPTED_CONNECTIONS,
+						SignalMetadata:   &dcpb.ConfigBasedSignalData_SignalBoolValue{SignalBoolValue: true},
+					},
+				},
+			},
+		},
+		{
+			name:   "unknown key",
+			config: defaultConfig,
+			key:    "some_unknown_signal",
+			value:  "true",
+			want: &dcpb.DatabaseResourceFeed{
+				FeedType: dcpb.DatabaseResourceFeed_CONFIG_BASED_SIGNAL_DATA,
+				Content: &dcpb.DatabaseResourceFeed_ConfigBasedSignalData{
+					ConfigBasedSignalData: &dcpb.ConfigBasedSignalData{
+						ResourceId:       defaultResourceID,
+						FullResourceName: defaultResourceName,
+						SignalType:       dcpb.SignalType_SIGNAL_TYPE_UNSPECIFIED,
+						SignalMetadata:   &dcpb.ConfigBasedSignalData_SignalBoolValue{SignalBoolValue: true},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			client := &realClient{Config: tc.config}
+
+			gotAny, err := client.buildConfigBasedSignalMessage(ctx, tc.key, tc.value)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("buildConfigBasedSignalMessage(%q, %q) error = %v, wantErr %v", tc.key, tc.value, err, tc.wantErr)
+			}
+			if err != nil {
+				return
+			}
+
+			got := &dcpb.DatabaseResourceFeed{}
+			if err := gotAny.UnmarshalTo(got); err != nil {
+				t.Fatalf("Failed to unmarshal anyMsg: %v", err)
+			}
+
+			if diff := cmp.Diff(tc.want, got, protocmp.Transform(),
+				protocmp.IgnoreFields(&dcpb.DatabaseResourceFeed{}, "feed_timestamp"),
+				protocmp.IgnoreFields(&dcpb.ConfigBasedSignalData{}, "last_refresh_time")); diff != "" {
+				t.Errorf("buildConfigBasedSignalMessage(%q, %q) returned unexpected diff (-want +got):\n%s", tc.key, tc.value, diff)
+			}
+		})
+	}
+}
+
+func TestBuildDatabaseResourceMetadataMessage(t *testing.T) {
 	testTime := time.Now()
 	testTimestamp := timestamppb.New(testTime)
 
@@ -246,9 +439,9 @@ func TestBuildCondorMessage(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			client := realClient{Config: tc.config, CommClient: &MockCommunication{}}
 
-			gotAny, err := client.buildCondorMessage(context.Background(), tc.metrics)
+			gotAny, err := client.buildDatabaseResourceMetadataMessage(context.Background(), tc.metrics)
 			if (err != nil) != tc.wantErr {
-				t.Fatalf("buildCondorMessage() error = %v, wantErr %v", err, tc.wantErr)
+				t.Fatalf("buildDatabaseResourceMetadataMessage() error = %v, wantErr %v", err, tc.wantErr)
 			}
 			if err != nil {
 				return
@@ -258,13 +451,24 @@ func TestBuildCondorMessage(t *testing.T) {
 				t.Fatalf("Failed to unmarshal any to DatabaseResourceFeed: %v", err)
 			}
 			if diff := cmp.Diff(tc.want, got, protocmp.Transform(), protocmp.IgnoreFields(&dcpb.DatabaseResourceFeed{}, "feed_timestamp"), protocmp.IgnoreFields(&dcpb.DatabaseResourceMetadata{}, "creation_time", "updation_time")); diff != "" {
-				t.Errorf("buildCondorMessage() returned unexpected diff (-want +got):\n%s", diff)
+				t.Errorf("buildDatabaseResourceMetadataMessage() returned unexpected diff (-want +got):\n%s", diff)
 			}
 		})
 	}
 }
 
 func TestSendMetadataToDatabaseCenter(t *testing.T) {
+	defaultConfig := &configpb.Configuration{
+		CloudProperties: &configpb.CloudProperties{
+			ProjectId:        "test-project",
+			NumericProjectId: "12345",
+			InstanceId:       "test-instance",
+			InstanceName:     "test-instance-name",
+			Region:           "us-central1",
+			Zone:             "us-central1-a",
+		},
+	}
+
 	tests := []struct {
 		name                        string
 		config                      *configpb.Configuration
@@ -272,59 +476,81 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 		establishACSConnectionError error
 		sendAgentMessageError       error
 		wantErr                     error
+		wantSendCallCount           int
+		wantSignals                 map[dcpb.SignalType]bool
 	}{
 		{
-			name: "success",
-			config: &configpb.Configuration{
-				CloudProperties: &configpb.CloudProperties{
-					ProjectId:        "test-project",
-					NumericProjectId: "12345",
-					InstanceId:       "test-instance",
-					InstanceName:     "test-instance-name",
-					Region:           "us-central1",
-					Zone:             "us-central1-a",
-				},
-			},
+			name:   "success no signals",
+			config: defaultConfig,
 			metrics: DBCenterMetrics{
 				EngineType: SQLSERVER,
 				Metrics: map[string]string{
-					"version":       "SQL Server 2022 Express",
+					"major_version": "SQL Server 2022 Express",
 					"minor_version": "CU13",
 				},
 			},
-			establishACSConnectionError: nil,
-			sendAgentMessageError:       nil,
-			wantErr:                     nil,
+			wantSendCallCount: 1,
+			wantSignals:       map[dcpb.SignalType]bool{},
 		},
 		{
-			name: "failed to send message",
-			config: &configpb.Configuration{
-				CloudProperties: &configpb.CloudProperties{
-					ProjectId:        "test-project",
-					NumericProjectId: "12345",
-					InstanceId:       "test-instance",
-					InstanceName:     "test-instance-name",
-					Region:           "us-central1",
-					Zone:             "us-central1-a",
-				},
-			},
+			name:   "success with signals",
+			config: defaultConfig,
 			metrics: DBCenterMetrics{
 				EngineType: MYSQL,
 				Metrics: map[string]string{
-					"version":       "8.0",
-					"minor_version": "8.0.26",
+					"major_version":             "8.0",
+					"minor_version":             "8.0.26",
+					NoRootPasswordKey:           "true",
+					ExposedToPublicAccessKey:    "false",
+					DatabaseAuditingDisabledKey: "true",
+					UnencryptedConnectionsKey:   "TRUE", // Should be false
 				},
 			},
-			establishACSConnectionError: nil,
-			sendAgentMessageError:       fmt.Errorf(""),
-			wantErr:                     fmt.Errorf("failed to send message to database center: "),
+			wantSendCallCount: 5, // 1 metadata + 4 signals
+			wantSignals: map[dcpb.SignalType]bool{
+				dcpb.SignalType_SIGNAL_TYPE_NO_ROOT_PASSWORD:           true,
+				dcpb.SignalType_SIGNAL_TYPE_EXPOSED_TO_PUBLIC_ACCESS:   false,
+				dcpb.SignalType_SIGNAL_TYPE_DATABASE_AUDITING_DISABLED: true,
+				dcpb.SignalType_SIGNAL_TYPE_UNENCRYPTED_CONNECTIONS:    false,
+			},
+		},
+		{
+			name:   "failed to send metadata message",
+			config: defaultConfig,
+			metrics: DBCenterMetrics{
+				EngineType: MYSQL,
+				Metrics: map[string]string{
+					"major_version": "8.0",
+				},
+			},
+			sendAgentMessageError: fmt.Errorf("send error"),
+			wantErr:               fmt.Errorf("failed to send metadata message to database center: send error"),
+			wantSendCallCount:     1,
+			wantSignals:           map[dcpb.SignalType]bool{},
+		},
+		{
+			name:   "failed to send signal message",
+			config: defaultConfig,
+			metrics: DBCenterMetrics{
+				EngineType: MYSQL,
+				Metrics: map[string]string{
+					"major_version":   "8.0",
+					NoRootPasswordKey: "true",
+				},
+			},
+			sendAgentMessageError: fmt.Errorf("send error"),
+			wantErr:               fmt.Errorf("failed to send metadata message to database center: send error"), // Error is from the first send
+			wantSendCallCount:     1,
+			wantSignals:           map[dcpb.SignalType]bool{},
 		},
 		{
 			name:                        "failed to establish connection",
 			config:                      &configpb.Configuration{},
-			establishACSConnectionError: fmt.Errorf(""),
-			sendAgentMessageError:       nil,
-			wantErr:                     fmt.Errorf("failed to establish ACS connection: "),
+			metrics:                     DBCenterMetrics{EngineType: MYSQL},
+			establishACSConnectionError: fmt.Errorf("connection error"),
+			wantErr:                     fmt.Errorf("failed to establish ACS connection: connection error"),
+			wantSendCallCount:           0,
+			wantSignals:                 map[dcpb.SignalType]bool{},
 		},
 	}
 
@@ -337,9 +563,13 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			client := NewClient(tc.config, mockComm)
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
+
 			err := client.SendMetadataToDatabaseCenter(ctx, tc.metrics)
 			if err != nil && err.Error() != tc.wantErr.Error() {
 				t.Errorf("SendMetadataToDatabaseCenter() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if len(mockComm.Calls) != tc.wantSendCallCount {
+				t.Errorf("SendMetadataToDatabaseCenter(%v) unexpected number of SendAgentMessage calls: got %d, want %d", tc.metrics, len(mockComm.Calls), tc.wantSendCallCount)
 			}
 		})
 	}
