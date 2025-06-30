@@ -79,20 +79,22 @@ func (t *testGCE) GetSecret(ctx context.Context, projectID, secretName string) (
 }
 
 type testDB struct {
-	engineRows           rowsInterface
-	engineErr            error
-	bufferPoolRows       rowsInterface
-	bufferPoolErr        error
-	replicaRows          rowsInterface
-	replicaErr           error
-	slaveRows            rowsInterface
-	slaveErr             error
-	replicationZonesRows rowsInterface
-	replicationZonesErr  error
-	versionRows          rowsInterface
-	versionErr           error
-	mysqlUserRows        rowsInterface
-	mysqlUserErr         error
+	engineRows                rowsInterface
+	engineErr                 error
+	bufferPoolRows            rowsInterface
+	bufferPoolErr             error
+	replicaRows               rowsInterface
+	replicaErr                error
+	slaveRows                 rowsInterface
+	slaveErr                  error
+	replicationZonesRows      rowsInterface
+	replicationZonesErr       error
+	versionRows               rowsInterface
+	versionErr                error
+	mysqlUserRows             rowsInterface
+	mysqlUserErr              error
+	exposedToPublicAccessRows rowsInterface
+	exposedToPublicAccessErr  error
 }
 
 func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (rowsInterface, error) {
@@ -120,6 +122,13 @@ func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (r
 		WHERE user = 'root'
 	`) {
 		return t.mysqlUserRows, t.mysqlUserErr
+	}
+	if strings.TrimSpace(query) == strings.TrimSpace(`
+		SELECT User, Host
+		FROM mysql.user
+		WHERE Host = '%'
+	`) {
+		return t.exposedToPublicAccessRows, t.exposedToPublicAccessErr
 	}
 	return nil, nil
 }
@@ -342,13 +351,50 @@ func (f *mysqlUserMockRows) Close() error {
 	return nil
 }
 
+type exposedToPublicAccessMockRows struct {
+	count   int
+	size    int
+	data    [][]string // {user, host}
+	scanErr bool
+}
+
+func (f *exposedToPublicAccessMockRows) Scan(dest ...any) error {
+	if f.scanErr {
+		return errors.New("test scan error")
+	}
+	if f.count == 0 || f.count > f.size {
+		return errors.New("Scan called on invalid row")
+	}
+	currentRow := f.data[f.count-1]
+	if len(dest) != len(currentRow) {
+		return fmt.Errorf("scan destination count mismatch: got %d, want %d", len(dest), len(currentRow))
+	}
+	*dest[0].(*string) = currentRow[0]
+	*dest[1].(*string) = currentRow[1]
+	return nil
+}
+
+func (f *exposedToPublicAccessMockRows) Next() bool {
+	if f.count < f.size {
+		f.count++
+		return true
+	}
+	return false
+}
+
+func (f *exposedToPublicAccessMockRows) Close() error {
+	return nil
+}
+
 type MockDatabaseCenterClient struct {
 	sendMetadataCalled bool
 	sendMetadataErr    error
+	gotMetrics         databasecenter.DBCenterMetrics
 }
 
 func (m *MockDatabaseCenterClient) SendMetadataToDatabaseCenter(ctx context.Context, metrics databasecenter.DBCenterMetrics) error {
 	m.sendMetadataCalled = true
+	m.gotMetrics = metrics
 	return m.sendMetadataErr
 }
 
@@ -991,6 +1037,14 @@ func TestCollectMetricsOnce(t *testing.T) {
 					engineErr:      nil,
 					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
 					bufferPoolErr:  nil,
+					versionRows:    &versionRows{size: 1, data: []string{"8.0.35"}},
+					// Mock for CheckRootPasswordNotSet - secure
+					mysqlUserRows: &mysqlUserMockRows{
+						size: 1,
+						data: [][]any{{"root", "localhost", "caching_sha2_password", sql.NullString{String: "hash", Valid: true}}},
+					},
+					// Mock for CheckBroadAccess - secure
+					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1037,6 +1091,14 @@ func TestCollectMetricsOnce(t *testing.T) {
 					engineErr:      nil,
 					bufferPoolRows: nil,
 					bufferPoolErr:  errors.New("test-error"),
+					versionRows:    &versionRows{size: 1, data: []string{"8.0.35"}},
+					// Mock for CheckRootPasswordNotSet - secure
+					mysqlUserRows: &mysqlUserMockRows{
+						size: 1,
+						data: [][]any{{"root", "localhost", "caching_sha2_password", sql.NullString{String: "hash", Valid: true}}},
+					},
+					// Mock for CheckBroadAccess - secure
+					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1082,6 +1144,14 @@ func TestCollectMetricsOnce(t *testing.T) {
 					engineErr:      nil,
 					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
 					bufferPoolErr:  nil,
+					versionRows:    &versionRows{size: 1, data: []string{"8.0.35"}},
+					// Mock for CheckRootPasswordNotSet - secure
+					mysqlUserRows: &mysqlUserMockRows{
+						size: 1,
+						data: [][]any{{"root", "localhost", "caching_sha2_password", sql.NullString{String: "hash", Valid: true}}},
+					},
+					// Mock for CheckBroadAccess - secure
+					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1116,6 +1186,14 @@ func TestCollectMetricsOnce(t *testing.T) {
 					engineErr:      errors.New("test-error"),
 					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
 					bufferPoolErr:  nil,
+					versionRows:    &versionRows{size: 1, data: []string{"8.0.35"}},
+					// Mock for CheckRootPasswordNotSet - secure
+					mysqlUserRows: &mysqlUserMockRows{
+						size: 1,
+						data: [][]any{{"root", "localhost", "caching_sha2_password", sql.NullString{String: "hash", Valid: true}}},
+					},
+					// Mock for CheckBroadAccess - secure
+					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1160,6 +1238,14 @@ func TestCollectMetricsOnce(t *testing.T) {
 					engineErr:      nil,
 					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
 					bufferPoolErr:  nil,
+					versionRows:    &versionRows{size: 1, data: []string{"8.0.35"}},
+					// Mock for CheckRootPasswordNotSet - secure
+					mysqlUserRows: &mysqlUserMockRows{
+						size: 1,
+						data: [][]any{{"root", "localhost", "caching_sha2_password", sql.NullString{String: "hash", Valid: true}}},
+					},
+					// Mock for CheckBroadAccess - secure
+					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1206,6 +1292,14 @@ func TestCollectMetricsOnce(t *testing.T) {
 					engineErr:      nil,
 					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
 					bufferPoolErr:  nil,
+					versionRows:    &versionRows{size: 1, data: []string{"8.0.35"}},
+					// Mock for CheckRootPasswordNotSet - secure
+					mysqlUserRows: &mysqlUserMockRows{
+						size: 1,
+						data: [][]any{{"root", "localhost", "caching_sha2_password", sql.NullString{String: "hash", Valid: true}}},
+					},
+					// Mock for CheckBroadAccess - secure
+					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1568,7 +1662,7 @@ func TestVersion(t *testing.T) {
 	}
 }
 
-func TestCheckRootPasswordNotSet(t *testing.T) {
+func TestRootPasswordNotSet(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {
 		name         string
@@ -1707,7 +1801,7 @@ func TestCheckRootPasswordNotSet(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			m := MySQLMetrics{db: tc.db}
-			result, err := m.CheckRootPasswordNotSet(ctx)
+			result, err := m.rootPasswordNotSet(ctx)
 
 			if (err != nil) != tc.expectErr {
 				t.Errorf("CheckRootPasswordNotSet() got error: %v, want error presence: %v", err, tc.expectErr)
@@ -1720,6 +1814,90 @@ func TestCheckRootPasswordNotSet(t *testing.T) {
 	}
 }
 
+func TestExposedToPublicAccess(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name         string
+		db           *testDB
+		expectResult bool
+		expectErr    bool
+	}{
+		{
+			name: "one_user_broad_access",
+			db: &testDB{
+				exposedToPublicAccessRows: &exposedToPublicAccessMockRows{
+					size: 1,
+					data: [][]string{
+						{"root", "%"},
+					},
+				},
+			},
+			expectResult: true,
+			expectErr:    false,
+		},
+		{
+			name: "multiple_users_broad_access",
+			db: &testDB{
+				exposedToPublicAccessRows: &exposedToPublicAccessMockRows{
+					size: 2,
+					data: [][]string{
+						{"root", "%"},
+						{"app", "%"},
+					},
+				},
+			},
+			expectResult: true,
+			expectErr:    false,
+		},
+		{
+			name: "no_users_broad_access",
+			db: &testDB{
+				exposedToPublicAccessRows: &exposedToPublicAccessMockRows{
+					size: 0,
+					data: [][]string{},
+				},
+			},
+			expectResult: false,
+			expectErr:    false,
+		},
+		{
+			name: "query_error",
+			db: &testDB{
+				exposedToPublicAccessErr: errors.New("db query failed"),
+			},
+			expectResult: false,
+			expectErr:    true,
+		},
+		{
+			name: "scan_error",
+			db: &testDB{
+				exposedToPublicAccessRows: &exposedToPublicAccessMockRows{
+					size:    1,
+					data:    [][]string{{"root", "%"}},
+					scanErr: true,
+				},
+			},
+			expectResult: false,
+			expectErr:    true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := MySQLMetrics{db: tc.db}
+			result, err := m.exposedToPublicAccess(ctx)
+
+			if (err != nil) != tc.expectErr {
+				t.Errorf("CheckBroadAccess() got error: %v, want error presence: %v", err, tc.expectErr)
+			}
+
+			if result != tc.expectResult {
+				t.Errorf("CheckBroadAccess() got result: %v, want result: %v", result, tc.expectResult)
+			}
+		})
+	}
+}
+
 func TestSendMetadataToDatabaseCenter(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {
@@ -1727,10 +1905,11 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 		m                    MySQLMetrics
 		sendMetadataErr      error
 		wantSendMetadataCall bool
+		wantDBcenterMetrics  map[string]string
 		wantErr              bool
 	}{
 		{
-			name: "Send metadata success",
+			name: "Send metadata success - secure",
 			m: MySQLMetrics{
 				db: &testDB{
 					engineRows: &isInnoDBRows{
@@ -1745,6 +1924,14 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 					engineErr:      nil,
 					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
 					bufferPoolErr:  nil,
+					versionRows:    &versionRows{size: 1, data: []string{"8.0.35"}},
+					// Mock for CheckRootPasswordNotSet - secure
+					mysqlUserRows: &mysqlUserMockRows{
+						size: 1,
+						data: [][]any{{"root", "localhost", "caching_sha2_password", sql.NullString{String: "hash", Valid: true}}},
+					},
+					// Mock for CheckBroadAccess - secure
+					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1761,7 +1948,49 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			},
 			sendMetadataErr:      nil,
 			wantSendMetadataCall: true,
-			wantErr:              false,
+			wantDBcenterMetrics: map[string]string{
+				databasecenter.MajorVersionKey:          "8.0",
+				databasecenter.MinorVersionKey:          "8.0.35",
+				databasecenter.NoRootPasswordKey:        "false",
+				databasecenter.ExposedToPublicAccessKey: "false",
+			},
+			wantErr: false,
+		},
+		{
+			name: "Send metadata success - insecure root, broad access",
+			m: MySQLMetrics{
+				db: &testDB{
+					// Default Happy Path mocks
+					engineRows:     &isInnoDBRows{size: 1, data: []sql.NullString{{String: "InnoDB", Valid: true}, {String: "DEFAULT", Valid: true}}},
+					bufferPoolRows: &bufferPoolRows{size: 1, data: 134217728},
+					versionRows:    &versionRows{size: 1, data: []string{"8.0.35"}},
+					// Mock for CheckRootPasswordNotSet - insecure
+					mysqlUserRows: &mysqlUserMockRows{
+						size: 1,
+						data: [][]any{{"root", "%", "mysql_native_password", sql.NullString{String: "", Valid: true}}},
+					},
+					// Mock for CheckBroadAccess - insecure
+					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 1, data: [][]string{{"test", "%"}}},
+				},
+				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{StdOut: "MemTotal:        4025040 kB\n"}
+				},
+				WLMClient: &gcefake.TestWLM{
+					WriteInsightErrs: []error{nil},
+					WriteInsightResponses: []*wlm.WriteInsightResponse{
+						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
+					},
+				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
+			},
+			wantSendMetadataCall: true,
+			wantDBcenterMetrics: map[string]string{
+				databasecenter.MajorVersionKey:          "8.0",
+				databasecenter.MinorVersionKey:          "8.0.35",
+				databasecenter.NoRootPasswordKey:        "true",
+				databasecenter.ExposedToPublicAccessKey: "true",
+			},
+			wantErr: false,
 		},
 		{
 			name: "Send metadata failure, should not return error",
@@ -1779,6 +2008,12 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 					engineErr:      nil,
 					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
 					bufferPoolErr:  nil,
+					versionRows:    &versionRows{size: 1, data: []string{"8.0.35"}},
+					mysqlUserRows: &mysqlUserMockRows{
+						size: 1,
+						data: [][]any{{"root", "localhost", "caching_sha2_password", sql.NullString{String: "hash", Valid: true}}},
+					},
+					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1795,7 +2030,13 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			},
 			sendMetadataErr:      fmt.Errorf("db center error"),
 			wantSendMetadataCall: true,
-			wantErr:              false,
+			wantDBcenterMetrics: map[string]string{
+				databasecenter.MajorVersionKey:          "8.0",
+				databasecenter.MinorVersionKey:          "8.0.35",
+				databasecenter.NoRootPasswordKey:        "false",
+				databasecenter.ExposedToPublicAccessKey: "false",
+			},
+			wantErr: false,
 		},
 	}
 
@@ -1822,6 +2063,11 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			}
 			if metrics == nil {
 				t.Errorf("CollectMetricsOnce returned nil metrics")
+			}
+			if tc.wantSendMetadataCall {
+				if diff := cmp.Diff(tc.wantDBcenterMetrics, mockClient.gotMetrics.Metrics); diff != "" {
+					t.Errorf("CollectMetricsOnce() DBcenterMetrics diff (-want +got):\n%s", diff)
+				}
 			}
 		})
 	}

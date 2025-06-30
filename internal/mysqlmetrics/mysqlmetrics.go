@@ -457,11 +457,11 @@ type mysqlUserRow struct {
 	AuthenticationString sql.NullString // authentication_string can be NULL
 }
 
-// CheckRootPasswordNotSet checks if any MySQL root user account using password-based
+// rootPasswordNotSet checks if any MySQL root user account using password-based
 // authentication (like mysql_native_password or caching_sha2_password) has no password set.
 // It returns true if at least one such root account has no password, false otherwise.
 // An error is returned if the query fails or data scanning issues occur.
-func (m *MySQLMetrics) CheckRootPasswordNotSet(ctx context.Context) (bool, error) {
+func (m *MySQLMetrics) rootPasswordNotSet(ctx context.Context) (bool, error) {
 	query := `
 		SELECT user, host, plugin, authentication_string
 		FROM mysql.user
@@ -506,6 +506,42 @@ func (m *MySQLMetrics) CheckRootPasswordNotSet(ctx context.Context) (bool, error
 	return false, nil
 }
 
+// simpleUserRow represents a User and Host from the mysql.user table.
+type simpleUserRow struct {
+	User string
+	Host string
+}
+
+// exposedToPublicAccess checks if any MySQL user has host set to '%',
+// allowing connections from any IP address.
+// It returns true if at least one user has Host = '%', false otherwise.
+// An error is returned if the query fails.
+func (m *MySQLMetrics) exposedToPublicAccess(ctx context.Context) (bool, error) {
+	query := `
+		SELECT User, Host
+		FROM mysql.user
+		WHERE Host = '%'
+	`
+	rows, err := executeQuery(ctx, m.db, query)
+	if err != nil {
+		return false, fmt.Errorf("failed to query mysql.user table with error: %v", err)
+	}
+	defer rows.Close()
+
+	exposedToPublicAccess := false
+	for rows.Next() {
+		var u simpleUserRow
+		if err := rows.Scan(&u.User, &u.Host); err != nil {
+			return false, fmt.Errorf("failed to scan row from mysql.user table with error: %v", err)
+		}
+		// Log the specific user and host
+		log.CtxLogger(ctx).Debugf("Found user with broad access: '%s'@'%s'", u.User, u.Host)
+		exposedToPublicAccess = true
+	}
+
+	return exposedToPublicAccess, nil
+}
+
 // CollectMetricsOnce collects metrics for MySQL databases running on the host.
 func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
 	bufferPoolSize, err := m.bufferPoolSize(ctx)
@@ -533,16 +569,28 @@ func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool)
 		currentRoleKey, currentRole,
 		replicationZonesKey, strings.Join(replicationZones, ","),
 	)
-
+	// Get major and minor version of MySQL
 	majorVersion, minorVersion, err := m.version(ctx)
 	if err != nil {
 		log.CtxLogger(ctx).Debugf("Failed to get MySQL version: %v", err)
 	}
+	// Check if No Root Password is set
+	rootPasswordNotSet, err := m.rootPasswordNotSet(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Debugf("Failed to check if root password is not set: %v", err)
+	}
+	// Check if broad access is set
+	exposedToPublicAccess, err := m.exposedToPublicAccess(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Debugf("Failed to check if broad access is set: %v", err)
+	}
 	// send metadata details to database center
 	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.MYSQL,
 		Metrics: map[string]string{
-			databasecenter.MajorVersionKey: majorVersion,
-			databasecenter.MinorVersionKey: minorVersion,
+			databasecenter.MajorVersionKey:          majorVersion,
+			databasecenter.MinorVersionKey:          minorVersion,
+			databasecenter.NoRootPasswordKey:        strconv.FormatBool(rootPasswordNotSet),
+			databasecenter.ExposedToPublicAccessKey: strconv.FormatBool(exposedToPublicAccess),
 		}})
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.
