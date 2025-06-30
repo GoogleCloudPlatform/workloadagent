@@ -79,22 +79,24 @@ func (t *testGCE) GetSecret(ctx context.Context, projectID, secretName string) (
 }
 
 type testDB struct {
-	engineRows                rowsInterface
-	engineErr                 error
-	bufferPoolRows            rowsInterface
-	bufferPoolErr             error
-	replicaRows               rowsInterface
-	replicaErr                error
-	slaveRows                 rowsInterface
-	slaveErr                  error
-	replicationZonesRows      rowsInterface
-	replicationZonesErr       error
-	versionRows               rowsInterface
-	versionErr                error
-	mysqlUserRows             rowsInterface
-	mysqlUserErr              error
-	exposedToPublicAccessRows rowsInterface
-	exposedToPublicAccessErr  error
+	engineRows                 rowsInterface
+	engineErr                  error
+	bufferPoolRows             rowsInterface
+	bufferPoolErr              error
+	replicaRows                rowsInterface
+	replicaErr                 error
+	slaveRows                  rowsInterface
+	slaveErr                   error
+	replicationZonesRows       rowsInterface
+	replicationZonesErr        error
+	versionRows                rowsInterface
+	versionErr                 error
+	mysqlUserRows              rowsInterface
+	mysqlUserErr               error
+	exposedToPublicAccessRows  rowsInterface
+	exposedToPublicAccessErr   error
+	requireSecureTransportRows rowsInterface
+	requireSecureTransportErr  error
 }
 
 func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (rowsInterface, error) {
@@ -129,6 +131,9 @@ func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (r
 		WHERE Host = '%'
 	`) {
 		return t.exposedToPublicAccessRows, t.exposedToPublicAccessErr
+	}
+	if query == `SHOW GLOBAL VARIABLES LIKE 'require_secure_transport'` {
+		return t.requireSecureTransportRows, t.requireSecureTransportErr
 	}
 	return nil, nil
 }
@@ -383,6 +388,41 @@ func (f *exposedToPublicAccessMockRows) Next() bool {
 }
 
 func (f *exposedToPublicAccessMockRows) Close() error {
+	return nil
+}
+
+type globalVarMockRows struct {
+	count   int
+	size    int
+	data    [][]string // {var_name, value}
+	scanErr bool
+}
+
+func (f *globalVarMockRows) Scan(dest ...any) error {
+	if f.scanErr {
+		return errors.New("test scan error")
+	}
+	if f.count == 0 || f.count > f.size {
+		return errors.New("Scan called on invalid row")
+	}
+	currentRow := f.data[f.count-1]
+	if len(dest) != len(currentRow) {
+		return fmt.Errorf("scan destination count mismatch: got %d, want %d", len(dest), len(currentRow))
+	}
+	*dest[0].(*string) = currentRow[0]
+	*dest[1].(*string) = currentRow[1]
+	return nil
+}
+
+func (f *globalVarMockRows) Next() bool {
+	if f.count < f.size {
+		f.count++
+		return true
+	}
+	return false
+}
+
+func (f *globalVarMockRows) Close() error {
 	return nil
 }
 
@@ -1045,6 +1085,8 @@ func TestCollectMetricsOnce(t *testing.T) {
 					},
 					// Mock for CheckBroadAccess - secure
 					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
+					// Mock for CheckUnencryptedConnections - secure
+					requireSecureTransportRows: &globalVarMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1099,6 +1141,8 @@ func TestCollectMetricsOnce(t *testing.T) {
 					},
 					// Mock for CheckBroadAccess - secure
 					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
+					// Mock for CheckUnencryptedConnections - secure
+					requireSecureTransportRows: &globalVarMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1152,6 +1196,8 @@ func TestCollectMetricsOnce(t *testing.T) {
 					},
 					// Mock for CheckBroadAccess - secure
 					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
+					// Mock for CheckUnencryptedConnections - secure
+					requireSecureTransportRows: &globalVarMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1194,6 +1240,8 @@ func TestCollectMetricsOnce(t *testing.T) {
 					},
 					// Mock for CheckBroadAccess - secure
 					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
+					// Mock for CheckUnencryptedConnections - secure
+					requireSecureTransportRows: &globalVarMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1246,6 +1294,8 @@ func TestCollectMetricsOnce(t *testing.T) {
 					},
 					// Mock for CheckBroadAccess - secure
 					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
+					// Mock for CheckUnencryptedConnections - secure
+					requireSecureTransportRows: &globalVarMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1300,6 +1350,8 @@ func TestCollectMetricsOnce(t *testing.T) {
 					},
 					// Mock for CheckBroadAccess - secure
 					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
+					// Mock for CheckUnencryptedConnections - secure
+					requireSecureTransportRows: &globalVarMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1898,6 +1950,93 @@ func TestExposedToPublicAccess(t *testing.T) {
 	}
 }
 
+func TestUnencryptedConnectionsAllowed(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name         string
+		db           *testDB
+		expectResult bool
+		expectErr    bool
+	}{
+		{
+			name: "secure_transport_ON",
+			db: &testDB{
+				requireSecureTransportRows: &globalVarMockRows{
+					size: 1,
+					data: [][]string{{"require_secure_transport", "ON"}},
+				},
+			},
+			expectResult: false, // Unencrypted NOT allowed
+			expectErr:    false,
+		},
+		{
+			name: "secure_transport_OFF",
+			db: &testDB{
+				requireSecureTransportRows: &globalVarMockRows{
+					size: 1,
+					data: [][]string{{"require_secure_transport", "OFF"}},
+				},
+			},
+			expectResult: true, // Unencrypted allowed
+			expectErr:    false,
+		},
+		{
+			name: "secure_transport_off_lowercase",
+			db: &testDB{
+				requireSecureTransportRows: &globalVarMockRows{
+					size: 1,
+					data: [][]string{{"require_secure_transport", "off"}},
+				},
+			},
+			expectResult: true, // Unencrypted allowed
+			expectErr:    false,
+		},
+		{
+			name: "variable_not_found",
+			db: &testDB{
+				requireSecureTransportRows: &globalVarMockRows{size: 0},
+			},
+			expectResult: false,
+			expectErr:    true, // Should error if variable not found
+		},
+		{
+			name: "query_error",
+			db: &testDB{
+				requireSecureTransportErr: errors.New("db query failed"),
+			},
+			expectResult: false,
+			expectErr:    true,
+		},
+		{
+			name: "scan_error",
+			db: &testDB{
+				requireSecureTransportRows: &globalVarMockRows{
+					size:    1,
+					data:    [][]string{{"require_secure_transport", "ON"}},
+					scanErr: true,
+				},
+			},
+			expectResult: false,
+			expectErr:    true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := MySQLMetrics{db: tc.db}
+			result, err := m.unencryptedConnectionsAllowed(ctx)
+
+			if (err != nil) != tc.expectErr {
+				t.Errorf("unencryptedConnectionsAllowed() got error: %v, want error presence: %v", err, tc.expectErr)
+			}
+
+			if !tc.expectErr && result != tc.expectResult {
+				t.Errorf("unencryptedConnectionsAllowed() got result: %v, want result: %v", result, tc.expectResult)
+			}
+		})
+	}
+}
+
 func TestSendMetadataToDatabaseCenter(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {
@@ -1932,6 +2071,11 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 					},
 					// Mock for CheckBroadAccess - secure
 					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
+					// Mock for CheckUnencryptedConnectionsAllowed - secure
+					requireSecureTransportRows: &globalVarMockRows{
+						size: 1,
+						data: [][]string{{"require_secure_transport", "ON"}},
+					},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1949,10 +2093,11 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			sendMetadataErr:      nil,
 			wantSendMetadataCall: true,
 			wantDBcenterMetrics: map[string]string{
-				databasecenter.MajorVersionKey:          "8.0",
-				databasecenter.MinorVersionKey:          "8.0.35",
-				databasecenter.NoRootPasswordKey:        "false",
-				databasecenter.ExposedToPublicAccessKey: "false",
+				databasecenter.MajorVersionKey:           "8.0",
+				databasecenter.MinorVersionKey:           "8.0.35",
+				databasecenter.NoRootPasswordKey:         "false",
+				databasecenter.ExposedToPublicAccessKey:  "false",
+				databasecenter.UnencryptedConnectionsKey: "false",
 			},
 			wantErr: false,
 		},
@@ -1971,6 +2116,11 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 					},
 					// Mock for CheckBroadAccess - insecure
 					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 1, data: [][]string{{"test", "%"}}},
+					// Mock for CheckUnencryptedConnectionsAllowed - insecure
+					requireSecureTransportRows: &globalVarMockRows{
+						size: 1,
+						data: [][]string{{"require_secure_transport", "OFF"}},
+					},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{StdOut: "MemTotal:        4025040 kB\n"}
@@ -1985,10 +2135,11 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			},
 			wantSendMetadataCall: true,
 			wantDBcenterMetrics: map[string]string{
-				databasecenter.MajorVersionKey:          "8.0",
-				databasecenter.MinorVersionKey:          "8.0.35",
-				databasecenter.NoRootPasswordKey:        "true",
-				databasecenter.ExposedToPublicAccessKey: "true",
+				databasecenter.MajorVersionKey:           "8.0",
+				databasecenter.MinorVersionKey:           "8.0.35",
+				databasecenter.NoRootPasswordKey:         "true",
+				databasecenter.ExposedToPublicAccessKey:  "true",
+				databasecenter.UnencryptedConnectionsKey: "true",
 			},
 			wantErr: false,
 		},
@@ -2014,6 +2165,10 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 						data: [][]any{{"root", "localhost", "caching_sha2_password", sql.NullString{String: "hash", Valid: true}}},
 					},
 					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
+					requireSecureTransportRows: &globalVarMockRows{
+						size: 1,
+						data: [][]string{{"require_secure_transport", "ON"}},
+					},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -2031,10 +2186,11 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			sendMetadataErr:      fmt.Errorf("db center error"),
 			wantSendMetadataCall: true,
 			wantDBcenterMetrics: map[string]string{
-				databasecenter.MajorVersionKey:          "8.0",
-				databasecenter.MinorVersionKey:          "8.0.35",
-				databasecenter.NoRootPasswordKey:        "false",
-				databasecenter.ExposedToPublicAccessKey: "false",
+				databasecenter.MajorVersionKey:           "8.0",
+				databasecenter.MinorVersionKey:           "8.0.35",
+				databasecenter.NoRootPasswordKey:         "false",
+				databasecenter.ExposedToPublicAccessKey:  "false",
+				databasecenter.UnencryptedConnectionsKey: "false",
 			},
 			wantErr: false,
 		},

@@ -542,6 +542,37 @@ func (m *MySQLMetrics) exposedToPublicAccess(ctx context.Context) (bool, error) 
 	return exposedToPublicAccess, nil
 }
 
+// unencryptedConnectionsAllowed checks if the MySQL server allows unencrypted connections.
+// It returns true if unencrypted connections are possible, false if they are not.
+// This is determined by the value of the 'require_secure_transport' system variable.
+func (m *MySQLMetrics) unencryptedConnectionsAllowed(ctx context.Context) (bool, error) {
+	query := `SHOW GLOBAL VARIABLES LIKE 'require_secure_transport'`
+	rows, err := executeQuery(ctx, m.db, query)
+	if err != nil {
+		return false, fmt.Errorf("failed to query global variable require_secure_transport with error: %v", err)
+	}
+	defer rows.Close()
+
+	var varName, varValue string
+	found := false
+	if rows.Next() {
+		if err := rows.Scan(&varName, &varValue); err != nil {
+			return false, fmt.Errorf("failed to scan row from global variable require_secure_transport with error: %v", err)
+		}
+		found = true
+	}
+
+	if !found {
+		// This variable should always exist in recent MySQL versions.
+		return false, fmt.Errorf("require_secure_transport variable not found")
+	}
+
+	// If require_secure_transport is ON, unencrypted connections are disabled.
+	// If OFF, unencrypted connections are allowed.
+	unencryptedConnAllowed := strings.ToUpper(varValue) == "OFF"
+	return unencryptedConnAllowed, nil
+}
+
 // CollectMetricsOnce collects metrics for MySQL databases running on the host.
 func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
 	bufferPoolSize, err := m.bufferPoolSize(ctx)
@@ -584,6 +615,11 @@ func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool)
 	if err != nil {
 		log.CtxLogger(ctx).Debugf("Failed to check if broad access is set: %v", err)
 	}
+	// Check if unencrypted connections are allowed
+	unencryptedConnectionsAllowed, err := m.unencryptedConnectionsAllowed(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Debugf("Failed to check if unencrypted connections are allowed: %v", err)
+	}
 	// send metadata details to database center
 	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.MYSQL,
 		Metrics: map[string]string{
@@ -591,6 +627,7 @@ func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool)
 			databasecenter.MinorVersionKey:          minorVersion,
 			databasecenter.NoRootPasswordKey:        strconv.FormatBool(rootPasswordNotSet),
 			databasecenter.ExposedToPublicAccessKey: strconv.FormatBool(exposedToPublicAccess),
+			databasecenter.UnencryptedConnectionsKey: strconv.FormatBool(unencryptedConnectionsAllowed),
 		}})
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.
