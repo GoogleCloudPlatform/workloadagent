@@ -43,8 +43,6 @@ const (
 	totalRAMKey           = "total_ram"
 	currentRoleKey        = "current_role"
 	replicationZonesKey   = "replication_zones"
-	majorVersionKey       = "major_version"
-	minorVersionKey       = "minor_version"
 	sourceRole            = "source"
 	replicaRole           = "replica"
 	replicationZonesQuery = "SELECT HOST FROM information_schema.PROCESSLIST AS p WHERE p.COMMAND = 'Binlog Dump'"
@@ -543,8 +541,8 @@ func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool)
 	// send metadata details to database center
 	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.MYSQL,
 		Metrics: map[string]string{
-			majorVersionKey: majorVersion,
-			minorVersionKey: minorVersion,
+			databasecenter.MajorVersionKey: majorVersion,
+			databasecenter.MinorVersionKey: minorVersion,
 		}})
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.
