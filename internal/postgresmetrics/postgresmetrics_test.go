@@ -35,11 +35,13 @@ import (
 )
 
 type testDB struct {
-	workMemRows rowsInterface
-	workMemErr  error
-	versionRows rowsInterface
-	versionErr  error
-	pingErr     error
+	workMemRows    rowsInterface
+	workMemErr     error
+	versionRows    rowsInterface
+	versionErr     error
+	pingErr        error
+	pgauditLogRows rowsInterface
+	pgauditLogErr  error
 }
 
 var emptyDB = &testDB{}
@@ -50,6 +52,9 @@ func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (r
 	}
 	if query == "SHOW server_version" {
 		return t.versionRows, t.versionErr
+	}
+	if query == "SHOW pgaudit.log" {
+		return t.pgauditLogRows, t.pgauditLogErr
 	}
 	return nil, nil
 }
@@ -107,6 +112,38 @@ func (f *versionRows) Next() bool {
 func (f *versionRows) Close() error {
 	return nil
 }
+
+// genericMockRows for single string results from SHOW commands or version()
+type genericMockRows struct {
+	value   string
+	read    bool
+	scanErr error
+	rowsErr error // To simulate errors from rows.Err()
+}
+
+func (m *genericMockRows) Next() bool {
+	if m.rowsErr != nil {
+		return false
+	}
+	if !m.read {
+		m.read = true
+		return true
+	}
+	return false
+}
+
+func (m *genericMockRows) Scan(dest ...any) error {
+	if m.scanErr != nil {
+		return m.scanErr
+	}
+	if len(dest) > 0 {
+		*(dest[0].(*string)) = m.value
+	}
+	return nil
+}
+
+func (m *genericMockRows) Close() error { return nil }
+func (m *genericMockRows) Err() error   { return m.rowsErr }
 
 type MockDatabaseCenterClient struct {
 	sendMetadataCalled bool
@@ -342,6 +379,88 @@ func TestVersion(t *testing.T) {
 	}
 }
 
+func TestAuditingEnabled_Postgres(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name         string
+		dbMock       *testDB
+		expectResult bool
+		expectErr    bool
+	}{
+		{
+			name: "pgaudit_not_loaded",
+			dbMock: &testDB{
+				pgauditLogErr: errors.New("new error"), // undefined_object
+			},
+			expectResult: false, // Disabled
+			expectErr:    true,
+		},
+		{
+			name: "pgaudit_log_none",
+			dbMock: &testDB{
+				pgauditLogRows: &genericMockRows{value: "none"},
+			},
+			expectResult: false,
+			expectErr:    false,
+		},
+		{
+			name: "pgaudit_log_NONE",
+			dbMock: &testDB{
+				pgauditLogRows: &genericMockRows{value: "NONE"},
+			},
+			expectResult: false,
+			expectErr:    false,
+		},
+		{
+			name: "pgaudit_log_all",
+			dbMock: &testDB{
+				pgauditLogRows: &genericMockRows{value: "all"},
+			},
+			expectResult: true,
+			expectErr:    false,
+		},
+		{
+			name: "pgaudit_log_read_write",
+			dbMock: &testDB{
+				pgauditLogRows: &genericMockRows{value: "read, write"},
+			},
+			expectResult: true,
+			expectErr:    false,
+		},
+		{
+			name: "other_db_error",
+			dbMock: &testDB{
+				pgauditLogErr: errors.New("connection failed"),
+			},
+			expectResult: false,
+			expectErr:    true,
+		},
+		{
+			name: "scan_error",
+			dbMock: &testDB{
+				pgauditLogRows: &genericMockRows{value: "all", scanErr: errors.New("scan failed")},
+			},
+			expectResult: false,
+			expectErr:    true, // Scan error IS returned
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := PostgresMetrics{db: tc.dbMock}
+			result, err := m.auditingEnabled(ctx)
+
+			if (err != nil) != tc.expectErr {
+				t.Errorf("auditingEnabled() got error: %v, want error presence: %v", err, tc.expectErr)
+			}
+
+			if !tc.expectErr && result != tc.expectResult {
+				t.Errorf("auditingEnabled() got result: %v, want result: %v", result, tc.expectResult)
+			}
+		})
+	}
+}
+
 func TestCollectMetricsOnce(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -354,10 +473,11 @@ func TestCollectMetricsOnce(t *testing.T) {
 			name: "HappyPath",
 			m: PostgresMetrics{
 				db: &testDB{
-					workMemRows: &workMemRows{count: 0, size: 1, data: "80MB", shouldErr: false},
-					workMemErr:  nil,
-					versionRows: &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
-					versionErr:  nil,
+					workMemRows:    &workMemRows{count: 0, size: 1, data: "80MB", shouldErr: false},
+					workMemErr:     nil,
+					versionRows:    &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
+					versionErr:     nil,
+					pgauditLogRows: &genericMockRows{value: "all"},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -380,10 +500,11 @@ func TestCollectMetricsOnce(t *testing.T) {
 			name: "HappyPathKB",
 			m: PostgresMetrics{
 				db: &testDB{
-					workMemRows: &workMemRows{count: 0, size: 1, data: "64kB", shouldErr: false},
-					workMemErr:  nil,
-					versionRows: &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
-					versionErr:  nil,
+					workMemRows:    &workMemRows{count: 0, size: 1, data: "64kB", shouldErr: false},
+					workMemErr:     nil,
+					versionRows:    &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
+					versionErr:     nil,
+					pgauditLogRows: &genericMockRows{value: "all"},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -406,10 +527,11 @@ func TestCollectMetricsOnce(t *testing.T) {
 			name: "HappyPathGB",
 			m: PostgresMetrics{
 				db: &testDB{
-					workMemRows: &workMemRows{count: 0, size: 1, data: "4GB", shouldErr: false},
-					workMemErr:  nil,
-					versionRows: &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
-					versionErr:  nil,
+					workMemRows:    &workMemRows{count: 0, size: 1, data: "4GB", shouldErr: false},
+					workMemErr:     nil,
+					versionRows:    &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
+					versionErr:     nil,
+					pgauditLogRows: &genericMockRows{value: "all"},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -432,9 +554,10 @@ func TestCollectMetricsOnce(t *testing.T) {
 			name: "GetWorkMemError",
 			m: PostgresMetrics{
 				db: &testDB{
-					workMemErr:  errors.New("test-error"),
-					versionRows: &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
-					versionErr:  nil,
+					workMemErr:     errors.New("test-error"),
+					versionRows:    &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
+					versionErr:     nil,
+					pgauditLogRows: &genericMockRows{value: "all"},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -452,9 +575,10 @@ func TestCollectMetricsOnce(t *testing.T) {
 			name: "GetVersionError",
 			m: PostgresMetrics{
 				db: &testDB{
-					workMemRows: &workMemRows{count: 0, size: 1, data: "64MB", shouldErr: false},
-					workMemErr:  nil,
-					versionErr:  errors.New("test-error"),
+					workMemRows:    &workMemRows{count: 0, size: 1, data: "64MB", shouldErr: false},
+					workMemErr:     nil,
+					versionErr:     errors.New("test-error"),
+					pgauditLogRows: &genericMockRows{value: "all"},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -477,8 +601,9 @@ func TestCollectMetricsOnce(t *testing.T) {
 			name: "WLMClientError",
 			m: PostgresMetrics{
 				db: &testDB{
-					workMemRows: &workMemRows{count: 0, size: 1, data: "64MB", shouldErr: false},
-					workMemErr:  nil,
+					workMemRows:    &workMemRows{count: 0, size: 1, data: "64MB", shouldErr: false},
+					workMemErr:     nil,
+					pgauditLogRows: &genericMockRows{value: "all"},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{errors.New("test-error")},
@@ -495,8 +620,9 @@ func TestCollectMetricsOnce(t *testing.T) {
 			name: "NilWriteInsightResponse",
 			m: PostgresMetrics{
 				db: &testDB{
-					workMemRows: &workMemRows{count: 0, size: 1, data: "64MB", shouldErr: false},
-					workMemErr:  nil,
+					workMemRows:    &workMemRows{count: 0, size: 1, data: "64MB", shouldErr: false},
+					workMemErr:     nil,
+					pgauditLogRows: &genericMockRows{value: "all"},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs:      []error{nil},
@@ -570,6 +696,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 		name                 string
 		m                    PostgresMetrics
 		sendMetadataErr      error
+		wantDBcenterMetrics  map[string]string
 		wantSendMetadataCall bool
 		wantErr              bool
 	}{
@@ -577,8 +704,11 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			name: "Send metadata success",
 			m: PostgresMetrics{
 				db: &testDB{
-					workMemRows: &workMemRows{count: 0, size: 1, data: "80MB", shouldErr: false},
-					workMemErr:  nil,
+					workMemRows:    &workMemRows{count: 0, size: 1, data: "80MB", shouldErr: false},
+					workMemErr:     nil,
+					versionRows:    &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
+					versionErr:     nil,
+					pgauditLogRows: &genericMockRows{value: "all"},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -588,7 +718,12 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 				},
 				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
 			},
-			sendMetadataErr:      nil,
+			sendMetadataErr: nil,
+			wantDBcenterMetrics: map[string]string{
+				databasecenter.MajorVersionKey:             "14",
+				databasecenter.MinorVersionKey:             "14.4",
+				databasecenter.DatabaseAuditingDisabledKey: "false",
+			},
 			wantSendMetadataCall: true,
 			wantErr:              false,
 		},
@@ -596,8 +731,11 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			name: "Send metadata failure, should not return error",
 			m: PostgresMetrics{
 				db: &testDB{
-					workMemRows: &workMemRows{count: 0, size: 1, data: "80MB", shouldErr: false},
-					workMemErr:  nil,
+					workMemRows:    &workMemRows{count: 0, size: 1, data: "80MB", shouldErr: false},
+					workMemErr:     nil,
+					versionRows:    &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
+					versionErr:     nil,
+					pgauditLogRows: &genericMockRows{value: "none"},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -607,7 +745,12 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 				},
 				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
 			},
-			sendMetadataErr:      fmt.Errorf("db center error"),
+			sendMetadataErr: fmt.Errorf("db center error"),
+			wantDBcenterMetrics: map[string]string{
+				databasecenter.MajorVersionKey:             "14",
+				databasecenter.MinorVersionKey:             "14.4",
+				databasecenter.DatabaseAuditingDisabledKey: "true",
+			},
 			wantSendMetadataCall: true,
 			wantErr:              false,
 		},

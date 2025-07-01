@@ -242,6 +242,40 @@ func (m *PostgresMetrics) version(ctx context.Context) (string, string, error) {
 	return majorVersion, minorVersion, nil
 }
 
+// auditingEnabled checks if pgAudit auditing is enabled.
+// It returns true if the 'pgaudit.log' setting is not 'none'.
+func (m *PostgresMetrics) auditingEnabled(ctx context.Context) (bool, error) {
+	query := "SHOW pgaudit.log"
+	rows, err := executeQuery(ctx, m.db, query)
+	if err != nil {
+		return false, fmt.Errorf("issue trying to show pgaudit.log: %w", err)
+	}
+	defer rows.Close()
+
+	var pgauditLog string
+	found := false
+	if rows.Next() {
+		if err := rows.Scan(&pgauditLog); err != nil {
+			return false, fmt.Errorf("failed to scan pgaudit.log value: %w", err)
+		}
+		found = true
+	}
+	if !found {
+		// This should not happen if executeQuery did not return an error,
+		// as SHOW for a non-existent parameter errors out.
+		// However, to be safe, treat as disabled.
+		return false, fmt.Errorf("pgaudit.log not found")
+	}
+
+	if strings.TrimSpace(strings.ToLower(pgauditLog)) == "none" {
+		log.CtxLogger(ctx).Debugw("pgaudit.log is set to 'none', auditing is disabled.")
+		return false, nil // Auditing is disabled
+	}
+
+	log.CtxLogger(ctx).Debugw("pgaudit.log is set to", "pgauditLog", pgauditLog)
+	return true, nil // Auditing is enabled
+}
+
 // CollectMetricsOnce collects metrics for Postgres databases running on the host.
 func (m *PostgresMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
 	workMemBytes, err := m.getWorkMem(ctx)
@@ -253,13 +287,19 @@ func (m *PostgresMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bo
 	majorVersion, minorVersion, err := m.version(ctx)
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if version send fails.
-		log.CtxLogger(ctx).Warnf("Failed to get version: %w", err)
+		log.CtxLogger(ctx).Debugw("Failed to get version:", "err", err)
+	}
+	auditingEnabled, err := m.auditingEnabled(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("Failed to get auditing disabled", "err", err)
+		return nil, err
 	}
 	// Send metadata details to database center
 	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.POSTGRES,
 		Metrics: map[string]string{
-			databasecenter.MajorVersionKey: majorVersion,
-			databasecenter.MinorVersionKey: minorVersion,
+			databasecenter.MajorVersionKey:             majorVersion,
+			databasecenter.MinorVersionKey:             minorVersion,
+			databasecenter.DatabaseAuditingDisabledKey: strconv.FormatBool(!auditingEnabled),
 		}})
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.
