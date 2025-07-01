@@ -97,6 +97,8 @@ type testDB struct {
 	exposedToPublicAccessErr   error
 	requireSecureTransportRows rowsInterface
 	requireSecureTransportErr  error
+	auditLogPluginRows         rowsInterface
+	auditLogPluginErr          error
 }
 
 func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (rowsInterface, error) {
@@ -134,6 +136,13 @@ func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (r
 	}
 	if query == `SHOW GLOBAL VARIABLES LIKE 'require_secure_transport'` {
 		return t.requireSecureTransportRows, t.requireSecureTransportErr
+	}
+	if strings.TrimSpace(query) == strings.TrimSpace(`
+		SELECT PLUGIN_STATUS
+		FROM INFORMATION_SCHEMA.PLUGINS
+		WHERE PLUGIN_NAME = 'audit_log'
+	`) {
+		return t.auditLogPluginRows, t.auditLogPluginErr
 	}
 	return nil, nil
 }
@@ -423,6 +432,37 @@ func (f *globalVarMockRows) Next() bool {
 }
 
 func (f *globalVarMockRows) Close() error {
+	return nil
+}
+
+type pluginStatusMockRows struct {
+	count   int
+	size    int
+	data    [][]string // {plugin_status}
+	scanErr bool
+}
+
+func (f *pluginStatusMockRows) Scan(dest ...any) error {
+	if f.scanErr {
+		return errors.New("test scan error")
+	}
+	if f.count == 0 || f.count > f.size {
+		return errors.New("Scan called on invalid row")
+	}
+	currentRow := f.data[f.count-1]
+	*dest[0].(*string) = currentRow[0]
+	return nil
+}
+
+func (f *pluginStatusMockRows) Next() bool {
+	if f.count < f.size {
+		f.count++
+		return true
+	}
+	return false
+}
+
+func (f *pluginStatusMockRows) Close() error {
 	return nil
 }
 
@@ -1078,15 +1118,17 @@ func TestCollectMetricsOnce(t *testing.T) {
 					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
 					bufferPoolErr:  nil,
 					versionRows:    &versionRows{size: 1, data: []string{"8.0.35"}},
-					// Mock for CheckRootPasswordNotSet - secure
+					// Mock for CheckRootPasswordNotSet
 					mysqlUserRows: &mysqlUserMockRows{
 						size: 1,
 						data: [][]any{{"root", "localhost", "caching_sha2_password", sql.NullString{String: "hash", Valid: true}}},
 					},
-					// Mock for CheckBroadAccess - secure
+					// Mock for CheckBroadAccess
 					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
-					// Mock for CheckUnencryptedConnections - secure
+					// Mock for CheckUnencryptedConnections
 					requireSecureTransportRows: &globalVarMockRows{size: 0},
+					// Mock for CheckAuditingDisabled
+					auditLogPluginRows: &pluginStatusMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1143,6 +1185,8 @@ func TestCollectMetricsOnce(t *testing.T) {
 					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
 					// Mock for CheckUnencryptedConnections - secure
 					requireSecureTransportRows: &globalVarMockRows{size: 0},
+					// Mock for CheckAuditingDisabled
+					auditLogPluginRows: &pluginStatusMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1198,6 +1242,8 @@ func TestCollectMetricsOnce(t *testing.T) {
 					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
 					// Mock for CheckUnencryptedConnections - secure
 					requireSecureTransportRows: &globalVarMockRows{size: 0},
+					// Mock for CheckAuditingDisabled
+					auditLogPluginRows: &pluginStatusMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1242,6 +1288,8 @@ func TestCollectMetricsOnce(t *testing.T) {
 					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
 					// Mock for CheckUnencryptedConnections - secure
 					requireSecureTransportRows: &globalVarMockRows{size: 0},
+					// Mock for CheckAuditingDisabled
+					auditLogPluginRows: &pluginStatusMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1296,6 +1344,8 @@ func TestCollectMetricsOnce(t *testing.T) {
 					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
 					// Mock for CheckUnencryptedConnections - secure
 					requireSecureTransportRows: &globalVarMockRows{size: 0},
+					// Mock for CheckAuditingDisabled
+					auditLogPluginRows: &pluginStatusMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1352,6 +1402,8 @@ func TestCollectMetricsOnce(t *testing.T) {
 					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
 					// Mock for CheckUnencryptedConnections - secure
 					requireSecureTransportRows: &globalVarMockRows{size: 0},
+					// Mock for CheckAuditingDisabled
+					auditLogPluginRows: &pluginStatusMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -2037,6 +2089,89 @@ func TestUnencryptedConnectionsAllowed(t *testing.T) {
 	}
 }
 
+// TestAuditingEnabled tests the auditingDisabled function.
+func TestAuditingEnabled(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name         string
+		db           *testDB
+		expectResult bool
+		expectErr    bool
+	}{
+		{
+			name: "audit_log_ACTIVE",
+			db: &testDB{
+				auditLogPluginRows: &pluginStatusMockRows{size: 1, data: [][]string{{"ACTIVE"}}},
+			},
+			expectResult: true,
+			expectErr:    false,
+		},
+		{
+			name: "audit_log_active_lowercase",
+			db: &testDB{
+				auditLogPluginRows: &pluginStatusMockRows{size: 1, data: [][]string{{"active"}}},
+			},
+			expectResult: true,
+			expectErr:    false,
+		},
+		{
+			name: "audit_log_DISABLED",
+			db: &testDB{
+				auditLogPluginRows: &pluginStatusMockRows{size: 1, data: [][]string{{"DISABLED"}}},
+			},
+			expectResult: false,
+			expectErr:    false,
+		},
+		{
+			name: "audit_log_other_status",
+			db: &testDB{
+				auditLogPluginRows: &pluginStatusMockRows{size: 1, data: [][]string{{"SOME_OTHER_STATUS"}}},
+			},
+			expectResult: false,
+			expectErr:    false,
+		},
+		{
+			name: "audit_log_not_found",
+			db: &testDB{
+				auditLogPluginRows: &pluginStatusMockRows{size: 0},
+			},
+			expectResult: false,
+			expectErr:    false,
+		},
+		{
+			name: "query_error",
+			db: &testDB{
+				auditLogPluginErr: errors.New("db query failed"),
+			},
+			expectResult: false, // Should return error
+			expectErr:    true,
+		},
+		{
+			name: "scan_error",
+			db: &testDB{
+				auditLogPluginRows: &pluginStatusMockRows{size: 1, data: [][]string{{"ACTIVE"}}, scanErr: true},
+			},
+			expectResult: false, // Should return error
+			expectErr:    true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := MySQLMetrics{db: tc.db}
+			result, err := m.auditingEnabled(ctx)
+
+			if (err != nil) != tc.expectErr {
+				t.Errorf("auditingEnabled() got error: %v, want error presence: %v", err, tc.expectErr)
+			}
+
+			if !tc.expectErr && result != tc.expectResult {
+				t.Errorf("auditingEnabled() got result: %v, want result: %v", result, tc.expectResult)
+			}
+		})
+	}
+}
+
 func TestSendMetadataToDatabaseCenter(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {
@@ -2076,6 +2211,8 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 						size: 1,
 						data: [][]string{{"require_secure_transport", "ON"}},
 					},
+					// Mock for CheckAuditingDisabled - secure
+					auditLogPluginRows: &pluginStatusMockRows{size: 1, data: [][]string{{"ACTIVE"}}},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -2093,11 +2230,12 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			sendMetadataErr:      nil,
 			wantSendMetadataCall: true,
 			wantDBcenterMetrics: map[string]string{
-				databasecenter.MajorVersionKey:           "8.0",
-				databasecenter.MinorVersionKey:           "8.0.35",
-				databasecenter.NoRootPasswordKey:         "false",
-				databasecenter.ExposedToPublicAccessKey:  "false",
-				databasecenter.UnencryptedConnectionsKey: "false",
+				databasecenter.MajorVersionKey:             "8.0",
+				databasecenter.MinorVersionKey:             "8.0.35",
+				databasecenter.NoRootPasswordKey:           "false",
+				databasecenter.ExposedToPublicAccessKey:    "false",
+				databasecenter.UnencryptedConnectionsKey:   "false",
+				databasecenter.DatabaseAuditingDisabledKey: "false",
 			},
 			wantErr: false,
 		},
@@ -2121,6 +2259,8 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 						size: 1,
 						data: [][]string{{"require_secure_transport", "OFF"}},
 					},
+					// Mock for CheckAuditingDisabled - insecure
+					auditLogPluginRows: &pluginStatusMockRows{size: 1, data: [][]string{{"DISABLED"}}},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{StdOut: "MemTotal:        4025040 kB\n"}
@@ -2135,11 +2275,12 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			},
 			wantSendMetadataCall: true,
 			wantDBcenterMetrics: map[string]string{
-				databasecenter.MajorVersionKey:           "8.0",
-				databasecenter.MinorVersionKey:           "8.0.35",
-				databasecenter.NoRootPasswordKey:         "true",
-				databasecenter.ExposedToPublicAccessKey:  "true",
-				databasecenter.UnencryptedConnectionsKey: "true",
+				databasecenter.MajorVersionKey:             "8.0",
+				databasecenter.MinorVersionKey:             "8.0.35",
+				databasecenter.NoRootPasswordKey:           "true",
+				databasecenter.ExposedToPublicAccessKey:    "true",
+				databasecenter.UnencryptedConnectionsKey:   "true",
+				databasecenter.DatabaseAuditingDisabledKey: "true",
 			},
 			wantErr: false,
 		},
@@ -2169,6 +2310,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 						size: 1,
 						data: [][]string{{"require_secure_transport", "ON"}},
 					},
+					auditLogPluginRows: &pluginStatusMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -2186,11 +2328,12 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			sendMetadataErr:      fmt.Errorf("db center error"),
 			wantSendMetadataCall: true,
 			wantDBcenterMetrics: map[string]string{
-				databasecenter.MajorVersionKey:           "8.0",
-				databasecenter.MinorVersionKey:           "8.0.35",
-				databasecenter.NoRootPasswordKey:         "false",
-				databasecenter.ExposedToPublicAccessKey:  "false",
-				databasecenter.UnencryptedConnectionsKey: "false",
+				databasecenter.MajorVersionKey:             "8.0",
+				databasecenter.MinorVersionKey:             "8.0.35",
+				databasecenter.NoRootPasswordKey:           "false",
+				databasecenter.ExposedToPublicAccessKey:    "false",
+				databasecenter.UnencryptedConnectionsKey:   "false",
+				databasecenter.DatabaseAuditingDisabledKey: "true",
 			},
 			wantErr: false,
 		},

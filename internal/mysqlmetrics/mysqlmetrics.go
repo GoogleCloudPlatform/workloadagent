@@ -425,7 +425,7 @@ func (m *MySQLMetrics) version(ctx context.Context) (string, string, error) {
 	if err := rows.Scan(&version); err != nil {
 		return "", "", err
 	}
-	log.CtxLogger(ctx).Debugf("MySQL full version: %s", version)
+	log.CtxLogger(ctx).Debugw("MySQL full version", "version", version)
 	// extract the major version from the version string
 	// example: "8.0.31" -> "8.0"
 	// example: "8.0" -> "8.0"
@@ -444,7 +444,7 @@ func (m *MySQLMetrics) version(ctx context.Context) (string, string, error) {
 	} else {
 		// Handle empty or unexpected input gracefully
 		majorVersion = ""
-		log.CtxLogger(ctx).Infof("unexpected MySQL version: %s", majorVersion)
+		log.CtxLogger(ctx).Debugw("unexpected MySQL version", "majorVersion", majorVersion)
 	}
 	return majorVersion, version, nil
 }
@@ -492,7 +492,7 @@ func (m *MySQLMetrics) rootPasswordNotSet(ctx context.Context) (bool, error) {
 		if u.Plugin == "mysql_native_password" || u.Plugin == "caching_sha2_password" {
 			if !u.AuthenticationString.Valid || u.AuthenticationString.String == "" {
 				// Found a root user configured with a password-based auth plugin but has no password hash.
-				log.CtxLogger(ctx).Debugf("Security Warning: root user '%s'@'%s' is using plugin %s and has no password set.", u.User, u.Host, u.Plugin)
+				log.CtxLogger(ctx).Debugw("Security Warning: root user has no password set.", "user", u.User, "host", u.Host, "plugin", u.Plugin)
 				return true, nil
 			}
 		}
@@ -535,7 +535,7 @@ func (m *MySQLMetrics) exposedToPublicAccess(ctx context.Context) (bool, error) 
 			return false, fmt.Errorf("failed to scan row from mysql.user table with error: %v", err)
 		}
 		// Log the specific user and host
-		log.CtxLogger(ctx).Debugf("Found user with broad access: '%s'@'%s'", u.User, u.Host)
+		log.CtxLogger(ctx).Debugw("Found user with broad access", "user", u.User, "host", u.Host)
 		exposedToPublicAccess = true
 	}
 
@@ -570,7 +570,39 @@ func (m *MySQLMetrics) unencryptedConnectionsAllowed(ctx context.Context) (bool,
 	// If require_secure_transport is ON, unencrypted connections are disabled.
 	// If OFF, unencrypted connections are allowed.
 	unencryptedConnAllowed := strings.ToUpper(varValue) == "OFF"
+	log.CtxLogger(ctx).Debugw("require_secure_transport variable value", "unencryptedConnAllowed", unencryptedConnAllowed)
 	return unencryptedConnAllowed, nil
+}
+
+// auditingEnabled checks if auditing is enabled.
+// It returns true if the 'audit_log' plugin is ACTIVE, false otherwise.
+func (m *MySQLMetrics) auditingEnabled(ctx context.Context) (bool, error) {
+	query := `
+		SELECT PLUGIN_STATUS
+		FROM INFORMATION_SCHEMA.PLUGINS
+		WHERE PLUGIN_NAME = 'audit_log'
+	`
+
+	rows, err := executeQuery(ctx, m.db, query)
+	if err != nil {
+		// If the query fails, we assume auditing is disabled.
+		return false, fmt.Errorf("failed to query INFORMATION_SCHEMA.PLUGINS for audit_log with error: %v", err)
+	}
+	defer rows.Close()
+
+	var pluginStatus string
+	if rows.Next() {
+		if err := rows.Scan(&pluginStatus); err != nil {
+			return false, fmt.Errorf("failed to scan row for audit_log plugin status with error: %v", err)
+		}
+		isEnabled := strings.ToUpper(pluginStatus) == "ACTIVE"
+		log.CtxLogger(ctx).Debugw("Audit plugin 'audit_log' status", "pluginStatus", pluginStatus, "Auditing Enabled", isEnabled)
+		return isEnabled, nil
+	}
+
+	// Plugin not found, so auditing is disabled.
+	log.CtxLogger(ctx).Debugw("Audit plugin 'audit_log' not found. Auditing is disabled.")
+	return false, nil
 }
 
 // CollectMetricsOnce collects metrics for MySQL databases running on the host.
@@ -603,31 +635,36 @@ func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool)
 	// Get major and minor version of MySQL
 	majorVersion, minorVersion, err := m.version(ctx)
 	if err != nil {
-		log.CtxLogger(ctx).Debugf("Failed to get MySQL version: %v", err)
+		log.CtxLogger(ctx).Debugw("Failed to get MySQL version", "with error: ", err)
 	}
 	// Check if No Root Password is set
 	rootPasswordNotSet, err := m.rootPasswordNotSet(ctx)
 	if err != nil {
-		log.CtxLogger(ctx).Debugf("Failed to check if root password is not set: %v", err)
+		log.CtxLogger(ctx).Debugw("Failed to check if root password is not set", "with error: ", err)
 	}
 	// Check if broad access is set
 	exposedToPublicAccess, err := m.exposedToPublicAccess(ctx)
 	if err != nil {
-		log.CtxLogger(ctx).Debugf("Failed to check if broad access is set: %v", err)
+		log.CtxLogger(ctx).Debugw("Failed to check if broad access is set", "with error: ", err)
 	}
 	// Check if unencrypted connections are allowed
 	unencryptedConnectionsAllowed, err := m.unencryptedConnectionsAllowed(ctx)
 	if err != nil {
-		log.CtxLogger(ctx).Debugf("Failed to check if unencrypted connections are allowed: %v", err)
+		log.CtxLogger(ctx).Debugw("Failed to check if unencrypted connections are allowed", "with error: ", err)
+	}
+	auditingEnabled, err := m.auditingEnabled(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("Failed to check if auditing is disabled", "with error: ", err)
 	}
 	// send metadata details to database center
 	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.MYSQL,
 		Metrics: map[string]string{
-			databasecenter.MajorVersionKey:          majorVersion,
-			databasecenter.MinorVersionKey:          minorVersion,
-			databasecenter.NoRootPasswordKey:        strconv.FormatBool(rootPasswordNotSet),
-			databasecenter.ExposedToPublicAccessKey: strconv.FormatBool(exposedToPublicAccess),
-			databasecenter.UnencryptedConnectionsKey: strconv.FormatBool(unencryptedConnectionsAllowed),
+			databasecenter.MajorVersionKey:             majorVersion,
+			databasecenter.MinorVersionKey:             minorVersion,
+			databasecenter.NoRootPasswordKey:           strconv.FormatBool(rootPasswordNotSet),
+			databasecenter.ExposedToPublicAccessKey:    strconv.FormatBool(exposedToPublicAccess),
+			databasecenter.UnencryptedConnectionsKey:   strconv.FormatBool(unencryptedConnectionsAllowed),
+			databasecenter.DatabaseAuditingDisabledKey: strconv.FormatBool(!auditingEnabled),
 		}})
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.
