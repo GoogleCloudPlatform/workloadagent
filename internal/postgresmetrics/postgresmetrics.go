@@ -276,6 +276,30 @@ func (m *PostgresMetrics) auditingEnabled(ctx context.Context) (bool, error) {
 	return true, nil // Auditing is enabled
 }
 
+// unencryptedConnectionsAllowed checks if PostgreSQL allows unencrypted connections
+// by checking if the 'ssl' setting is OFF.
+// Returns true if ssl is off, false otherwise.
+func (m *PostgresMetrics) unencryptedConnectionsAllowed(ctx context.Context) (bool, error) {
+	querySSL := "SHOW ssl"
+	rowsSSL, err := executeQuery(ctx, m.db, querySSL)
+	if err != nil {
+		return false, fmt.Errorf("failed to execute SHOW ssl: %w", err)
+	}
+	defer rowsSSL.Close()
+
+	var sslValue string
+	if !rowsSSL.Next() {
+		return false, errors.New("SHOW ssl returned no rows")
+	}
+	if err := rowsSSL.Scan(&sslValue); err != nil {
+		return false, fmt.Errorf("failed to scan ssl value: %w", err)
+	}
+
+	isOff := strings.ToLower(sslValue) == "off"
+	log.CtxLogger(ctx).Debugw("ssl value", "sslValue", sslValue, "isOff", isOff)
+	return isOff, nil
+}
+
 // CollectMetricsOnce collects metrics for Postgres databases running on the host.
 func (m *PostgresMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
 	workMemBytes, err := m.getWorkMem(ctx)
@@ -294,11 +318,17 @@ func (m *PostgresMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bo
 		log.CtxLogger(ctx).Debugw("Failed to get auditing disabled", "err", err)
 		return nil, err
 	}
+	unencryptedConnectionsAllowed, err := m.unencryptedConnectionsAllowed(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("Failed to get unencrypted connections allowed", "err", err)
+		return nil, err
+	}
 	// Send metadata details to database center
 	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.POSTGRES,
 		Metrics: map[string]string{
 			databasecenter.MajorVersionKey:             majorVersion,
 			databasecenter.MinorVersionKey:             minorVersion,
+			databasecenter.UnencryptedConnectionsKey:   strconv.FormatBool(unencryptedConnectionsAllowed),
 			databasecenter.DatabaseAuditingDisabledKey: strconv.FormatBool(!auditingEnabled),
 		}})
 	if err != nil {

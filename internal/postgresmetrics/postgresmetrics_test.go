@@ -42,6 +42,8 @@ type testDB struct {
 	pingErr        error
 	pgauditLogRows rowsInterface
 	pgauditLogErr  error
+	sslRows        rowsInterface
+	sslErr         error
 }
 
 var emptyDB = &testDB{}
@@ -52,6 +54,9 @@ func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (r
 	}
 	if query == "SHOW server_version" {
 		return t.versionRows, t.versionErr
+	}
+	if query == "SHOW ssl" {
+		return t.sslRows, t.sslErr
 	}
 	if query == "SHOW pgaudit.log" {
 		return t.pgauditLogRows, t.pgauditLogErr
@@ -461,6 +466,88 @@ func TestAuditingEnabled_Postgres(t *testing.T) {
 	}
 }
 
+func TestUnencryptedConnectionsAllowed_Postgres(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name         string
+		dbMock       *testDB
+		expectResult bool
+		expectErr    bool
+	}{
+		{
+			name: "ssl_off",
+			dbMock: &testDB{
+				sslRows: &genericMockRows{value: "off"},
+			},
+			expectResult: true,
+			expectErr:    false,
+		},
+		{
+			name: "ssl_OFF",
+			dbMock: &testDB{
+				sslRows: &genericMockRows{value: "OFF"},
+			},
+			expectResult: true,
+			expectErr:    false,
+		},
+		{
+			name: "ssl_on",
+			dbMock: &testDB{
+				sslRows: &genericMockRows{value: "on"},
+			},
+			expectResult: false,
+			expectErr:    false,
+		},
+		{
+			name: "ssl_ON",
+			dbMock: &testDB{
+				sslRows: &genericMockRows{value: "ON"},
+			},
+			expectResult: false,
+			expectErr:    false,
+		},
+		{
+			name: "query_error",
+			dbMock: &testDB{
+				sslErr: errors.New("connection failed"),
+			},
+			expectResult: false,
+			expectErr:    true,
+		},
+		{
+			name: "scan_error",
+			dbMock: &testDB{
+				sslRows: &genericMockRows{value: "on", scanErr: errors.New("scan failed")},
+			},
+			expectResult: false,
+			expectErr:    true,
+		},
+		{
+			name: "no_rows",
+			dbMock: &testDB{
+				sslRows: &genericMockRows{read: true}, // Next() will return false immediately
+			},
+			expectResult: false,
+			expectErr:    true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := PostgresMetrics{db: tc.dbMock}
+			result, err := m.unencryptedConnectionsAllowed(ctx)
+
+			if (err != nil) != tc.expectErr {
+				t.Errorf("unencryptedConnectionsAllowed() got error: %v, want error presence: %v", err, tc.expectErr)
+			}
+
+			if !tc.expectErr && result != tc.expectResult {
+				t.Errorf("unencryptedConnectionsAllowed() got result: %v, want result: %v", result, tc.expectResult)
+			}
+		})
+	}
+}
+
 func TestCollectMetricsOnce(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -478,6 +565,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 					versionRows:    &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
 					versionErr:     nil,
 					pgauditLogRows: &genericMockRows{value: "all"},
+					sslRows:        &genericMockRows{value: "off"},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -505,6 +593,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 					versionRows:    &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
 					versionErr:     nil,
 					pgauditLogRows: &genericMockRows{value: "all"},
+					sslRows:        &genericMockRows{value: "off"},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -532,6 +621,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 					versionRows:    &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
 					versionErr:     nil,
 					pgauditLogRows: &genericMockRows{value: "all"},
+					sslRows:        &genericMockRows{value: "off"},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -558,6 +648,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 					versionRows:    &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
 					versionErr:     nil,
 					pgauditLogRows: &genericMockRows{value: "all"},
+					sslRows:        &genericMockRows{value: "off"},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -579,6 +670,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 					workMemErr:     nil,
 					versionErr:     errors.New("test-error"),
 					pgauditLogRows: &genericMockRows{value: "all"},
+					sslRows:        &genericMockRows{value: "off"},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -604,6 +696,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 					workMemRows:    &workMemRows{count: 0, size: 1, data: "64MB", shouldErr: false},
 					workMemErr:     nil,
 					pgauditLogRows: &genericMockRows{value: "all"},
+					sslRows:        &genericMockRows{value: "off"},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{errors.New("test-error")},
@@ -623,6 +716,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 					workMemRows:    &workMemRows{count: 0, size: 1, data: "64MB", shouldErr: false},
 					workMemErr:     nil,
 					pgauditLogRows: &genericMockRows{value: "all"},
+					sslRows:        &genericMockRows{value: "off"},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs:      []error{nil},
@@ -709,6 +803,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 					versionRows:    &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
 					versionErr:     nil,
 					pgauditLogRows: &genericMockRows{value: "all"},
+					sslRows:        &genericMockRows{value: "on"},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -722,6 +817,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			wantDBcenterMetrics: map[string]string{
 				databasecenter.MajorVersionKey:             "14",
 				databasecenter.MinorVersionKey:             "14.4",
+				databasecenter.UnencryptedConnectionsKey:   "false",
 				databasecenter.DatabaseAuditingDisabledKey: "false",
 			},
 			wantSendMetadataCall: true,
@@ -736,6 +832,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 					versionRows:    &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
 					versionErr:     nil,
 					pgauditLogRows: &genericMockRows{value: "none"},
+					sslRows:        &genericMockRows{value: "off"},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -749,6 +846,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			wantDBcenterMetrics: map[string]string{
 				databasecenter.MajorVersionKey:             "14",
 				databasecenter.MinorVersionKey:             "14.4",
+				databasecenter.UnencryptedConnectionsKey:   "true",
 				databasecenter.DatabaseAuditingDisabledKey: "true",
 			},
 			wantSendMetadataCall: true,
