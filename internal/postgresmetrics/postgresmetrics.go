@@ -300,6 +300,38 @@ func (m *PostgresMetrics) unencryptedConnectionsAllowed(ctx context.Context) (bo
 	return isOff, nil
 }
 
+// exposedToPublicAccess checks if PostgreSQL allows connections from any IP address.
+// Returns true if any rule in pg_hba.conf allows '0.0.0.0' or '::'.
+func (m *PostgresMetrics) exposedToPublicAccess(ctx context.Context) (bool, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM pg_hba_file_rules()
+		WHERE
+		  error IS NULL AND
+		  type IN ('host', 'hostssl', 'hostnossl') AND
+		  (address = '0.0.0.0' OR address = '::')
+	`
+	rows, err := executeQuery(ctx, m.db, query)
+	if err != nil {
+		// Permissions errors on pg_hba_file_rules() are common if not superuser.
+		log.CtxLogger(ctx).Debugw("Failed to query pg_hba_file_rules, cannot determine public access", "err", err)
+		return false, fmt.Errorf("failed to query pg_hba_file_rules: %w", err)
+	}
+	defer rows.Close()
+
+	var count int
+	if !rows.Next() {
+		return false, errors.New("pg_hba_file_rules count query returned no rows")
+	}
+	if err := rows.Scan(&count); err != nil {
+		return false, fmt.Errorf("failed to scan count from pg_hba_file_rules: %w", err)
+	}
+
+	isExposed := count > 0
+	log.CtxLogger(ctx).Debugw("Exposure to 0.0.0.0 or ::", "count", count, "isExposed", isExposed)
+	return isExposed, nil
+}
+
 // CollectMetricsOnce collects metrics for Postgres databases running on the host.
 func (m *PostgresMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
 	workMemBytes, err := m.getWorkMem(ctx)
@@ -323,11 +355,17 @@ func (m *PostgresMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bo
 		log.CtxLogger(ctx).Debugw("Failed to get unencrypted connections allowed", "err", err)
 		return nil, err
 	}
+	exposedToPublicAccess, err := m.exposedToPublicAccess(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("Failed to get exposed to public access", "err", err)
+		return nil, err
+	}
 	// Send metadata details to database center
 	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.POSTGRES,
 		Metrics: map[string]string{
 			databasecenter.MajorVersionKey:             majorVersion,
 			databasecenter.MinorVersionKey:             minorVersion,
+			databasecenter.ExposedToPublicAccessKey:    strconv.FormatBool(exposedToPublicAccess),
 			databasecenter.UnencryptedConnectionsKey:   strconv.FormatBool(unencryptedConnectionsAllowed),
 			databasecenter.DatabaseAuditingDisabledKey: strconv.FormatBool(!auditingEnabled),
 		}})

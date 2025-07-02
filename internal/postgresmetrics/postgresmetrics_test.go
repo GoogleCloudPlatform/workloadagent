@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -44,6 +45,8 @@ type testDB struct {
 	pgauditLogErr  error
 	sslRows        rowsInterface
 	sslErr         error
+	hbaRulesRows   rowsInterface
+	hbaRulesErr    error
 }
 
 var emptyDB = &testDB{}
@@ -60,6 +63,9 @@ func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (r
 	}
 	if query == "SHOW pgaudit.log" {
 		return t.pgauditLogRows, t.pgauditLogErr
+	}
+	if strings.Contains(query, "FROM pg_hba_file_rules()") {
+		return t.hbaRulesRows, t.hbaRulesErr
 	}
 	return nil, nil
 }
@@ -118,7 +124,39 @@ func (f *versionRows) Close() error {
 	return nil
 }
 
-// genericMockRows for single string results from SHOW commands or version()
+// hbaRulesRows for pg_hba_file_rules() command
+type hbaRulesRows struct {
+	value   int
+	read    bool
+	scanErr error
+	rowsErr error // To simulate errors from rows.Err()
+}
+
+func (m *hbaRulesRows) Next() bool {
+	if m.rowsErr != nil {
+		return false
+	}
+	if !m.read {
+		m.read = true
+		return true
+	}
+	return false
+}
+
+func (m *hbaRulesRows) Scan(dest ...any) error {
+	if m.scanErr != nil {
+		return m.scanErr
+	}
+	if len(dest) > 0 {
+		*(dest[0].(*int)) = m.value
+	}
+	return nil
+}
+
+func (m *hbaRulesRows) Close() error { return nil }
+func (m *hbaRulesRows) Err() error   { return m.rowsErr }
+
+// genericMockRows for single string results from SHOW commands
 type genericMockRows struct {
 	value   string
 	read    bool
@@ -548,6 +586,64 @@ func TestUnencryptedConnectionsAllowed_Postgres(t *testing.T) {
 	}
 }
 
+func TestExposedToPublicAccess_Postgres(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name         string
+		dbMock       *testDB
+		expectResult bool
+		expectErr    bool
+	}{
+		{
+			name: "exposed",
+			dbMock: &testDB{
+				hbaRulesRows: &hbaRulesRows{value: 1}, // Simulates COUNT(*) = 1
+			},
+			expectResult: true,
+			expectErr:    false,
+		},
+		{
+			name: "not_exposed",
+			dbMock: &testDB{
+				hbaRulesRows: &hbaRulesRows{value: 0}, // Simulates COUNT(*) = 0
+			},
+			expectResult: false,
+			expectErr:    false,
+		},
+		{
+			name: "query_error",
+			dbMock: &testDB{
+				hbaRulesErr: errors.New("permission denied"),
+			},
+			expectResult: true, // Fails open
+			expectErr:    true,
+		},
+		{
+			name: "scan_error",
+			dbMock: &testDB{
+				hbaRulesRows: &hbaRulesRows{value: 1, scanErr: errors.New("scan failed")},
+			},
+			expectResult: false,
+			expectErr:    true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := PostgresMetrics{db: tc.dbMock}
+			result, err := m.exposedToPublicAccess(ctx)
+
+			if (err != nil) != tc.expectErr {
+				t.Errorf("exposedToPublicAccess() got error: %v, want error presence: %v", err, tc.expectErr)
+			}
+
+			if !tc.expectErr && result != tc.expectResult {
+				t.Errorf("exposedToPublicAccess() got result: %v, want result: %v", result, tc.expectResult)
+			}
+		})
+	}
+}
+
 func TestCollectMetricsOnce(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -566,6 +662,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 					versionErr:     nil,
 					pgauditLogRows: &genericMockRows{value: "all"},
 					sslRows:        &genericMockRows{value: "off"},
+					hbaRulesRows:   &hbaRulesRows{value: 1},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -594,6 +691,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 					versionErr:     nil,
 					pgauditLogRows: &genericMockRows{value: "all"},
 					sslRows:        &genericMockRows{value: "off"},
+					hbaRulesRows:   &hbaRulesRows{value: 1},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -622,6 +720,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 					versionErr:     nil,
 					pgauditLogRows: &genericMockRows{value: "all"},
 					sslRows:        &genericMockRows{value: "off"},
+					hbaRulesRows:   &hbaRulesRows{value: 1},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -649,6 +748,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 					versionErr:     nil,
 					pgauditLogRows: &genericMockRows{value: "all"},
 					sslRows:        &genericMockRows{value: "off"},
+					hbaRulesRows:   &hbaRulesRows{value: 1},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -671,6 +771,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 					versionErr:     errors.New("test-error"),
 					pgauditLogRows: &genericMockRows{value: "all"},
 					sslRows:        &genericMockRows{value: "off"},
+					hbaRulesRows:   &hbaRulesRows{value: 1},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -697,6 +798,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 					workMemErr:     nil,
 					pgauditLogRows: &genericMockRows{value: "all"},
 					sslRows:        &genericMockRows{value: "off"},
+					hbaRulesRows:   &hbaRulesRows{value: 1},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{errors.New("test-error")},
@@ -717,6 +819,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 					workMemErr:     nil,
 					pgauditLogRows: &genericMockRows{value: "all"},
 					sslRows:        &genericMockRows{value: "off"},
+					hbaRulesRows:   &hbaRulesRows{value: 1},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs:      []error{nil},
@@ -804,6 +907,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 					versionErr:     nil,
 					pgauditLogRows: &genericMockRows{value: "all"},
 					sslRows:        &genericMockRows{value: "on"},
+					hbaRulesRows:   &hbaRulesRows{value: 0},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -817,6 +921,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			wantDBcenterMetrics: map[string]string{
 				databasecenter.MajorVersionKey:             "14",
 				databasecenter.MinorVersionKey:             "14.4",
+				databasecenter.ExposedToPublicAccessKey:    "false",
 				databasecenter.UnencryptedConnectionsKey:   "false",
 				databasecenter.DatabaseAuditingDisabledKey: "false",
 			},
@@ -833,6 +938,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 					versionErr:     nil,
 					pgauditLogRows: &genericMockRows{value: "none"},
 					sslRows:        &genericMockRows{value: "off"},
+					hbaRulesRows:   &hbaRulesRows{value: 1},
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -846,6 +952,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			wantDBcenterMetrics: map[string]string{
 				databasecenter.MajorVersionKey:             "14",
 				databasecenter.MinorVersionKey:             "14.4",
+				databasecenter.ExposedToPublicAccessKey:    "true",
 				databasecenter.UnencryptedConnectionsKey:   "true",
 				databasecenter.DatabaseAuditingDisabledKey: "true",
 			},
