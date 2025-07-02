@@ -65,6 +65,7 @@ func (s *SQLServerMetrics) dbCenterMetrics(ctx context.Context) databasecenter.D
 			}
 			metrics[databasecenter.MajorVersionKey] = majorVersion
 			metrics[databasecenter.MinorVersionKey] = minorVersion
+			sqlcollector.PopulateSignals(ctxWithTimeout, c, metrics)
 			// End collection for dbcenter metrics.
 			log.Logger.Debug("Completed collecting SQL Server rules for dbcenter metrics.")
 		}
