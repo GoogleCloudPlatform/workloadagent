@@ -348,17 +348,14 @@ func (m *PostgresMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bo
 	auditingEnabled, err := m.auditingEnabled(ctx)
 	if err != nil {
 		log.CtxLogger(ctx).Debugw("Failed to get auditing disabled", "err", err)
-		return nil, err
 	}
 	unencryptedConnectionsAllowed, err := m.unencryptedConnectionsAllowed(ctx)
 	if err != nil {
 		log.CtxLogger(ctx).Debugw("Failed to get unencrypted connections allowed", "err", err)
-		return nil, err
 	}
 	exposedToPublicAccess, err := m.exposedToPublicAccess(ctx)
 	if err != nil {
 		log.CtxLogger(ctx).Debugw("Failed to get exposed to public access", "err", err)
-		return nil, err
 	}
 	// Send metadata details to database center
 	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.POSTGRES,
