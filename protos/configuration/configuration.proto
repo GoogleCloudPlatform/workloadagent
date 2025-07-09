@@ -55,6 +55,8 @@ message CloudProperties {
   string region = 7;  // This is needed only for baremtal systems and is not
                       // used for GCE instances.
   string machine_type = 8;
+  int64 vcpu_count = 9;
+  int64 memory_size_mb = 10;
 }
 
 message AgentProperties {

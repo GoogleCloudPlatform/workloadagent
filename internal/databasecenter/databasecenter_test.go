@@ -263,6 +263,8 @@ func TestBuildDatabaseResourceMetadataMessage(t *testing.T) {
 					InstanceName:     "test-instance-name",
 					Region:           "us-central1",
 					Zone:             "us-central1-a",
+					VcpuCount:        2,
+					MemorySizeMb:     8192,
 				},
 			},
 			metrics: DBCenterMetrics{
@@ -296,6 +298,10 @@ func TestBuildDatabaseResourceMetadataMessage(t *testing.T) {
 							Version:      "8.0",
 							MinorVersion: "8.0.26",
 						},
+						MachineConfiguration: &dcpb.MachineConfiguration{
+							VcpuCount:         2,
+							MemorySizeInBytes: 8388608, // 8 GiB
+						},
 					},
 				},
 			},
@@ -311,6 +317,8 @@ func TestBuildDatabaseResourceMetadataMessage(t *testing.T) {
 					InstanceName:     "test-instance-name",
 					Region:           "us-central1",
 					Zone:             "us-central1-a",
+					VcpuCount:        2,
+					MemorySizeMb:     8192,
 				},
 			},
 			metrics: DBCenterMetrics{
@@ -344,6 +352,10 @@ func TestBuildDatabaseResourceMetadataMessage(t *testing.T) {
 							Version:      "17",
 							MinorVersion: "17.4",
 						},
+						MachineConfiguration: &dcpb.MachineConfiguration{
+							VcpuCount:         2,
+							MemorySizeInBytes: 8388608, // 8 GiB
+						},
 					},
 				},
 			},
@@ -359,6 +371,8 @@ func TestBuildDatabaseResourceMetadataMessage(t *testing.T) {
 					InstanceName:     "test-instance-name",
 					Region:           "us-central1",
 					Zone:             "us-central1-a",
+					VcpuCount:        2,
+					MemorySizeMb:     8192,
 				},
 			},
 			metrics: DBCenterMetrics{
@@ -391,6 +405,10 @@ func TestBuildDatabaseResourceMetadataMessage(t *testing.T) {
 							Engine:       dcpb.Engine_ENGINE_SQL_SERVER,
 							Version:      "SQL Server 2022 Express",
 							MinorVersion: "CU13",
+						},
+						MachineConfiguration: &dcpb.MachineConfiguration{
+							VcpuCount:         2,
+							MemorySizeInBytes: 8388608, // 8 GiB
 						},
 					},
 				},
@@ -430,6 +448,10 @@ func TestBuildDatabaseResourceMetadataMessage(t *testing.T) {
 							Version:      "17",
 							MinorVersion: "17.4",
 						},
+						MachineConfiguration: &dcpb.MachineConfiguration{
+							VcpuCount:         0,
+							MemorySizeInBytes: 0,
+						},
 					},
 				},
 			},
@@ -466,6 +488,8 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			InstanceName:     "test-instance-name",
 			Region:           "us-central1",
 			Zone:             "us-central1-a",
+			VcpuCount:        1,
+			MemorySizeMb:     1024,
 		},
 	}
 

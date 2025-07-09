@@ -40,6 +40,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/osinfo"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/recovery"
@@ -148,6 +149,19 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 
 	log.SetupLogging(d.lp)
 
+	// Get vCPU count and memory size from GCE
+	gceClient, err := gce.NewGCEClient(ctx)
+	if err != nil {
+		log.Logger.Errorw("Error creating GCE client", "error", err)
+	}
+	vCPU, memorySize, err := gceClient.GetInstanceCPUAndMemorySize(ctx, d.cloudProps.GetProjectId(), d.cloudProps.GetZone(), d.cloudProps.GetInstanceName())
+	if err != nil {
+		log.Logger.Errorw("Error getting vCPU and memory size from GCE", "error", err)
+	}
+	// add vCPU and memory size to cloudProps
+	d.cloudProps.VcpuCount = vCPU
+	d.cloudProps.MemorySizeMb = memorySize
+
 	log.Logger.Infow("Starting daemon mode", "agent_name", configuration.AgentName, "agent_version", configuration.AgentVersion)
 	log.Logger.Infow("Cloud Properties",
 		"projectid", d.cloudProps.GetProjectId(),
@@ -158,6 +172,8 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 		"instancename", d.cloudProps.GetInstanceName(),
 		"machinetype", d.cloudProps.GetMachineType(),
 		"image", d.cloudProps.GetImage(),
+		"vCPU", d.cloudProps.GetVcpuCount(),
+		"memorysize", d.cloudProps.GetMemorySizeMb(),
 	)
 	log.Logger.Infow("OS Data",
 		"name", d.osData.OSName,

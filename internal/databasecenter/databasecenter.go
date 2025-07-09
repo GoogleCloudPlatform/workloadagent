@@ -155,6 +155,10 @@ func (c *realClient) buildDatabaseResourceMetadataMessage(ctx context.Context, m
 					Version:      metrics.Metrics[MajorVersionKey],
 					MinorVersion: metrics.Metrics[MinorVersionKey],
 				},
+				MachineConfiguration: &dcpb.MachineConfiguration{
+					VcpuCount:         float64(cloudProps.GetVcpuCount()),
+					MemorySizeInBytes: cloudProps.GetMemorySizeMb() * 1024, // convert memory size to bytes
+				},
 			},
 		},
 	})

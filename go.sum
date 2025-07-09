@@ -28,10 +28,10 @@ github.com/DATA-DOG/go-sqlmock v1.5.0 h1:Shsta01QNfFxHCfpW6YH2STWB0MudeXXEWMr20O
 github.com/DATA-DOG/go-sqlmock v1.5.0/go.mod h1:f/Ixk793poVmq4qj/V1dPUg2JEAKC73Q5eFN3EC/SaM=
 github.com/GoogleCloudPlatform/agentcommunication_client v0.0.0-20250227185639-b70667e4a927 h1:nn31d5gg+ysSNqWTqSOxsKBj17GJZBqsBx7biZAgYtI=
 github.com/GoogleCloudPlatform/agentcommunication_client v0.0.0-20250227185639-b70667e4a927/go.mod h1:A1V05o309ZvTwy/FTBooYvvIhzM6mtsJcHJsAkeuAAM=
-github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20250625160850-e495e0f766ca h1:46W10bgeluYdj9joR+CPl6PQ0zM+GUB26LOYbn2kOBk=
-github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20250625160850-e495e0f766ca/go.mod h1:kd9KRERnc/KakQgqX8jwmVwdMjVcficQIQ1FJ2j6EAQ=
-github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20250625160850-e495e0f766ca h1:J+sEkwcaQYfhWA8moHscrLzsdIPLetsS9C6o77Felkw=
-github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20250625160850-e495e0f766ca/go.mod h1:8Ea8vdBuPsWhhwzL9sNK7BFQE9qbkPLZUHxcucWHXaM=
+github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20250708111514-b11e0b3dc2e3 h1:ZAztU4cR41y6R6feDIsd6yP26A1IaYVVuldMyZuaUC8=
+github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20250708111514-b11e0b3dc2e3/go.mod h1:kd9KRERnc/KakQgqX8jwmVwdMjVcficQIQ1FJ2j6EAQ=
+github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20250708111514-b11e0b3dc2e3 h1:qk8l57cjWkyp8ivxEqaMFJcj9FIYjJRYa/eo1mFOOmw=
+github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20250708111514-b11e0b3dc2e3/go.mod h1:8Ea8vdBuPsWhhwzL9sNK7BFQE9qbkPLZUHxcucWHXaM=
 github.com/StackExchange/wmi v1.2.1 h1:VIkavFPXSjcnS+O8yTq7NI32k0R5Aj+v39y29VYDOSA=
 github.com/StackExchange/wmi v1.2.1/go.mod h1:rcmrprowKIVzvc+NUiLncP2uuArMWLCbu9SBzvHz7e8=
 github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 h1:DDGfHa7BWjL4YnC6+E63dPcxHo2sUxDIu8g3QgEJdRY=
