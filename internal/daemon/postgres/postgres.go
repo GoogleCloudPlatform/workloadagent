@@ -36,8 +36,10 @@ import (
 )
 
 const (
-	discoveryFrequency     = 10 * time.Minute
-	wlmCollectionFrequency = 5 * time.Minute
+	discoveryFrequency               = 10 * time.Minute
+	metricCollectionFrequencyMin     = 10 * time.Minute
+	metricCollectionFrequencyMax     = 6 * time.Hour
+	metricCollectionFrequencyDefault = 1 * time.Hour
 )
 
 // Service implements the interfaces for Postgres workload agent service.
@@ -144,6 +146,20 @@ func runDiscovery(ctx context.Context, a any) {
 	}
 }
 
+func getMetricCollectionFrequency(config *configpb.PostgresConfiguration) time.Duration {
+	if config == nil || config.CollectionFrequency == nil {
+		return metricCollectionFrequencyDefault
+	}
+	freq := config.GetCollectionFrequency().AsDuration()
+	if freq < metricCollectionFrequencyMin {
+		return metricCollectionFrequencyMin
+	}
+	if freq > metricCollectionFrequencyMax {
+		return metricCollectionFrequencyMax
+	}
+	return freq
+}
+
 func runMetricCollection(ctx context.Context, a any) {
 	log.CtxLogger(ctx).Info("Starting Postgres Metric Collection")
 	var args runMetricCollectionArgs
@@ -153,7 +169,12 @@ func runMetricCollection(ctx context.Context, a any) {
 		return
 	}
 	log.CtxLogger(ctx).Debugw("Postgres metric collection args", "args", args)
-	ticker := time.NewTicker(wlmCollectionFrequency)
+	// Get the metric collection frequency from the configuration.
+	metricCollectionFrequency := metricCollectionFrequencyDefault
+	if args.s != nil && args.s.Config != nil {
+		metricCollectionFrequency = getMetricCollectionFrequency(args.s.Config.GetPostgresConfiguration())
+	}
+	ticker := time.NewTicker(metricCollectionFrequency)
 	defer ticker.Stop()
 	gceService, err := gce.NewGCEClient(ctx)
 	if err != nil {
