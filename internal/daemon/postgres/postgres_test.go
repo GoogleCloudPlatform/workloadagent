@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/proto"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
@@ -409,4 +410,92 @@ func TestRunMetricCollection_InvalidArgs(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	runMetricCollection(ctx, "invalid args")
+}
+
+func TestRunMetricCollection_InvalidService(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runMetricCollection(ctx, runMetricCollectionArgs{s: nil})
+}
+
+func TestRunMetricCollection_InvalidConfig(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runMetricCollection(ctx, runMetricCollectionArgs{s: &Service{Config: nil}})
+}
+
+func TestRunMetricCollection_InvalidPostgresConfig(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runMetricCollection(ctx, runMetricCollectionArgs{s: &Service{Config: &configpb.Configuration{}}})
+}
+
+func TestGetMetricCollectionFrequency(t *testing.T) {
+	tests := []struct {
+		name   string
+		config *configpb.PostgresConfiguration
+		want   time.Duration
+	}{
+		{
+			name:   "NilConfig",
+			config: nil,
+			want:   metricCollectionFrequencyDefault,
+		},
+		{
+			name:   "EmptyPostgresConfig",
+			config: &configpb.PostgresConfiguration{},
+			want:   metricCollectionFrequencyDefault,
+		},
+		{
+			name: "FrequencyNotSet",
+			config: &configpb.PostgresConfiguration{
+				Enabled: proto.Bool(true),
+			},
+			want: metricCollectionFrequencyDefault,
+		},
+		{
+			name: "FrequencyBelowMin",
+			config: &configpb.PostgresConfiguration{
+				CollectionFrequency: durationpb.New(5 * time.Minute),
+			},
+			want: metricCollectionFrequencyMin,
+		},
+		{
+			name: "FrequencyAboveMax",
+			config: &configpb.PostgresConfiguration{
+				CollectionFrequency: durationpb.New(7 * time.Hour),
+			},
+			want: metricCollectionFrequencyMax,
+		},
+		{
+			name: "FrequencyMin",
+			config: &configpb.PostgresConfiguration{
+				CollectionFrequency: durationpb.New(metricCollectionFrequencyMin),
+			},
+			want: metricCollectionFrequencyMin,
+		},
+		{
+			name: "FrequencyMax",
+			config: &configpb.PostgresConfiguration{
+				CollectionFrequency: durationpb.New(metricCollectionFrequencyMax),
+			},
+			want: metricCollectionFrequencyMax,
+		},
+		{
+			name: "FrequencyValid",
+			config: &configpb.PostgresConfiguration{
+				CollectionFrequency: durationpb.New(2 * time.Hour),
+			},
+			want: 2 * time.Hour,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := getMetricCollectionFrequency(tc.config)
+			if got != tc.want {
+				t.Errorf("getMetricCollectionFrequency(%v) = %v, want %v", tc.config, got, tc.want)
+			}
+		})
+	}
 }

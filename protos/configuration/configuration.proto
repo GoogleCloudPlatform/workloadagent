@@ -110,6 +110,8 @@ message RedisConfiguration {
 message PostgresConfiguration {
   optional bool enabled = 1;
   ConnectionParameters connection_parameters = 2;
+  // Min 10 mins, Max 6 hours, default 1 hour
+  google.protobuf.Duration collection_frequency = 3;
 }
 
 message SQLServerConfiguration {
