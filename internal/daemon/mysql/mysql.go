@@ -142,7 +142,11 @@ func runDiscovery(ctx context.Context, a any) {
 	}
 }
 
-func getMetricCollectionFrequency(config *configpb.MySQLConfiguration) time.Duration {
+func getMetricCollectionFrequency(args runMetricCollectionArgs) time.Duration {
+	if args.s == nil || args.s.Config == nil {
+		return metricCollectionFrequencyDefault
+	}
+	config := args.s.Config.GetMysqlConfiguration()
 	if config == nil || config.CollectionFrequency == nil {
 		return metricCollectionFrequencyDefault
 	}
@@ -167,10 +171,7 @@ func runMetricCollection(ctx context.Context, a any) {
 	log.CtxLogger(ctx).Debugw("MySQL metric collection args", "args", args)
 
 	// Get the metric collection frequency from the configuration.
-	metricCollectionFrequency := metricCollectionFrequencyDefault
-	if args.s != nil && args.s.Config != nil {
-		metricCollectionFrequency = getMetricCollectionFrequency(args.s.Config.GetMysqlConfiguration())
-	}
+	metricCollectionFrequency := getMetricCollectionFrequency(args)
 	ticker := time.NewTicker(metricCollectionFrequency)
 	defer ticker.Stop()
 	gceService, err := gce.NewGCEClient(ctx)

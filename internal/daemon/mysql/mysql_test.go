@@ -24,7 +24,6 @@ import (
 	"time"
 
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
-	"google.golang.org/protobuf/proto"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	pb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
@@ -365,89 +364,90 @@ func TestRunMetricCollection_InvalidArgs(t *testing.T) {
 	runMetricCollection(ctx, "invalid args")
 }
 
-func TestRunMetricCollection_InvalidService(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	runMetricCollection(ctx, runMetricCollectionArgs{s: nil})
-}
-
-func TestRunMetricCollection_InvalidConfig(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	runMetricCollection(ctx, runMetricCollectionArgs{s: &Service{Config: nil}})
-}
-
-func TestRunMetricCollection_InvalidMySQLConfig(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	runMetricCollection(ctx, runMetricCollectionArgs{s: &Service{Config: &pb.Configuration{}}})
-}
-
 func TestGetMetricCollectionFrequency(t *testing.T) {
 	tests := []struct {
-		name   string
-		config *pb.MySQLConfiguration
-		want   time.Duration
+		name     string
+		args     runMetricCollectionArgs
+		wantFreq time.Duration
 	}{
 		{
-			name:   "NilConfig",
-			config: nil,
-			want:   metricCollectionFrequencyDefault,
+			name:     "nil_service",
+			args:     runMetricCollectionArgs{},
+			wantFreq: metricCollectionFrequencyDefault,
 		},
 		{
-			name:   "EmptyMySQLConfig",
-			config: &pb.MySQLConfiguration{},
-			want:   metricCollectionFrequencyDefault,
-		},
-		{
-			name: "FrequencyNotSet",
-			config: &pb.MySQLConfiguration{
-				Enabled: proto.Bool(true),
+			name: "nil_config",
+			args: runMetricCollectionArgs{
+				s: &Service{},
 			},
-			want: metricCollectionFrequencyDefault,
+			wantFreq: metricCollectionFrequencyDefault,
 		},
 		{
-			name: "FrequencyBelowMin",
-			config: &pb.MySQLConfiguration{
-				CollectionFrequency: durationpb.New(5 * time.Minute),
+			name: "config_with_nil_mysql_config",
+			args: runMetricCollectionArgs{
+				s: &Service{
+					Config: &pb.Configuration{},
+				},
 			},
-			want: metricCollectionFrequencyMin,
+			wantFreq: metricCollectionFrequencyDefault,
 		},
 		{
-			name: "FrequencyAboveMax",
-			config: &pb.MySQLConfiguration{
-				CollectionFrequency: durationpb.New(7 * time.Hour),
+			name: "config_with_nil_collection_frequency",
+			args: runMetricCollectionArgs{
+				s: &Service{
+					Config: &pb.Configuration{
+						MysqlConfiguration: &pb.MySQLConfiguration{},
+					},
+				},
 			},
-			want: metricCollectionFrequencyMax,
+			wantFreq: metricCollectionFrequencyDefault,
 		},
 		{
-			name: "FrequencyMin",
-			config: &pb.MySQLConfiguration{
-				CollectionFrequency: durationpb.New(metricCollectionFrequencyMin),
+			name: "config_with_valid_collection_frequency",
+			args: runMetricCollectionArgs{
+				s: &Service{
+					Config: &pb.Configuration{
+						MysqlConfiguration: &pb.MySQLConfiguration{
+							CollectionFrequency: durationpb.New(30 * time.Minute),
+						},
+					},
+				},
 			},
-			want: metricCollectionFrequencyMin,
+			wantFreq: 30 * time.Minute,
 		},
 		{
-			name: "FrequencyMax",
-			config: &pb.MySQLConfiguration{
-				CollectionFrequency: durationpb.New(metricCollectionFrequencyMax),
+			name: "config_with_very_small_collection_frequency",
+			args: runMetricCollectionArgs{
+				s: &Service{
+					Config: &pb.Configuration{
+						MysqlConfiguration: &pb.MySQLConfiguration{
+							CollectionFrequency: durationpb.New(1 * time.Second),
+						},
+					},
+				},
 			},
-			want: metricCollectionFrequencyMax,
+			wantFreq: metricCollectionFrequencyMin,
 		},
 		{
-			name: "FrequencyValid",
-			config: &pb.MySQLConfiguration{
-				CollectionFrequency: durationpb.New(2 * time.Hour),
+			name: "config_with_very_large_collection_frequency",
+			args: runMetricCollectionArgs{
+				s: &Service{
+					Config: &pb.Configuration{
+						MysqlConfiguration: &pb.MySQLConfiguration{
+							CollectionFrequency: durationpb.New(6*time.Hour + 1*time.Second),
+						},
+					},
+				},
 			},
-			want: 2 * time.Hour,
+			wantFreq: metricCollectionFrequencyMax,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := getMetricCollectionFrequency(tc.config)
-			if got != tc.want {
-				t.Errorf("getMetricCollectionFrequency(%v) = %v, want %v", tc.config, got, tc.want)
+			gotFreq := getMetricCollectionFrequency(tc.args)
+			if gotFreq != tc.wantFreq {
+				t.Errorf("getMetricCollectionFrequency(%v) = %v, want %v", tc.args, gotFreq, tc.wantFreq)
 			}
 		})
 	}
