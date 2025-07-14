@@ -33,6 +33,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/migrate"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/version"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/status"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/metadataserver"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 
@@ -71,6 +72,7 @@ func main() {
 	rootCmd.AddCommand(logusage.NewCommand(lp, cloudProps))
 	rootCmd.AddCommand(migrate.NewCommand())
 	rootCmd.AddCommand(configure.NewCommand(lp))
+	rootCmd.AddCommand(status.NewCommand())
 	d := daemon.NewDaemon(lp, cloudProps)
 	daemonCmd := daemon.NewDaemonSubCommand(d)
 
