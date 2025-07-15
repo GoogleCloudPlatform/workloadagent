@@ -34,8 +34,8 @@ import (
 
 const (
 	endpoint = "" // endpoint override for database center, don't set if not needed
-	// TODO: Update the channel to prod channel once the integration is tested.
-	channel = "databasecenter.googleapis.com/dbcenter-autopush"
+	// DB Center UAP channel name.
+	channel = "databasecenter.googleapis.com/dbcenter-prod"
 	// MajorVersionKey is the key for the major version in metrics.
 	MajorVersionKey = "major_version"
 	// MinorVersionKey is the key for the minor version in metrics.
