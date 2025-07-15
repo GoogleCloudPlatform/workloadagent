@@ -32,6 +32,7 @@ require (
   github.com/spf13/cobra v1.8.1
   github.com/spf13/pflag v1.0.5
   github.com/zieckey/goini v0.0.0-20240615065340-08ee21c836fb // indirect
+  go.mongodb.org/mongo-driver/v2 v2.0.0
   go.uber.org/zap v1.27.0
   golang.org/x/crypto v0.32.0
   golang.org/x/exp v0.0.0-20230321023759-10a507213a29
@@ -40,6 +41,8 @@ require (
   google.golang.org/genproto/googleapis/api v0.0.0-20250204164813-702378808489
   google.golang.org/protobuf v1.36.5
 )
+
+require github.com/GoogleCloudPlatform/agentcommunication_client v0.0.0-20250227185639-b70667e4a927
 
 require (
   cloud.google.com/go v0.118.0 // indirect
@@ -52,6 +55,7 @@ require (
   cloud.google.com/go/secretmanager v1.14.4 // indirect
   filippo.io/edwards25519 v1.1.0 // indirect
   github.com/BurntSushi/toml v0.3.1 // indirect
+  github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 // indirect
   github.com/cespare/xxhash/v2 v2.3.0 // indirect
   github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
   github.com/felixge/httpsnoop v1.0.4 // indirect
@@ -61,12 +65,13 @@ require (
   github.com/go-ole/go-ole v1.2.6 // indirect
   github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9 // indirect
   github.com/golang-sql/sqlexp v0.1.0 // indirect
+  github.com/golang/snappy v0.0.4 // indirect
   github.com/google/s2a-go v0.1.9 // indirect
   github.com/google/uuid v1.6.0 // indirect
   github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
   github.com/googleapis/gax-go/v2 v2.14.1 // indirect
-  github.com/GoogleCloudPlatform/agentcommunication_client v0.0.0-20250227185639-b70667e4a927 // indirect
   github.com/inconshreveable/mousetrap v1.1.0 // indirect
+  github.com/klauspost/compress v1.16.7 // indirect
   github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
   github.com/natefinch/lumberjack v2.0.0+incompatible // indirect
   github.com/pkg/errors v0.9.1 // indirect
@@ -74,6 +79,10 @@ require (
   github.com/shoenig/go-m1cpu v0.1.6 // indirect
   github.com/tklauser/go-sysconf v0.3.12 // indirect
   github.com/tklauser/numcpus v0.6.1 // indirect
+  github.com/xdg-go/pbkdf2 v1.0.0 // indirect
+  github.com/xdg-go/scram v1.1.2 // indirect
+  github.com/xdg-go/stringprep v1.0.4 // indirect
+  github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
   github.com/yusufpapurcu/wmi v1.2.4 // indirect
   go.opentelemetry.io/auto/sdk v1.1.0 // indirect
   go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.58.0 // indirect

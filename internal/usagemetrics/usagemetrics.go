@@ -67,6 +67,9 @@ const (
 	PostgresDiscoveryFailure              = 29
 	OpenShiftServiceError                 = 30
 	OpenShiftMetricCollectionFailure      = 31
+	MongoDBServiceError                   = 32
+	MongoDBMetricCollectionFailure        = 33
+	MongoDBDiscoveryFailure               = 34
 )
 
 // Agent wide action mappings.

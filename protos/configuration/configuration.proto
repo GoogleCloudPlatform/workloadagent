@@ -43,6 +43,7 @@ message Configuration {
   string data_warehouse_endpoint = 11;
   PostgresConfiguration postgres_configuration = 12;
   OpenShiftConfiguration openshift_configuration = 13;
+  MongoDBConfiguration mongo_db_configuration = 14;
 }
 
 message CloudProperties {
@@ -108,6 +109,13 @@ message RedisConfiguration {
 }
 
 message PostgresConfiguration {
+  optional bool enabled = 1;
+  ConnectionParameters connection_parameters = 2;
+  // Min 10 mins, Max 6 hours, default 1 hour
+  google.protobuf.Duration collection_frequency = 3;
+}
+
+message MongoDBConfiguration {
   optional bool enabled = 1;
   ConnectionParameters connection_parameters = 2;
   // Min 10 mins, Max 6 hours, default 1 hour

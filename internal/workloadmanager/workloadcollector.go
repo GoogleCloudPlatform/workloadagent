@@ -52,6 +52,8 @@ const (
 	REDIS WorkloadType = "REDIS"
 	// POSTGRES workload type.
 	POSTGRES WorkloadType = "POSTGRES"
+	// MONGODB workload type.
+	MONGODB WorkloadType = "MONGODB"
 	// collectionFrequency is the frequency at which metrics are collected.
 	collectionFrequency = 5 * time.Minute
 )
