@@ -207,7 +207,7 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 			Routine:             metricCollectionService.CollectAndSendMetricsToDataWarehouse,
 			RoutineArg:          d.config,
 			ErrorCode:           0,
-			ExpectedMinDuration: 0,
+			ExpectedMinDuration: 20 * time.Second,
 			UsageLogger:         *usagemetrics.UsageLogger,
 		}
 		recoverableStart.StartRoutine(metricCollectionCtx)

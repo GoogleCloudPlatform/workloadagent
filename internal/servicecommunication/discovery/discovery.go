@@ -26,11 +26,11 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/shirou/gopsutil/v3/process"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 
-	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
 
@@ -204,5 +204,5 @@ func (d Service) ErrorCode() int {
 // Used by the recovery handler to determine if the service ran long enough to be considered
 // successful.
 func (d Service) ExpectedMinDuration() time.Duration {
-	return 0
+	return 20 * time.Second
 }

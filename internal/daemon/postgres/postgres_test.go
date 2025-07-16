@@ -22,10 +22,11 @@ import (
 	"testing"
 	"time"
 
-	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/proto"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
+
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
 
@@ -346,7 +347,7 @@ func TestErrorCode(t *testing.T) {
 func TestExpectedMinDuration(t *testing.T) {
 	s := &Service{}
 	got := s.ExpectedMinDuration()
-	want := 0 * time.Second
+	want := 20 * time.Second
 	if got != want {
 		t.Errorf("ExpectedMinDuration() = %v, want %v", got, want)
 	}

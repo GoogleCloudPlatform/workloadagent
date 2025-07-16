@@ -23,12 +23,13 @@ import (
 	"testing"
 	"time"
 
-	dpb "google.golang.org/protobuf/types/known/durationpb"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/proto"
 	"github.com/shirou/gopsutil/v3/process"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
+
+	dpb "google.golang.org/protobuf/types/known/durationpb"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
 
@@ -189,7 +190,7 @@ func TestExpectedMinDuration(t *testing.T) {
 		{
 			name: "ExpectedMinDuration",
 			d:    Service{},
-			want: 0,
+			want: 20 * time.Second,
 		},
 	}
 	for _, tc := range tests {

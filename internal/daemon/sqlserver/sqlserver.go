@@ -26,9 +26,10 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
-	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/recovery"
+
+	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
 
 // Service implements the interfaces for SQL Server workload agent service.
@@ -75,7 +76,7 @@ func (s *Service) Start(ctx context.Context, a any) {
 		RoutineArg:          runMetricCollectionArgs{s},
 		ErrorCode:           usagemetrics.SQLServerMetricCollectionFailure,
 		UsageLogger:         *usagemetrics.UsageLogger,
-		ExpectedMinDuration: 0,
+		ExpectedMinDuration: 20 * time.Second,
 	}
 	metricCollectionRoutine.StartRoutine(mcCtx)
 	for {
@@ -101,7 +102,7 @@ func (s *Service) ErrorCode() int {
 // Used by the recovery handler to determine if the service ran long enough to be considered
 // successful.
 func (s *Service) ExpectedMinDuration() time.Duration {
-	return 0
+	return 20 * time.Second
 }
 
 func runMetricCollection(ctx context.Context, a any) {

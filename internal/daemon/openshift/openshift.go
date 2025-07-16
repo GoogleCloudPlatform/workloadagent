@@ -25,9 +25,10 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
-	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/recovery"
+
+	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
 
 const (
@@ -115,5 +116,5 @@ func (s *Service) ErrorCode() int {
 // Used by the recovery handler to determine if the service ran long enough to be considered
 // successful.
 func (s *Service) ExpectedMinDuration() time.Duration {
-	return 0
+	return 20 * time.Second
 }

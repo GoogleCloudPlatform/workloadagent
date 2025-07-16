@@ -380,7 +380,7 @@ func TestErrorCode(t *testing.T) {
 func TestExpectedMinDuration(t *testing.T) {
 	s := &Service{}
 	got := s.ExpectedMinDuration()
-	want := 0 * time.Second
+	want := 20 * time.Second
 	if got != want {
 		t.Errorf("ExpectedMinDuration() = %v, want %v", got, want)
 	}

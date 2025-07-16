@@ -26,6 +26,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/wlm"
+
 	dwpb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/datawarehouse"
 )
 
@@ -83,8 +84,8 @@ func TestErrorCode(t *testing.T) {
 
 func TestExpectedMinDuration(t *testing.T) {
 	service := Service{}
-	if service.ExpectedMinDuration() != 0 {
-		t.Errorf("ExpectedMinDuration() = %v, want 0", service.ExpectedMinDuration())
+	if service.ExpectedMinDuration() != 20*time.Second {
+		t.Errorf("ExpectedMinDuration() = %v, want 20 seconds", service.ExpectedMinDuration())
 	}
 }
 
