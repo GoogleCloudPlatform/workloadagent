@@ -32,8 +32,8 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/logusage"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/migrate"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime"
-	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/version"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/status"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/version"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/metadataserver"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 
