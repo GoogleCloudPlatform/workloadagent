@@ -78,8 +78,8 @@ func (s *SQLServerMetrics) CollectMetricsOnce(ctx context.Context, dwActivated b
 	log.Logger.Info("SQLServerMetrics OS Collection ends.")
 }
 
-// sip is the source instance properties.
-var sip instanceProperties = func() instanceProperties {
+// sourceInstanceProperties gets the instance properties on the source machine.
+func sourceInstanceProperties() instanceProperties {
 	properties := metadataserver.ReadCloudPropertiesWithRetry(bo.NewConstantBackOff(30 * time.Second))
 	location := string(properties.Zone[0:strings.LastIndex(properties.Zone, "-")])
 	name := fmt.Sprintf("projects/%s/locations/%s", properties.ProjectID, location)
@@ -92,7 +92,7 @@ var sip instanceProperties = func() instanceProperties {
 		Zone:          properties.Zone,
 		Image:         properties.Image,
 	}
-}()
+}
 
 // // initCollection executes steps for initializing a collection.
 // // The func is called at the beginning of every guest and sql collection.

@@ -43,11 +43,14 @@ func (s *SQLServerMetrics) osCollection(ctx context.Context, dwActivated bool) e
 	if !s.Config.GetCollectionConfiguration().GetCollectGuestOsMetrics() {
 		return nil
 	}
+
 	wlm, err := s.initCollection(ctx, true)
 	if err != nil {
 		usagemetrics.Error(usagemetrics.WorkloadManagerConnectionError)
 		return err
 	}
+
+	sip := sourceInstanceProperties()
 
 	for _, credentialCfg := range s.Config.GetCredentialConfigurations() {
 		guestCfg := guestConfigFromCredential(credentialCfg)
@@ -59,7 +62,6 @@ func (s *SQLServerMetrics) osCollection(ctx context.Context, dwActivated bool) e
 			}
 			continue
 		}
-
 		targetInstanceProps := sip
 		var c guestoscollector.GuestCollector
 		if s.Config.GetRemoteCollection() {
@@ -135,6 +137,8 @@ func (s *SQLServerMetrics) sqlCollection(ctx context.Context, dwActivated bool) 
 		usagemetrics.Error(usagemetrics.WorkloadManagerConnectionError)
 		return err
 	}
+
+	sip := sourceInstanceProperties()
 
 	for _, credentialCfg := range s.Config.GetCredentialConfigurations() {
 		validationDetails := []sqlserverutils.MetricDetails{}

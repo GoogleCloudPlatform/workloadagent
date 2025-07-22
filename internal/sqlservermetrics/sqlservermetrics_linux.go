@@ -51,8 +51,8 @@ func (s *SQLServerMetrics) osCollection(ctx context.Context, dwActivated bool) e
 		return err
 	}
 
-	targetInstanceProps := sip
-	disks, err := allDisks(ctx, targetInstanceProps)
+	sip := sourceInstanceProperties()
+	disks, err := allDisks(ctx, sip)
 	if err != nil {
 		return fmt.Errorf("failed to collect disk info: %w", err)
 	}
@@ -65,9 +65,10 @@ func (s *SQLServerMetrics) osCollection(ctx context.Context, dwActivated bool) e
 		log.Logger.Warnf("RunOSCollection: Failed to mark unknown collected fields. error: %v", err)
 	}
 	log.Logger.Debug("Collecting guest rules completes")
-	updateCollectedData(wlm, sip, targetInstanceProps, details)
+	// linux collector only supports local collections
+	updateCollectedData(wlm, sip, sip, details)
 
-	log.Logger.Debugf("Source vm %s is sending os collected data on target machine, %s, to workload manager.", sip.Instance, targetInstanceProps.Instance)
+	log.Logger.Debugf("Source vm %s is sending os collected data on target machine, %s, to workload manager.", sip.Instance, sip.Instance)
 	if !dwActivated {
 		log.Logger.Debug("Data Warehouse is not activated, not sending metrics to Data Warehouse")
 		return nil
@@ -88,7 +89,8 @@ func (s *SQLServerMetrics) sqlCollection(ctx context.Context, dwActivated bool) 
 		usagemetrics.Error(usagemetrics.WorkloadManagerConnectionError)
 		return err
 	}
-
+	// instance properties
+	sip := sourceInstanceProperties()
 	for _, credentialCfg := range s.Config.GetCredentialConfigurations() {
 		validationDetails := []sqlserverutils.MetricDetails{}
 		guestCfg := guestConfigFromCredential(credentialCfg)
@@ -144,9 +146,9 @@ func (s *SQLServerMetrics) sqlCollection(ctx context.Context, dwActivated bool) 
 			}
 			validationDetails = details
 		}
-		targetInstanceProps := sip
-		updateCollectedData(wlm, sip, targetInstanceProps, validationDetails)
-		log.Logger.Debugf("Source vm %s is sending collected sql data on target machine, %s, to workload manager.", sip.Instance, targetInstanceProps.Instance)
+		// linux collector only supports local collections
+		updateCollectedData(wlm, sip, sip, validationDetails)
+		log.Logger.Debugf("Source vm %s is sending collected sql data on target machine, %s, to workload manager.", sip.Instance, sip.Instance)
 		if !dwActivated {
 			log.Logger.Debug("Data Warehouse is not activated, not sending metrics to Data Warehouse")
 			continue

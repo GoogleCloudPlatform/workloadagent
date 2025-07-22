@@ -29,7 +29,7 @@ import (
 
 func (s *SQLServerMetrics) dbCenterMetrics(ctx context.Context) databasecenter.DBCenterMetrics {
 	metrics := map[string]string{}
-
+	sip := sourceInstanceProperties()
 	for _, credentialCfg := range s.Config.GetCredentialConfigurations() {
 		for _, sqlCfg := range sqlConfigFromCredential(credentialCfg) {
 			if err := validateCredCfgSQL(false, false, sqlCfg, &sqlserverutils.GuestConfig{}, credentialCfg.GetVmProperties().GetInstanceId(), credentialCfg.GetVmProperties().GetInstanceName()); err != nil {
