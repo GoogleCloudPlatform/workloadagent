@@ -11,10 +11,10 @@ require (
   github.com/DATA-DOG/go-sqlmock v1.5.0
   // Get the version by running:
   // go list -m -json github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries@main
-  github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20250708111514-b11e0b3dc2e3
+  github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20250721132335-2ce330d74c4b
   // Get the version by running:
   // go list -m -json github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos@main
-  github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20250708111514-b11e0b3dc2e3
+  github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20250721132335-2ce330d74c4b
   github.com/StackExchange/wmi v1.2.1
   github.com/cenkalti/backoff/v4 v4.3.0
   github.com/gammazero/workerpool v1.1.3
@@ -42,11 +42,14 @@ require (
   google.golang.org/protobuf v1.36.5
 )
 
-require github.com/GoogleCloudPlatform/agentcommunication_client v0.0.0-20250227185639-b70667e4a927
+require (
+  cloud.google.com/go/artifactregistry v1.16.1
+  github.com/GoogleCloudPlatform/agentcommunication_client v0.0.0-20250227185639-b70667e4a927
+  github.com/googleapis/gax-go/v2 v2.14.1
+)
 
 require (
   cloud.google.com/go v0.118.0 // indirect
-  cloud.google.com/go/artifactregistry v1.16.1 // indirect
   cloud.google.com/go/auth v0.14.1 // indirect
   cloud.google.com/go/auth/oauth2adapt v0.2.7 // indirect
   cloud.google.com/go/compute/metadata v0.6.0 // indirect
@@ -71,7 +74,6 @@ require (
   github.com/google/s2a-go v0.1.9 // indirect
   github.com/google/uuid v1.6.0 // indirect
   github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
-  github.com/googleapis/gax-go/v2 v2.14.1 // indirect
   github.com/inconshreveable/mousetrap v1.1.0 // indirect
   github.com/klauspost/compress v1.16.7 // indirect
   github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
