@@ -58,6 +58,7 @@ message CloudProperties {
   string machine_type = 8;
   int64 vcpu_count = 9;
   int64 memory_size_mb = 10;
+  repeated string scopes = 11;
 }
 
 message AgentProperties {
