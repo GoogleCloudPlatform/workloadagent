@@ -37,10 +37,11 @@ import (
 )
 
 const (
-	discoveryFrequency               = 10 * time.Minute
-	metricCollectionFrequencyMin     = 10 * time.Minute
-	metricCollectionFrequencyMax     = 6 * time.Hour
-	metricCollectionFrequencyDefault = 1 * time.Hour
+	discoveryFrequency                       = 10 * time.Minute
+	wlmMetricCollectionFrequencyDefault      = 5 * time.Minute // Frequency for WLM metrics
+	dbCenterMetricCollectionFrequencyMin     = 10 * time.Minute
+	dbCenterMetricCollectionFrequencyMax     = 6 * time.Hour
+	dbCenterMetricCollectionFrequencyDefault = 1 * time.Hour
 )
 
 // Service implements the interfaces for Postgres workload agent service.
@@ -59,7 +60,11 @@ type runDiscoveryArgs struct {
 	s *Service
 }
 
-type runMetricCollectionArgs struct {
+type runWlmMetricCollectionArgs struct {
+	s *Service
+}
+
+type runDBCenterMetricCollectionArgs struct {
 	s *Service
 }
 
@@ -108,16 +113,27 @@ EnableCheck:
 	}
 	discoveryRoutine.StartRoutine(dCtx)
 
-	// Start Postgres Metric Collection
-	mcCtx := log.SetCtx(ctx, "context", "PostgresMetricCollection")
-	metricCollectionRoutine := &recovery.RecoverableRoutine{
-		Routine:             runMetricCollection,
-		RoutineArg:          runMetricCollectionArgs{s},
+	// Start PostgreSQL WLM Metric Collection
+	wlmMCCtx := log.SetCtx(ctx, "context", "PostgreSQLWlmMetricCollection")
+	wlmMetricCollectionRoutine := &recovery.RecoverableRoutine{
+		Routine:             runWlmMetricCollection,
+		RoutineArg:          runWlmMetricCollectionArgs{s},
 		ErrorCode:           usagemetrics.PostgresMetricCollectionFailure,
 		UsageLogger:         *usagemetrics.UsageLogger,
 		ExpectedMinDuration: 20 * time.Second,
 	}
-	metricCollectionRoutine.StartRoutine(mcCtx)
+	wlmMetricCollectionRoutine.StartRoutine(wlmMCCtx)
+
+	// Start PostgreSQL DB Center Metric Collection
+	dbcenterMCCtx := log.SetCtx(ctx, "context", "PostgreSQLDBCenterMetricCollection")
+	dbcenterMetricCollectionRoutine := &recovery.RecoverableRoutine{
+		Routine:             runDBCenterMetricCollection,
+		RoutineArg:          runDBCenterMetricCollectionArgs{s},
+		ErrorCode:           usagemetrics.PostgresMetricCollectionFailure,
+		UsageLogger:         *usagemetrics.UsageLogger,
+		ExpectedMinDuration: 20 * time.Second,
+	}
+	dbcenterMetricCollectionRoutine.StartRoutine(dbcenterMCCtx)
 	select {
 	case <-ctx.Done():
 		log.CtxLogger(ctx).Info("Postgres workload agent service cancellation requested")
@@ -147,35 +163,73 @@ func runDiscovery(ctx context.Context, a any) {
 	}
 }
 
-func getMetricCollectionFrequency(args runMetricCollectionArgs) time.Duration {
+func runWlmMetricCollection(ctx context.Context, a any) {
+	log.CtxLogger(ctx).Info("Starting Postgres Metric Collection")
+	var args runWlmMetricCollectionArgs
+	var ok bool
+	if args, ok = a.(runWlmMetricCollectionArgs); !ok {
+		log.CtxLogger(ctx).Errorw("Failed to parse metric collection args", "args", a)
+		return
+	}
+	log.CtxLogger(ctx).Debugw("Postgres metric collection args", "args", args)
+	ticker := time.NewTicker(wlmMetricCollectionFrequencyDefault)
+	defer ticker.Stop()
+	gceService, err := gce.NewGCEClient(ctx)
+	if err != nil {
+		usagemetrics.Error(usagemetrics.GCEServiceCreationFailure)
+		log.CtxLogger(ctx).Errorf("Error while initializing GCE services: %w", err)
+		return
+	}
+	p := postgresmetrics.New(ctx, args.s.Config, args.s.WLMClient, args.s.DBcenterClient)
+	err = p.InitDB(ctx, gceService)
+	if err != nil {
+		log.CtxLogger(ctx).Errorf("Failed to initialize Postgres DB: %w", err)
+		return
+	}
+	for {
+		_, err := p.CollectWlmMetricsOnce(ctx, args.s.dwActivated)
+		if err != nil {
+			log.CtxLogger(ctx).Debugf("failed to collect Postgres metrics: %v", err)
+		}
+		select {
+		case <-ctx.Done():
+			log.CtxLogger(ctx).Info("Postgres metric collection cancellation requested")
+			return
+		case <-ticker.C:
+			continue
+		}
+	}
+}
+
+func getDbCenterMetricCollectionFrequency(args runDBCenterMetricCollectionArgs) time.Duration {
 	if args.s == nil || args.s.Config == nil {
-		return metricCollectionFrequencyDefault
+		return dbCenterMetricCollectionFrequencyDefault
 	}
 	config := args.s.Config.GetPostgresConfiguration()
-	if config == nil || config.CollectionFrequency == nil {
-		return metricCollectionFrequencyDefault
+	if config == nil || config.DbcenterCollectionFrequency == nil {
+		return dbCenterMetricCollectionFrequencyDefault
 	}
-	freq := config.GetCollectionFrequency().AsDuration()
-	if freq < metricCollectionFrequencyMin {
-		return metricCollectionFrequencyMin
+	freq := config.GetDbcenterCollectionFrequency().AsDuration()
+	if freq < dbCenterMetricCollectionFrequencyMin {
+		return dbCenterMetricCollectionFrequencyMin
 	}
-	if freq > metricCollectionFrequencyMax {
-		return metricCollectionFrequencyMax
+	if freq > dbCenterMetricCollectionFrequencyMax {
+		return dbCenterMetricCollectionFrequencyMax
 	}
 	return freq
 }
 
-func runMetricCollection(ctx context.Context, a any) {
+func runDBCenterMetricCollection(ctx context.Context, a any) {
 	log.CtxLogger(ctx).Info("Starting Postgres Metric Collection")
-	var args runMetricCollectionArgs
+	var args runDBCenterMetricCollectionArgs
 	var ok bool
-	if args, ok = a.(runMetricCollectionArgs); !ok {
+	if args, ok = a.(runDBCenterMetricCollectionArgs); !ok {
 		log.CtxLogger(ctx).Errorw("Failed to parse metric collection args", "args", a)
 		return
 	}
 	log.CtxLogger(ctx).Debugw("Postgres metric collection args", "args", args)
 	// Get the metric collection frequency from the configuration.
-	metricCollectionFrequency := getMetricCollectionFrequency(args)
+	metricCollectionFrequency := getDbCenterMetricCollectionFrequency(args)
 	ticker := time.NewTicker(metricCollectionFrequency)
 	defer ticker.Stop()
 	gceService, err := gce.NewGCEClient(ctx)
@@ -191,7 +245,7 @@ func runMetricCollection(ctx context.Context, a any) {
 		return
 	}
 	for {
-		_, err := p.CollectMetricsOnce(ctx, args.s.dwActivated)
+		err := p.CollectDBCenterMetricsOnce(ctx)
 		if err != nil {
 			log.CtxLogger(ctx).Debugf("failed to collect Postgres metrics: %v", err)
 		}
