@@ -18,11 +18,9 @@ limitations under the License.
 package configuration
 
 import (
-	_ "embed"
 	"errors"
 	"fmt"
 	"os"
-
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -36,6 +34,8 @@ import (
 
 	dpb "google.golang.org/protobuf/types/known/durationpb"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
+
+	_ "embed"
 )
 
 //go:embed defaultconfigs/oraclemetrics/default_queries.json
@@ -108,6 +108,8 @@ const (
 	DefaultSQLServerRetryFrequency = time.Hour
 	// DefaultSQLServerCollectionFrequency is the default frequency for SQL Server collection.
 	DefaultSQLServerCollectionFrequency = time.Hour
+	// DefaultSQLServerDBCenterMetricsCollectionFrequency is the default frequency for SQL Server DB Center metrics collection
+	DefaultSQLServerDBCenterMetricsCollectionFrequency = 1 * time.Hour
 	// DefaultRedisPort is the default port for Redis.
 	DefaultRedisPort = 6379
 )
@@ -269,7 +271,8 @@ func defaultConfig(cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) 
 		SqlserverConfiguration: &cpb.SQLServerConfiguration{
 			Enabled: proto.Bool(false),
 			CollectionConfiguration: &cpb.SQLServerConfiguration_CollectionConfiguration{
-				CollectionFrequency: dpb.New(time.Duration(DefaultSQLServerCollectionFrequency)),
+				CollectionFrequency:                dpb.New(time.Duration(DefaultSQLServerCollectionFrequency)),
+				DbcenterMetricsCollectionFrequency: dpb.New(time.Duration(DefaultSQLServerDBCenterMetricsCollectionFrequency)),
 			},
 			CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{},
 			CollectionTimeout:        dpb.New(time.Duration(DefaultSQLServerCollectionTimeout)),

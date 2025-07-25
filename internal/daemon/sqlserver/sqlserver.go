@@ -32,6 +32,12 @@ import (
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
 
+const (
+	dbCenterMetricCollectionFrequencyMin     = 10 * time.Minute
+	dbCenterMetricCollectionFrequencyMax     = 6 * time.Hour
+	dbCenterMetricCollectionFrequencyDefault = 1 * time.Hour
+)
+
 // Service implements the interfaces for SQL Server workload agent service.
 type Service struct {
 	Config           *configpb.Configuration
@@ -43,6 +49,10 @@ type Service struct {
 }
 
 type runMetricCollectionArgs struct {
+	s *Service
+}
+
+type runDBCenterMetricCollectionArgs struct {
 	s *Service
 }
 
@@ -79,6 +89,18 @@ func (s *Service) Start(ctx context.Context, a any) {
 		ExpectedMinDuration: 20 * time.Second,
 	}
 	metricCollectionRoutine.StartRoutine(mcCtx)
+
+	// Start SQL Server DB Center Metric Collection
+	dbcenterMCCtx := log.SetCtx(ctx, "context", "SQLServerDBCenterMetricCollection")
+	dbcenterMetricCollectionRoutine := &recovery.RecoverableRoutine{
+		Routine:             runDBCenterMetricCollection,
+		RoutineArg:          runDBCenterMetricCollectionArgs{s},
+		ErrorCode:           usagemetrics.SQLServerMetricCollectionFailure,
+		UsageLogger:         *usagemetrics.UsageLogger,
+		ExpectedMinDuration: 20 * time.Second,
+	}
+	dbcenterMetricCollectionRoutine.StartRoutine(dbcenterMCCtx)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -130,6 +152,47 @@ func runMetricCollection(ctx context.Context, a any) {
 			continue
 		}
 	}
+}
+
+func runDBCenterMetricCollection(ctx context.Context, a any) {
+	log.CtxLogger(ctx).Info("Starting SQL Server DB Center Metric Collection")
+	var args runDBCenterMetricCollectionArgs
+	var ok bool
+	if args, ok = a.(runDBCenterMetricCollectionArgs); !ok {
+		log.CtxLogger(ctx).Errorf("failed to parse dbcenter metric collection args", "args", a)
+		return
+	}
+	log.CtxLogger(ctx).Debugw("SqlServer dbcenter metric collection args", "args", args)
+	r := &sqlservermetrics.SQLServerMetrics{
+		Config:         args.s.Config.GetSqlserverConfiguration(),
+		DBcenterClient: args.s.DBcenterClient,
+	}
+	ticker := time.NewTicker(dbcenterMetricCollectionFrequency(args))
+	defer ticker.Stop()
+	for {
+		r.CollectDBCenterMetricsOnce(ctx)
+		select {
+		case <-ctx.Done():
+			log.CtxLogger(ctx).Info("SQL Server dbcenter metric collection cancellation requested")
+			return
+		case <-ticker.C:
+			continue
+		}
+	}
+}
+
+func dbcenterMetricCollectionFrequency(args runDBCenterMetricCollectionArgs) time.Duration {
+	if args.s == nil || args.s.Config == nil || args.s.Config.GetSqlserverConfiguration() == nil || args.s.Config.GetSqlserverConfiguration().GetCollectionConfiguration() == nil {
+		return dbCenterMetricCollectionFrequencyDefault
+	}
+	freq := args.s.Config.GetSqlserverConfiguration().GetCollectionConfiguration().GetDbcenterMetricsCollectionFrequency().AsDuration()
+	if freq < dbCenterMetricCollectionFrequencyMin {
+		return dbCenterMetricCollectionFrequencyMin
+	}
+	if freq > dbCenterMetricCollectionFrequencyMax {
+		return dbCenterMetricCollectionFrequencyMax
+	}
+	return freq
 }
 
 // checkServiceCommunication listens to the common channel for messages and processes them.

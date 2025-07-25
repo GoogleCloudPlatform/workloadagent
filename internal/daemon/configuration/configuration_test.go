@@ -17,18 +17,20 @@ limitations under the License.
 package configuration
 
 import (
-	_ "embed"
 	"errors"
 	"os"
 	"testing"
 
-	dpb "google.golang.org/protobuf/types/known/durationpb"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
 	"go.uber.org/zap/zapcore"
+
+	dpb "google.golang.org/protobuf/types/known/durationpb"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
+
+	_ "embed"
 )
 
 var (
@@ -183,7 +185,7 @@ func TestLoad(t *testing.T) {
 				AgentProperties:       &cpb.AgentProperties{Name: AgentName, Version: AgentVersion},
 				LogLevel:              cpb.Configuration_DEBUG,
 				LogToCloud:            proto.Bool(false),
-				CommonDiscovery:        defaultCfg.CommonDiscovery,
+				CommonDiscovery:       defaultCfg.CommonDiscovery,
 				OracleConfiguration: &cpb.OracleConfiguration{
 					Enabled: proto.Bool(true),
 					OracleDiscovery: &cpb.OracleDiscovery{
@@ -224,6 +226,7 @@ func TestLoad(t *testing.T) {
 					CollectionConfiguration: &cpb.SQLServerConfiguration_CollectionConfiguration{
 						CollectionFrequency:   &dpb.Duration{Seconds: 600},
 						CollectGuestOsMetrics: true, CollectSqlMetrics: true,
+						DbcenterMetricsCollectionFrequency: &dpb.Duration{Seconds: 3600},
 					},
 					CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{
 						&cpb.SQLServerConfiguration_CredentialConfiguration{
@@ -297,7 +300,8 @@ func TestLoad(t *testing.T) {
 						"enabled": true,
 						"collection_configuration": {
 							"collect_guest_os_metrics":true,
-							"collect_sql_metrics":true
+							"collect_sql_metrics":true,
+							"dbcenter_metrics_collection_frequency": "7200s"
 						},
 						"credential_configurations": [
 							{
@@ -333,7 +337,7 @@ func TestLoad(t *testing.T) {
 				AgentProperties:       &cpb.AgentProperties{Name: AgentName, Version: AgentVersion},
 				LogLevel:              cpb.Configuration_DEBUG,
 				LogToCloud:            proto.Bool(false),
-				CommonDiscovery:        defaultCfg.CommonDiscovery,
+				CommonDiscovery:       defaultCfg.CommonDiscovery,
 				OracleConfiguration: &cpb.OracleConfiguration{
 					Enabled: proto.Bool(true),
 					OracleDiscovery: &cpb.OracleDiscovery{
@@ -377,9 +381,10 @@ func TestLoad(t *testing.T) {
 				SqlserverConfiguration: &cpb.SQLServerConfiguration{
 					Enabled: proto.Bool(true),
 					CollectionConfiguration: &cpb.SQLServerConfiguration_CollectionConfiguration{
-						CollectionFrequency:   &dpb.Duration{Seconds: 3600},
-						CollectGuestOsMetrics: true,
-						CollectSqlMetrics:     true,
+						CollectionFrequency:                &dpb.Duration{Seconds: 3600},
+						CollectGuestOsMetrics:              true,
+						CollectSqlMetrics:                  true,
+						DbcenterMetricsCollectionFrequency: &dpb.Duration{Seconds: 7200},
 					},
 					CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{
 						&cpb.SQLServerConfiguration_CredentialConfiguration{

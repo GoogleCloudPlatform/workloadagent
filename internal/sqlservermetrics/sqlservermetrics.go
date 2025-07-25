@@ -58,13 +58,6 @@ type SQLServerMetrics struct {
 // CollectMetricsOnce collects metrics for SQL Server databases running on the host.
 func (s *SQLServerMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool) {
 	log.Logger.Info("SQLServerMetrics SQL Collection starts.")
-	// Send metadata details to database center
-	err := s.DBcenterClient.SendMetadataToDatabaseCenter(ctx, s.dbCenterMetrics(ctx))
-	if err != nil {
-		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.
-		log.CtxLogger(ctx).Info("Unable to send information to Database Center, please refer to documentation to make sure that all prerequisites are met")
-		log.CtxLogger(ctx).Debugf("Failed to send metadata to database center: %v", err)
-	}
 
 	if err := s.sqlCollection(ctx, dwActivated); err != nil {
 		log.Logger.Errorw("SQLServerMetrics SQL Collection failed", "error", err)
@@ -76,6 +69,18 @@ func (s *SQLServerMetrics) CollectMetricsOnce(ctx context.Context, dwActivated b
 		log.Logger.Errorw("SQLServerMetrics OS Collection failed", "error", err)
 	}
 	log.Logger.Info("SQLServerMetrics OS Collection ends.")
+}
+
+// CollectDBCenterMetricsOnce collects metrics for SQL Server databases running on the host.
+func (s *SQLServerMetrics) CollectDBCenterMetricsOnce(ctx context.Context) {
+	log.Logger.Info("SQLServerMetrics DBCenter Collection starts.")
+	// Send metadata details to database center
+	err := s.DBcenterClient.SendMetadataToDatabaseCenter(ctx, s.dbCenterMetrics(ctx))
+	if err != nil {
+		log.CtxLogger(ctx).Info("Unable to send information to Database Center, please refer to documentation to make sure that all prerequisites are met")
+		log.CtxLogger(ctx).Debugf("Failed to send metadata to database center: %v", err)
+	}
+	log.Logger.Info("SQLServerMetrics DBCenter Collection ends.")
 }
 
 // sourceInstanceProperties gets the instance properties on the source machine.

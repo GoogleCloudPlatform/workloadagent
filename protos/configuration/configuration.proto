@@ -133,6 +133,9 @@ message SQLServerConfiguration {
     // defaults to 3600s (1 hour)
     // collection frequency
     google.protobuf.Duration collection_frequency = 3;
+    // defaults to 3600s (1 hour)
+    // dbcenter metrics collection frequency
+    google.protobuf.Duration dbcenter_metrics_collection_frequency = 4;
   }
   message CredentialConfiguration {
     message GuestCredentialsRemoteWin {
