@@ -606,7 +606,7 @@ func (m *MySQLMetrics) auditingEnabled(ctx context.Context) (bool, error) {
 }
 
 // CollectMetricsOnce collects metrics for MySQL databases running on the host.
-func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
+func (m *MySQLMetrics) CollectWlmMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
 	bufferPoolSize, err := m.bufferPoolSize(ctx)
 	if err != nil {
 		log.CtxLogger(ctx).Warnf("Failed to get buffer pool size: %v", err)
@@ -632,6 +632,38 @@ func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool)
 		currentRoleKey, currentRole,
 		replicationZonesKey, strings.Join(replicationZones, ","),
 	)
+	metrics := workloadmanager.WorkloadMetrics{
+		WorkloadType: workloadmanager.MYSQL,
+		Metrics: map[string]string{
+			bufferPoolKey:       strconv.FormatInt(bufferPoolSize, 10),
+			totalRAMKey:         strconv.Itoa(totalRAM),
+			innoDBKey:           strconv.FormatBool(isInnoDBDefault),
+			currentRoleKey:      currentRole,
+			replicationZonesKey: strings.Join(replicationZones, ","),
+		},
+	}
+	if !dwActivated {
+		log.CtxLogger(ctx).Debugw("Data Warehouse is not activated, not sending metrics to Data Warehouse")
+		return &metrics, nil
+	}
+	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
+		WLMetrics:  metrics,
+		CloudProps: m.Config.GetCloudProperties(),
+		WLMService: m.WLMClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if res == nil {
+		log.CtxLogger(ctx).Warn("SendDataInsight did not return an error but the WriteInsight response is nil")
+		return &metrics, nil
+	}
+	log.CtxLogger(ctx).Debugw("WriteInsight response", "StatusCode", res.HTTPStatusCode)
+	return &metrics, nil
+}
+
+// CollectDBCenterMetricsOnce collects metrics to send to Database Center for MySQL databases running on the host.
+func (m *MySQLMetrics) CollectDBCenterMetricsOnce(ctx context.Context) error {
 	// Get major and minor version of MySQL
 	majorVersion, minorVersion, err := m.version(ctx)
 	if err != nil {
@@ -671,33 +703,5 @@ func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool)
 		log.CtxLogger(ctx).Info("Unable to send information to Database Center, please refer to documentation to make sure that all prerequisites are met")
 		log.CtxLogger(ctx).Debugf("Failed to send metadata to database center: %v", err)
 	}
-
-	metrics := workloadmanager.WorkloadMetrics{
-		WorkloadType: workloadmanager.MYSQL,
-		Metrics: map[string]string{
-			bufferPoolKey:       strconv.FormatInt(bufferPoolSize, 10),
-			totalRAMKey:         strconv.Itoa(totalRAM),
-			innoDBKey:           strconv.FormatBool(isInnoDBDefault),
-			currentRoleKey:      currentRole,
-			replicationZonesKey: strings.Join(replicationZones, ","),
-		},
-	}
-	if !dwActivated {
-		log.CtxLogger(ctx).Debugw("Data Warehouse is not activated, not sending metrics to Data Warehouse")
-		return &metrics, nil
-	}
-	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
-		WLMetrics:  metrics,
-		CloudProps: m.Config.GetCloudProperties(),
-		WLMService: m.WLMClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if res == nil {
-		log.CtxLogger(ctx).Warn("SendDataInsight did not return an error but the WriteInsight response is nil")
-		return &metrics, nil
-	}
-	log.CtxLogger(ctx).Debugw("WriteInsight response", "StatusCode", res.HTTPStatusCode)
-	return &metrics, nil
+	return nil
 }
