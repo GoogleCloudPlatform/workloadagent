@@ -401,63 +401,75 @@ func TestRunDiscovery_InvalidArgs(t *testing.T) {
 	runDiscovery(ctx, "invalid args")
 }
 
-func TestRunMetricCollection_ContextCancelled(t *testing.T) {
+func TestRunWlmMetricCollection_ContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	runMetricCollection(ctx, runMetricCollectionArgs{s: &Service{}})
+	runWlmMetricCollection(ctx, runWlmMetricCollectionArgs{s: &Service{}})
 }
 
-func TestRunMetricCollection_InvalidArgs(t *testing.T) {
+func TestRunWlmMetricCollection_InvalidArgs(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	runMetricCollection(ctx, "invalid args")
+	runWlmMetricCollection(ctx, "invalid args")
 }
 
-func TestGetMetricCollectionFrequency(t *testing.T) {
+func TestRunDBCenterMetricCollection_ContextCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	runDBCenterMetricCollection(ctx, runWlmMetricCollectionArgs{s: &Service{}})
+}
+
+func TestRunDBCenterMetricCollection_InvalidArgs(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runDBCenterMetricCollection(ctx, "invalid args")
+}
+
+func TestGetDbCenterMetricCollectionFrequency(t *testing.T) {
 	tests := []struct {
 		name     string
-		args     runMetricCollectionArgs
+		args     runDBCenterMetricCollectionArgs
 		wantFreq time.Duration
 	}{
 		{
 			name:     "nil_service",
-			args:     runMetricCollectionArgs{},
-			wantFreq: metricCollectionFrequencyDefault,
+			args:     runDBCenterMetricCollectionArgs{},
+			wantFreq: dbCenterMetricCollectionFrequencyDefault,
 		},
 		{
 			name: "nil_config",
-			args: runMetricCollectionArgs{
+			args: runDBCenterMetricCollectionArgs{
 				s: &Service{},
 			},
-			wantFreq: metricCollectionFrequencyDefault,
+			wantFreq: dbCenterMetricCollectionFrequencyDefault,
 		},
 		{
 			name: "config_with_nil_postgres_config",
-			args: runMetricCollectionArgs{
+			args: runDBCenterMetricCollectionArgs{
 				s: &Service{
 					Config: &configpb.Configuration{},
 				},
 			},
-			wantFreq: metricCollectionFrequencyDefault,
+			wantFreq: dbCenterMetricCollectionFrequencyDefault,
 		},
 		{
 			name: "config_with_nil_collection_frequency",
-			args: runMetricCollectionArgs{
+			args: runDBCenterMetricCollectionArgs{
 				s: &Service{
 					Config: &configpb.Configuration{
 						PostgresConfiguration: &configpb.PostgresConfiguration{},
 					},
 				},
 			},
-			wantFreq: metricCollectionFrequencyDefault,
+			wantFreq: dbCenterMetricCollectionFrequencyDefault,
 		},
 		{
 			name: "config_with_valid_collection_frequency",
-			args: runMetricCollectionArgs{
+			args: runDBCenterMetricCollectionArgs{
 				s: &Service{
 					Config: &configpb.Configuration{
 						PostgresConfiguration: &configpb.PostgresConfiguration{
-							CollectionFrequency: durationpb.New(30 * time.Minute),
+							DbcenterCollectionFrequency: durationpb.New(30 * time.Minute),
 						},
 					},
 				},
@@ -466,35 +478,35 @@ func TestGetMetricCollectionFrequency(t *testing.T) {
 		},
 		{
 			name: "config_with_very_small_collection_frequency",
-			args: runMetricCollectionArgs{
+			args: runDBCenterMetricCollectionArgs{
 				s: &Service{
 					Config: &configpb.Configuration{
 						PostgresConfiguration: &configpb.PostgresConfiguration{
-							CollectionFrequency: durationpb.New(1 * time.Second),
+							DbcenterCollectionFrequency: durationpb.New(1 * time.Second),
 						},
 					},
 				},
 			},
-			wantFreq: metricCollectionFrequencyMin,
+			wantFreq: dbCenterMetricCollectionFrequencyMin,
 		},
 		{
 			name: "config_with_very_large_collection_frequency",
-			args: runMetricCollectionArgs{
+			args: runDBCenterMetricCollectionArgs{
 				s: &Service{
 					Config: &configpb.Configuration{
 						PostgresConfiguration: &configpb.PostgresConfiguration{
-							CollectionFrequency: durationpb.New(6*time.Hour + 1*time.Second),
+							DbcenterCollectionFrequency: durationpb.New(6*time.Hour + 1*time.Second),
 						},
 					},
 				},
 			},
-			wantFreq: metricCollectionFrequencyMax,
+			wantFreq: dbCenterMetricCollectionFrequencyMax,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			gotFreq := getMetricCollectionFrequency(tc.args)
+			gotFreq := getDbCenterMetricCollectionFrequency(tc.args)
 			if gotFreq != tc.wantFreq {
 				t.Errorf("getMetricCollectionFrequency(%v) = %v, want %v", tc.args, gotFreq, tc.wantFreq)
 			}

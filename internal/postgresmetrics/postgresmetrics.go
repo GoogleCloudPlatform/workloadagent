@@ -332,14 +332,43 @@ func (m *PostgresMetrics) exposedToPublicAccess(ctx context.Context) (bool, erro
 	return isExposed, nil
 }
 
-// CollectMetricsOnce collects metrics for Postgres databases running on the host.
-func (m *PostgresMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
+// CollectWlmMetricsOnce collects metrics for Postgres databases running on the host.
+func (m *PostgresMetrics) CollectWlmMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
 	workMemBytes, err := m.getWorkMem(ctx)
 	if err != nil {
 		log.CtxLogger(ctx).Warnf("Failed to get work mem: %w", err)
 		return nil, err
 	}
 	log.CtxLogger(ctx).Debugw("Finished collecting Postgres metrics once. Next step is to send to WLM (DW).", workMemKey, workMemBytes)
+
+	metrics := workloadmanager.WorkloadMetrics{
+		WorkloadType: workloadmanager.POSTGRES,
+		Metrics: map[string]string{
+			workMemKey: strconv.Itoa(workMemBytes),
+		},
+	}
+	if !dwActivated {
+		log.CtxLogger(ctx).Debugw("Data Warehouse is not activated, not sending metrics to Data Warehouse")
+		return &metrics, nil
+	}
+	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
+		WLMetrics:  metrics,
+		CloudProps: m.Config.GetCloudProperties(),
+		WLMService: m.WLMClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if res == nil {
+		log.CtxLogger(ctx).Warn("SendDataInsight did not return an error but the WriteInsight response is nil")
+		return &metrics, nil
+	}
+	log.CtxLogger(ctx).Debugw("WriteInsight response", "StatusCode", res.HTTPStatusCode)
+	return &metrics, nil
+}
+
+// CollectDBCenterMetricsOnce collects metrics for Postgres databases running on the host.
+func (m *PostgresMetrics) CollectDBCenterMetricsOnce(ctx context.Context) error {
 	majorVersion, minorVersion, err := m.version(ctx)
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if version send fails.
@@ -371,29 +400,5 @@ func (m *PostgresMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bo
 		log.CtxLogger(ctx).Info("Unable to send information to Database Center, please refer to documentation to make sure that all prerequisites are met")
 		log.CtxLogger(ctx).Debugf("Failed to send metadata to database center: %v", err)
 	}
-
-	metrics := workloadmanager.WorkloadMetrics{
-		WorkloadType: workloadmanager.POSTGRES,
-		Metrics: map[string]string{
-			workMemKey: strconv.Itoa(workMemBytes),
-		},
-	}
-	if !dwActivated {
-		log.CtxLogger(ctx).Debugw("Data Warehouse is not activated, not sending metrics to Data Warehouse")
-		return &metrics, nil
-	}
-	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
-		WLMetrics:  metrics,
-		CloudProps: m.Config.GetCloudProperties(),
-		WLMService: m.WLMClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if res == nil {
-		log.CtxLogger(ctx).Warn("SendDataInsight did not return an error but the WriteInsight response is nil")
-		return &metrics, nil
-	}
-	log.CtxLogger(ctx).Debugw("WriteInsight response", "StatusCode", res.HTTPStatusCode)
-	return &metrics, nil
+	return nil
 }
