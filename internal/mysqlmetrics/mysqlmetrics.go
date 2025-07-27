@@ -68,7 +68,8 @@ func (n netImpl) LookupAddr(ip string) ([]string, error) {
 	return net.LookupAddr(ip)
 }
 
-type gceInterface interface {
+// GceInterface defines an interface for the GCE client to allow faking.
+type GceInterface interface {
 	GetSecret(ctx context.Context, projectID, secretName string) (string, error)
 }
 
@@ -120,7 +121,7 @@ type engineResult struct {
 // If the password is set in the configuration, it is used directly (not recommended).
 // Otherwise, if the secret configuration is set, the secret is fetched from GCE.
 // Without either, the password is not set and requests to the MySQL database will fail.
-func (m *MySQLMetrics) password(ctx context.Context, gceService gceInterface) (secret.String, error) {
+func (m *MySQLMetrics) password(ctx context.Context, gceService GceInterface) (secret.String, error) {
 	pw := ""
 	if m.Config.GetMysqlConfiguration().GetConnectionParameters().GetPassword() != "" {
 		return secret.String(m.Config.GetMysqlConfiguration().GetConnectionParameters().GetPassword()), nil
@@ -145,7 +146,7 @@ func defaultConnect(ctx context.Context, dataSource string) (dbInterface, error)
 	return dbWrapper{db: d}, nil
 }
 
-func (m *MySQLMetrics) dbDSN(ctx context.Context, gceService gceInterface) (string, error) {
+func (m *MySQLMetrics) dbDSN(ctx context.Context, gceService GceInterface) (string, error) {
 	pw, err := m.password(ctx, gceService)
 	if err != nil {
 		return "", fmt.Errorf("initializing password: %w", err)
@@ -171,7 +172,7 @@ func New(ctx context.Context, config *configpb.Configuration, wlmClient workload
 }
 
 // InitDB initializes the MySQL database connection.
-func (m *MySQLMetrics) InitDB(ctx context.Context, gceService gceInterface) error {
+func (m *MySQLMetrics) InitDB(ctx context.Context, gceService GceInterface) error {
 	dbDSN, err := m.dbDSN(ctx, gceService)
 	if err != nil {
 		return fmt.Errorf("getting dbDSN: %w", err)
@@ -606,7 +607,7 @@ func (m *MySQLMetrics) auditingEnabled(ctx context.Context) (bool, error) {
 }
 
 // CollectMetricsOnce collects metrics for MySQL databases running on the host.
-func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
+func (m *MySQLMetrics) CollectWlmMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
 	bufferPoolSize, err := m.bufferPoolSize(ctx)
 	if err != nil {
 		log.CtxLogger(ctx).Warnf("Failed to get buffer pool size: %v", err)
@@ -632,6 +633,38 @@ func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool)
 		currentRoleKey, currentRole,
 		replicationZonesKey, strings.Join(replicationZones, ","),
 	)
+	metrics := workloadmanager.WorkloadMetrics{
+		WorkloadType: workloadmanager.MYSQL,
+		Metrics: map[string]string{
+			bufferPoolKey:       strconv.FormatInt(bufferPoolSize, 10),
+			totalRAMKey:         strconv.Itoa(totalRAM),
+			innoDBKey:           strconv.FormatBool(isInnoDBDefault),
+			currentRoleKey:      currentRole,
+			replicationZonesKey: strings.Join(replicationZones, ","),
+		},
+	}
+	if !dwActivated {
+		log.CtxLogger(ctx).Debugw("Data Warehouse is not activated, not sending metrics to Data Warehouse")
+		return &metrics, nil
+	}
+	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
+		WLMetrics:  metrics,
+		CloudProps: m.Config.GetCloudProperties(),
+		WLMService: m.WLMClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if res == nil {
+		log.CtxLogger(ctx).Warn("SendDataInsight did not return an error but the WriteInsight response is nil")
+		return &metrics, nil
+	}
+	log.CtxLogger(ctx).Debugw("WriteInsight response", "StatusCode", res.HTTPStatusCode)
+	return &metrics, nil
+}
+
+// CollectDBCenterMetricsOnce collects metrics to send to Database Center for MySQL databases running on the host.
+func (m *MySQLMetrics) CollectDBCenterMetricsOnce(ctx context.Context) error {
 	// Get major and minor version of MySQL
 	majorVersion, minorVersion, err := m.version(ctx)
 	if err != nil {
@@ -671,33 +704,5 @@ func (m *MySQLMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool)
 		log.CtxLogger(ctx).Info("Unable to send information to Database Center, please refer to documentation to make sure that all prerequisites are met")
 		log.CtxLogger(ctx).Debugf("Failed to send metadata to database center: %v", err)
 	}
-
-	metrics := workloadmanager.WorkloadMetrics{
-		WorkloadType: workloadmanager.MYSQL,
-		Metrics: map[string]string{
-			bufferPoolKey:       strconv.FormatInt(bufferPoolSize, 10),
-			totalRAMKey:         strconv.Itoa(totalRAM),
-			innoDBKey:           strconv.FormatBool(isInnoDBDefault),
-			currentRoleKey:      currentRole,
-			replicationZonesKey: strings.Join(replicationZones, ","),
-		},
-	}
-	if !dwActivated {
-		log.CtxLogger(ctx).Debugw("Data Warehouse is not activated, not sending metrics to Data Warehouse")
-		return &metrics, nil
-	}
-	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
-		WLMetrics:  metrics,
-		CloudProps: m.Config.GetCloudProperties(),
-		WLMService: m.WLMClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if res == nil {
-		log.CtxLogger(ctx).Warn("SendDataInsight did not return an error but the WriteInsight response is nil")
-		return &metrics, nil
-	}
-	log.CtxLogger(ctx).Debugw("WriteInsight response", "StatusCode", res.HTTPStatusCode)
-	return &metrics, nil
+	return nil
 }

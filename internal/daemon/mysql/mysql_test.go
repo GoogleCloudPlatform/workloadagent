@@ -19,12 +19,18 @@ package mysql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
+	"github.com/jonboulle/clockwork"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/databasecenter"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/mysqlmetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce"
 
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	pb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
@@ -37,6 +43,50 @@ type processStub struct {
 	name     string
 	args     []string
 	environ  []string
+}
+
+// fakeMetrics is a test double for MySQLMetricsInterface.
+type fakeMetrics struct {
+	InitDBCalled chan bool
+	InitDBErr    error
+
+	CollectWlmCalled chan bool
+	CollectWlmErr    error
+
+	CollectDBCenterCalled chan bool
+	CollectDBCenterErr    error
+}
+
+func newFakeMetrics() *fakeMetrics {
+	return &fakeMetrics{
+		InitDBCalled:          make(chan bool, 1),
+		CollectWlmCalled:      make(chan bool, 5),
+		CollectDBCenterCalled: make(chan bool, 5),
+	}
+}
+
+func (f *fakeMetrics) InitDB(ctx context.Context, gceService mysqlmetrics.GceInterface) error {
+	select {
+	case f.InitDBCalled <- true:
+	default:
+	}
+	return f.InitDBErr
+}
+
+func (f *fakeMetrics) CollectWlmMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
+	select {
+	case f.CollectWlmCalled <- true:
+	default:
+	}
+	return nil, f.CollectWlmErr
+}
+
+func (f *fakeMetrics) CollectDBCenterMetricsOnce(ctx context.Context) error {
+	select {
+	case f.CollectDBCenterCalled <- true:
+	default:
+	}
+	return f.CollectDBCenterErr
 }
 
 // Username returns the username of the process.
@@ -353,63 +403,88 @@ func TestExpectedMinDuration(t *testing.T) {
 	}
 }
 
-func TestRunMetricCollection_ContextCancelled(t *testing.T) {
+func TestRunWlmMetricCollection_ContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	runMetricCollection(ctx, runMetricCollectionArgs{s: &Service{}})
+	runWlmMetricCollection(ctx, runWlmMetricCollectionArgs{s: &Service{}})
 }
 
-func TestRunMetricCollection_InvalidArgs(t *testing.T) {
+func TestRunWlmMetricCollection_InvalidArgs(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	runMetricCollection(ctx, "invalid args")
+	runWlmMetricCollection(ctx, "invalid args")
 }
 
-func TestGetMetricCollectionFrequency(t *testing.T) {
+func TestRunDBCenterMetricCollection_ContextCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	runDBCenterMetricCollection(ctx, runDBCenterMetricCollectionArgs{s: &Service{}})
+}
+
+func TestRunDBCenterMetricCollection_InvalidArgs(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runDBCenterMetricCollection(ctx, "invalid args")
+}
+
+func TestGetDbcenterMetricCollectionFrequency(t *testing.T) {
 	tests := []struct {
 		name     string
-		args     runMetricCollectionArgs
+		args     runDBCenterMetricCollectionArgs
 		wantFreq time.Duration
 	}{
 		{
 			name:     "nil_service",
-			args:     runMetricCollectionArgs{},
-			wantFreq: metricCollectionFrequencyDefault,
+			args:     runDBCenterMetricCollectionArgs{},
+			wantFreq: dbCenterMetricCollectionFrequencyDefault,
 		},
 		{
 			name: "nil_config",
-			args: runMetricCollectionArgs{
+			args: runDBCenterMetricCollectionArgs{
 				s: &Service{},
 			},
-			wantFreq: metricCollectionFrequencyDefault,
+			wantFreq: dbCenterMetricCollectionFrequencyDefault,
 		},
 		{
 			name: "config_with_nil_mysql_config",
-			args: runMetricCollectionArgs{
+			args: runDBCenterMetricCollectionArgs{
 				s: &Service{
 					Config: &pb.Configuration{},
 				},
 			},
-			wantFreq: metricCollectionFrequencyDefault,
+			wantFreq: dbCenterMetricCollectionFrequencyDefault,
 		},
 		{
-			name: "config_with_nil_collection_frequency",
-			args: runMetricCollectionArgs{
+			name: "config_with_nil_collection_config",
+			args: runDBCenterMetricCollectionArgs{
 				s: &Service{
 					Config: &pb.Configuration{
 						MysqlConfiguration: &pb.MySQLConfiguration{},
 					},
 				},
 			},
-			wantFreq: metricCollectionFrequencyDefault,
+			wantFreq: dbCenterMetricCollectionFrequencyDefault,
 		},
 		{
-			name: "config_with_valid_collection_frequency",
-			args: runMetricCollectionArgs{
+			name: "config_with_nil_dbcenter_collection_frequency",
+			args: runDBCenterMetricCollectionArgs{
 				s: &Service{
 					Config: &pb.Configuration{
 						MysqlConfiguration: &pb.MySQLConfiguration{
-							CollectionFrequency: durationpb.New(30 * time.Minute),
+							DbcenterCollectionFrequency: nil,
+						},
+					},
+				},
+			},
+			wantFreq: dbCenterMetricCollectionFrequencyDefault,
+		},
+		{
+			name: "config_with_valid_dbcenter_collection_frequency",
+			args: runDBCenterMetricCollectionArgs{
+				s: &Service{
+					Config: &pb.Configuration{
+						MysqlConfiguration: &pb.MySQLConfiguration{
+							DbcenterCollectionFrequency: durationpb.New(30 * time.Minute),
 						},
 					},
 				},
@@ -417,39 +492,255 @@ func TestGetMetricCollectionFrequency(t *testing.T) {
 			wantFreq: 30 * time.Minute,
 		},
 		{
-			name: "config_with_very_small_collection_frequency",
-			args: runMetricCollectionArgs{
+			name: "config_with_very_small_dbcenter_collection_frequency",
+			args: runDBCenterMetricCollectionArgs{
 				s: &Service{
 					Config: &pb.Configuration{
 						MysqlConfiguration: &pb.MySQLConfiguration{
-							CollectionFrequency: durationpb.New(1 * time.Second),
+							DbcenterCollectionFrequency: durationpb.New(1 * time.Second),
 						},
 					},
 				},
 			},
-			wantFreq: metricCollectionFrequencyMin,
+			wantFreq: dbCenterMetricCollectionFrequencyMin,
 		},
 		{
-			name: "config_with_very_large_collection_frequency",
-			args: runMetricCollectionArgs{
+			name: "config_with_very_large_dbcenter_collection_frequency",
+			args: runDBCenterMetricCollectionArgs{
 				s: &Service{
 					Config: &pb.Configuration{
 						MysqlConfiguration: &pb.MySQLConfiguration{
-							CollectionFrequency: durationpb.New(6*time.Hour + 1*time.Second),
+							DbcenterCollectionFrequency: durationpb.New(6*time.Hour + 1*time.Minute),
 						},
 					},
 				},
 			},
-			wantFreq: metricCollectionFrequencyMax,
+			wantFreq: dbCenterMetricCollectionFrequencyMax,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			gotFreq := getMetricCollectionFrequency(tc.args)
+			gotFreq := getDbCenterMetricCollectionFrequency(tc.args)
 			if gotFreq != tc.wantFreq {
-				t.Errorf("getMetricCollectionFrequency(%v) = %v, want %v", tc.args, gotFreq, tc.wantFreq)
+				t.Errorf("getDbCenterMetricCollectionFrequency(%v) = %v, want %v", tc.args, gotFreq, tc.wantFreq)
 			}
 		})
+	}
+}
+
+func TestRunDBCenterMetricCollection_Success(t *testing.T) {
+	// Save original functions
+	origNewTicker := newTicker
+	origNewMySQLMetrics := newMySQLMetrics
+	origNewGCEClient := newGCEClient
+
+	// Defer restoration
+	defer func() {
+		newTicker = origNewTicker
+		newMySQLMetrics = origNewMySQLMetrics
+		newGCEClient = origNewGCEClient
+	}()
+
+	fakeClock := clockwork.NewFakeClock()
+	// Stub functions
+	newTicker = func(d time.Duration) *time.Ticker {
+		if d != dbCenterMetricCollectionFrequencyDefault {
+			t.Errorf("NewTicker called with wrong duration: got %v, want %v", d, dbCenterMetricCollectionFrequencyDefault)
+		}
+		return &time.Ticker{C: fakeClock.NewTicker(d).Chan()}
+	}
+
+	mockMetrics := newFakeMetrics()
+	newMySQLMetrics = func(ctx context.Context, config *pb.Configuration, wlmClient workloadmanager.WLMWriter, dbcenterClient databasecenter.Client) MetricsInterface {
+		return mockMetrics
+	}
+	newGCEClient = func(ctx context.Context) (*gce.GCE, error) { return nil, nil }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	go runDBCenterMetricCollection(ctx, runDBCenterMetricCollectionArgs{s: &Service{Config: &pb.Configuration{}}})
+
+	// Wait for InitDB to be called
+	select {
+	case <-mockMetrics.InitDBCalled:
+	case <-ctx.Done():
+		t.Fatalf("runDBCenterMetricCollection: InitDB not called within timeout: %v", ctx.Err())
+	}
+
+	// First tick
+	fakeClock.Advance(dbCenterMetricCollectionFrequencyDefault + 1*time.Second)
+	select {
+	case <-mockMetrics.CollectDBCenterCalled:
+	case <-ctx.Done():
+		t.Fatalf("runDBCenterMetricCollection: CollectDBCenterMetricsOnce not called after first tick: %v", ctx.Err())
+	}
+
+	// Second tick
+	fakeClock.Advance(dbCenterMetricCollectionFrequencyDefault + 1*time.Second)
+	select {
+	case <-mockMetrics.CollectDBCenterCalled:
+	case <-ctx.Done():
+		t.Fatalf("runDBCenterMetricCollection: CollectDBCenterMetricsOnce not called after second tick: %v", ctx.Err())
+	}
+}
+
+func TestRunDBCenterMetricCollection_InitDBError(t *testing.T) {
+    // Save original functions
+    origNewTicker := newTicker
+    origNewMySQLMetrics := newMySQLMetrics
+    origNewGCEClient := newGCEClient
+
+    // Defer restoration
+    defer func() {
+        newTicker = origNewTicker
+        newMySQLMetrics = origNewMySQLMetrics
+        newGCEClient = origNewGCEClient
+    }()
+    fakeClock := clockwork.NewFakeClock()
+    // Stub functions
+    newTicker = func(d time.Duration) *time.Ticker {
+        return &time.Ticker{C: fakeClock.NewTicker(d).Chan()}
+    }
+
+    mockMetrics := newFakeMetrics()
+    mockMetrics.InitDBErr = errors.New("InitDB error")
+    newMySQLMetrics = func(ctx context.Context, config *pb.Configuration, wlmClient workloadmanager.WLMWriter, dbcenterClient databasecenter.Client) MetricsInterface {
+        return mockMetrics
+    }
+    newGCEClient = func(ctx context.Context) (*gce.GCE, error) { return nil, nil }
+
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    done := make(chan struct{})
+    go func() {
+        runDBCenterMetricCollection(ctx, runDBCenterMetricCollectionArgs{s: &Service{Config: &pb.Configuration{}}})
+        close(done)
+    }()
+
+    // Wait for InitDB to be called
+    select {
+    case <-mockMetrics.InitDBCalled:
+    case <-ctx.Done():
+        t.Fatalf("runDBCenterMetricCollection: InitDB not called within timeout: %v", ctx.Err())
+    }
+    // Advance the clock to make sure that CollectDBCenterMetricsOnce is never called.
+    fakeClock.Advance(dbCenterMetricCollectionFrequencyDefault + 1*time.Second)
+    select {
+    case <-mockMetrics.CollectDBCenterCalled:
+        t.Fatalf("runDBCenterMetricCollection: CollectDBCenterMetricsOnce should not be called if InitDB fails")
+    case <-time.After(100 * time.Millisecond):
+        // This is the expected case, CollectDBCenterMetricsOnce should not be called.
+    }
+}
+
+// TestRunWlmMetricCollection_Success tests the happy path where metrics are collected periodically.
+func TestRunWlmMetricCollection_Success(t *testing.T) {
+	// Save original functions
+	origNewTicker := newTicker // Save the function value
+	origNewMySQLMetrics := newMySQLMetrics
+	origNewGCEClient := newGCEClient
+
+	// Defer restoration
+	defer func() {
+		newTicker = origNewTicker
+		newMySQLMetrics = origNewMySQLMetrics
+		newGCEClient = origNewGCEClient
+	}()
+
+	fakeClock := clockwork.NewFakeClock()
+	// Stub functions
+	newTicker = func(d time.Duration) *time.Ticker {
+		if d != wlmMetricCollectionFrequencyDefault {
+			t.Errorf("NewTicker called with wrong duration: got %v, want %v", d, wlmMetricCollectionFrequencyDefault)
+		}
+		return &time.Ticker{C: fakeClock.NewTicker(d).Chan()}
+	}
+
+	mockMetrics := newFakeMetrics()
+	newMySQLMetrics = func(ctx context.Context, config *pb.Configuration, wlmClient workloadmanager.WLMWriter, dbcenterClient databasecenter.Client) MetricsInterface {
+		return mockMetrics
+	}
+	newGCEClient = func(ctx context.Context) (*gce.GCE, error) { return nil, nil }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	go runWlmMetricCollection(ctx, runWlmMetricCollectionArgs{s: &Service{Config: &pb.Configuration{}}})
+
+	// Wait for InitDB to be called
+	select {
+	case <-mockMetrics.InitDBCalled:
+	case <-ctx.Done():
+		t.Fatalf("runWlmMetricCollection: InitDB not called within timeout: %v", ctx.Err())
+	}
+
+	// First tick
+	fakeClock.Advance(wlmMetricCollectionFrequencyDefault + 1*time.Second)
+	select {
+	case <-mockMetrics.CollectWlmCalled:
+	case <-ctx.Done():
+		t.Fatalf("runWlmMetricCollection: CollectWlmMetricsOnce not called after first tick: %v", ctx.Err())
+	}
+
+	// Second tick
+	fakeClock.Advance(wlmMetricCollectionFrequencyDefault + 1*time.Second)
+	select {
+	case <-mockMetrics.CollectWlmCalled:
+	case <-ctx.Done():
+		t.Fatalf("runWlmMetricCollection: CollectWlmMetricsOnce not called after second tick: %v", ctx.Err())
+	}
+}
+
+func TestRunWlmMetricCollection_InitDBError(t *testing.T) {
+	// Save original functions
+	origNewTicker := newTicker
+	origNewMySQLMetrics := newMySQLMetrics
+	origNewGCEClient := newGCEClient
+
+	// Defer restoration
+	defer func() {
+		newTicker = origNewTicker
+		newMySQLMetrics = origNewMySQLMetrics
+		newGCEClient = origNewGCEClient
+	}()
+
+	fakeClock := clockwork.NewFakeClock()
+	// Stub functions
+	newTicker = func(d time.Duration) *time.Ticker {
+		return &time.Ticker{C: fakeClock.NewTicker(d).Chan()}
+	}
+
+	mockMetrics := newFakeMetrics()
+	mockMetrics.InitDBErr = errors.New("InitDB error")
+	newMySQLMetrics = func(ctx context.Context, config *pb.Configuration, wlmClient workloadmanager.WLMWriter, dbcenterClient databasecenter.Client) MetricsInterface {
+		return mockMetrics
+	}
+	newGCEClient = func(ctx context.Context) (*gce.GCE, error) { return nil, nil }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		runWlmMetricCollection(ctx, runWlmMetricCollectionArgs{s: &Service{Config: &pb.Configuration{}}})
+		close(done)
+	}()
+
+	// Wait for InitDB to be called
+	select {
+	case <-mockMetrics.InitDBCalled:
+	case <-ctx.Done():
+		t.Fatalf("runWlmMetricCollection: InitDB not called within timeout: %v", ctx.Err())
+	}
+	// Advance the clock to make sure that CollectWlmMetricsOnce is never called.
+	fakeClock.Advance(wlmMetricCollectionFrequencyDefault + 1*time.Second)
+	select {
+	case <-mockMetrics.CollectWlmCalled:
+		t.Fatalf("runWlmMetricCollection: CollectWlmMetricsOnce should not be called if InitDB fails")
+	case <-time.After(100 * time.Millisecond):
+		// This is the expected case, CollectWlmMetricsOnce should not be called.
 	}
 }

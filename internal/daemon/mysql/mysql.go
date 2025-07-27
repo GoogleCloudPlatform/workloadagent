@@ -36,11 +36,27 @@ import (
 )
 
 const (
-	discoveryFrequency               = 10 * time.Minute
-	metricCollectionFrequencyMin     = 10 * time.Minute
-	metricCollectionFrequencyMax     = 6 * time.Hour
-	metricCollectionFrequencyDefault = 1 * time.Hour
+	discoveryFrequency                       = 10 * time.Minute
+	wlmMetricCollectionFrequencyDefault      = 5 * time.Minute
+	dbCenterMetricCollectionFrequencyMin     = 10 * time.Minute
+	dbCenterMetricCollectionFrequencyMax     = 6 * time.Hour
+	dbCenterMetricCollectionFrequencyDefault = 1 * time.Hour
 )
+
+var (
+	newGCEClient    = gce.NewGCEClient
+	newMySQLMetrics = func(ctx context.Context, config *configpb.Configuration, wlmClient workloadmanager.WLMWriter, dbcenterClient databasecenter.Client) MetricsInterface {
+		return mysqlmetrics.New(ctx, config, wlmClient, dbcenterClient)
+	}
+	newTicker = time.NewTicker
+)
+
+// MetricsInterface defines an interface for mysqlmetrics.MySQLMetrics to allow faking
+type MetricsInterface interface {
+	InitDB(ctx context.Context, gceService mysqlmetrics.GceInterface) error
+	CollectWlmMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error)
+	CollectDBCenterMetricsOnce(ctx context.Context) error
+}
 
 // Service implements the interfaces for MySQL workload agent service.
 type Service struct {
@@ -58,7 +74,11 @@ type runDiscoveryArgs struct {
 	s *Service
 }
 
-type runMetricCollectionArgs struct {
+type runWlmMetricCollectionArgs struct {
+	s *Service
+}
+
+type runDBCenterMetricCollectionArgs struct {
 	s *Service
 }
 
@@ -104,16 +124,27 @@ EnableCheck:
 	}
 	discoveryRoutine.StartRoutine(dCtx)
 
-	// Start MySQL Metric Collection
-	mcCtx := log.SetCtx(ctx, "context", "MySQLMetricCollection")
-	metricCollectionRoutine := &recovery.RecoverableRoutine{
-		Routine:             runMetricCollection,
-		RoutineArg:          runMetricCollectionArgs{s},
+	// Start MySQL Wlm Metric Collection
+	mcCtx := log.SetCtx(ctx, "context", "MySQLWlmMetricCollection")
+	wlmMetricCollectionRoutine := &recovery.RecoverableRoutine{
+		Routine:             runWlmMetricCollection,
+		RoutineArg:          runWlmMetricCollectionArgs{s},
 		ErrorCode:           usagemetrics.MySQLMetricCollectionFailure,
 		UsageLogger:         *usagemetrics.UsageLogger,
 		ExpectedMinDuration: 20 * time.Second,
 	}
-	metricCollectionRoutine.StartRoutine(mcCtx)
+	wlmMetricCollectionRoutine.StartRoutine(mcCtx)
+
+	// Start MySQL DB Center Metric Collection
+	dbcenterMCCtx := log.SetCtx(ctx, "context", "MySQLDBCenterMetricCollection")
+	dbcenterMetricCollectionRoutine := &recovery.RecoverableRoutine{
+		Routine:             runDBCenterMetricCollection,
+		RoutineArg:          runDBCenterMetricCollectionArgs{s},
+		ErrorCode:           usagemetrics.MySQLMetricCollectionFailure,
+		UsageLogger:         *usagemetrics.UsageLogger,
+		ExpectedMinDuration: 20 * time.Second,
+	}
+	dbcenterMetricCollectionRoutine.StartRoutine(dbcenterMCCtx)
 	select {
 	case <-ctx.Done():
 		log.CtxLogger(ctx).Info("MySQL workload agent service cancellation requested")
@@ -143,52 +174,89 @@ func runDiscovery(ctx context.Context, a any) {
 	}
 }
 
-func getMetricCollectionFrequency(args runMetricCollectionArgs) time.Duration {
+func getDbCenterMetricCollectionFrequency(args runDBCenterMetricCollectionArgs) time.Duration {
+	metricCollectionFrequencyDefault := dbCenterMetricCollectionFrequencyDefault
 	if args.s == nil || args.s.Config == nil {
 		return metricCollectionFrequencyDefault
 	}
 	config := args.s.Config.GetMysqlConfiguration()
-	if config == nil || config.CollectionFrequency == nil {
-		return metricCollectionFrequencyDefault
+	if config == nil || config.DbcenterCollectionFrequency == nil {
+		return dbCenterMetricCollectionFrequencyDefault
 	}
-	freq := config.GetCollectionFrequency().AsDuration()
-	if freq < metricCollectionFrequencyMin {
-		return metricCollectionFrequencyMin
+	freq := config.DbcenterCollectionFrequency.AsDuration()
+	if freq < dbCenterMetricCollectionFrequencyMin {
+		return dbCenterMetricCollectionFrequencyMin
 	}
-	if freq > metricCollectionFrequencyMax {
-		return metricCollectionFrequencyMax
+	if freq > dbCenterMetricCollectionFrequencyMax {
+		return dbCenterMetricCollectionFrequencyMax
 	}
 	return freq
 }
 
-func runMetricCollection(ctx context.Context, a any) {
-	log.CtxLogger(ctx).Info("Starting MySQL Metric Collection")
-	var args runMetricCollectionArgs
+func runDBCenterMetricCollection(ctx context.Context, a any) {
+	log.CtxLogger(ctx).Info("Starting MySQL DB Center Metric Collection")
+	var args runDBCenterMetricCollectionArgs
 	var ok bool
-	if args, ok = a.(runMetricCollectionArgs); !ok {
-		log.CtxLogger(ctx).Errorw("failed to parse metric collection args", "args", a)
+	if args, ok = a.(runDBCenterMetricCollectionArgs); !ok {
+		log.CtxLogger(ctx).Errorw("failed to parse dbcenter metric collection args", "args", a)
 		return
 	}
-	log.CtxLogger(ctx).Debugw("MySQL metric collection args", "args", args)
-
-	// Get the metric collection frequency from the configuration.
-	metricCollectionFrequency := getMetricCollectionFrequency(args)
-	ticker := time.NewTicker(metricCollectionFrequency)
+	log.CtxLogger(ctx).Debugw("MySQL dbcenter metric collection args", "args", args)
+	ticker := newTicker(getDbCenterMetricCollectionFrequency(args))
 	defer ticker.Stop()
-	gceService, err := gce.NewGCEClient(ctx)
+	gceService, err := newGCEClient(ctx)
 	if err != nil {
 		usagemetrics.Error(usagemetrics.GCEServiceCreationFailure)
 		log.CtxLogger(ctx).Errorf("initializing GCE services: %w", err)
 		return
 	}
-	m := mysqlmetrics.New(ctx, args.s.Config, args.s.WLMClient, args.s.DBcenterClient)
+	m := newMySQLMetrics(ctx, args.s.Config, args.s.WLMClient, args.s.DBcenterClient)
 	err = m.InitDB(ctx, gceService)
 	if err != nil {
 		log.CtxLogger(ctx).Errorf("failed to initialize MySQL DB: %v", err)
 		return
 	}
 	for {
-		_, err := m.CollectMetricsOnce(ctx, args.s.dwActivated)
+		err := m.CollectDBCenterMetricsOnce(ctx)
+		if err != nil {
+			log.CtxLogger(ctx).Debugf("failed to collect MySQL metrics: %v", err)
+		}
+		select {
+		case <-ctx.Done():
+			log.CtxLogger(ctx).Info("MySQL metric collection cancellation requested")
+			return
+		case <-ticker.C:
+			continue
+		}
+	}
+}
+
+func runWlmMetricCollection(ctx context.Context, a any) {
+	log.CtxLogger(ctx).Info("Starting MySQL Metric Collection")
+	var args runWlmMetricCollectionArgs
+	var ok bool
+	if args, ok = a.(runWlmMetricCollectionArgs); !ok {
+		log.CtxLogger(ctx).Errorw("failed to parse metric collection args", "args", a)
+		return
+	}
+	log.CtxLogger(ctx).Debugw("MySQL metric collection args", "args", args)
+
+	ticker := newTicker(wlmMetricCollectionFrequencyDefault)
+	defer ticker.Stop()
+	gceService, err := newGCEClient(ctx)
+	if err != nil {
+		usagemetrics.Error(usagemetrics.GCEServiceCreationFailure)
+		log.CtxLogger(ctx).Errorf("initializing GCE services: %w", err)
+		return
+	}
+	m := newMySQLMetrics(ctx, args.s.Config, args.s.WLMClient, args.s.DBcenterClient)
+	err = m.InitDB(ctx, gceService)
+	if err != nil {
+		log.CtxLogger(ctx).Errorf("failed to initialize MySQL DB: %v", err)
+		return
+	}
+	for {
+		_, err := m.CollectWlmMetricsOnce(ctx, args.s.dwActivated)
 		if err != nil {
 			log.CtxLogger(ctx).Debugf("failed to collect MySQL metrics: %v", err)
 		}

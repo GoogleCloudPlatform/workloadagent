@@ -919,7 +919,7 @@ func TestDbDSN(t *testing.T) {
 	tests := []struct {
 		name       string
 		m          MySQLMetrics
-		gceService gceInterface
+		gceService GceInterface
 		want       string
 		wantErr    bool
 	}{
@@ -997,7 +997,7 @@ func TestInitDB(t *testing.T) {
 	tests := []struct {
 		name       string
 		m          MySQLMetrics
-		gceService gceInterface
+		gceService GceInterface
 		wantErr    bool
 	}{
 		{
@@ -1088,7 +1088,7 @@ func TestInitDB(t *testing.T) {
 	}
 }
 
-func TestCollectMetricsOnce(t *testing.T) {
+func TestCollectWlmMetricsOnce(t *testing.T) {
 	tests := []struct {
 		name        string
 		m           MySQLMetrics
@@ -1117,18 +1117,6 @@ func TestCollectMetricsOnce(t *testing.T) {
 					engineErr:      nil,
 					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
 					bufferPoolErr:  nil,
-					versionRows:    &versionRows{size: 1, data: []string{"8.0.35"}},
-					// Mock for CheckRootPasswordNotSet
-					mysqlUserRows: &mysqlUserMockRows{
-						size: 1,
-						data: [][]any{{"root", "localhost", "caching_sha2_password", sql.NullString{String: "hash", Valid: true}}},
-					},
-					// Mock for CheckBroadAccess
-					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
-					// Mock for CheckUnencryptedConnections
-					requireSecureTransportRows: &globalVarMockRows{size: 0},
-					// Mock for CheckAuditingDisabled
-					auditLogPluginRows: &pluginStatusMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1175,18 +1163,6 @@ func TestCollectMetricsOnce(t *testing.T) {
 					engineErr:      nil,
 					bufferPoolRows: nil,
 					bufferPoolErr:  errors.New("test-error"),
-					versionRows:    &versionRows{size: 1, data: []string{"8.0.35"}},
-					// Mock for CheckRootPasswordNotSet - secure
-					mysqlUserRows: &mysqlUserMockRows{
-						size: 1,
-						data: [][]any{{"root", "localhost", "caching_sha2_password", sql.NullString{String: "hash", Valid: true}}},
-					},
-					// Mock for CheckBroadAccess - secure
-					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
-					// Mock for CheckUnencryptedConnections - secure
-					requireSecureTransportRows: &globalVarMockRows{size: 0},
-					// Mock for CheckAuditingDisabled
-					auditLogPluginRows: &pluginStatusMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1232,18 +1208,6 @@ func TestCollectMetricsOnce(t *testing.T) {
 					engineErr:      nil,
 					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
 					bufferPoolErr:  nil,
-					versionRows:    &versionRows{size: 1, data: []string{"8.0.35"}},
-					// Mock for CheckRootPasswordNotSet - secure
-					mysqlUserRows: &mysqlUserMockRows{
-						size: 1,
-						data: [][]any{{"root", "localhost", "caching_sha2_password", sql.NullString{String: "hash", Valid: true}}},
-					},
-					// Mock for CheckBroadAccess - secure
-					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
-					// Mock for CheckUnencryptedConnections - secure
-					requireSecureTransportRows: &globalVarMockRows{size: 0},
-					// Mock for CheckAuditingDisabled
-					auditLogPluginRows: &pluginStatusMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1278,18 +1242,6 @@ func TestCollectMetricsOnce(t *testing.T) {
 					engineErr:      errors.New("test-error"),
 					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
 					bufferPoolErr:  nil,
-					versionRows:    &versionRows{size: 1, data: []string{"8.0.35"}},
-					// Mock for CheckRootPasswordNotSet - secure
-					mysqlUserRows: &mysqlUserMockRows{
-						size: 1,
-						data: [][]any{{"root", "localhost", "caching_sha2_password", sql.NullString{String: "hash", Valid: true}}},
-					},
-					// Mock for CheckBroadAccess - secure
-					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
-					// Mock for CheckUnencryptedConnections - secure
-					requireSecureTransportRows: &globalVarMockRows{size: 0},
-					// Mock for CheckAuditingDisabled
-					auditLogPluginRows: &pluginStatusMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1334,18 +1286,6 @@ func TestCollectMetricsOnce(t *testing.T) {
 					engineErr:      nil,
 					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
 					bufferPoolErr:  nil,
-					versionRows:    &versionRows{size: 1, data: []string{"8.0.35"}},
-					// Mock for CheckRootPasswordNotSet - secure
-					mysqlUserRows: &mysqlUserMockRows{
-						size: 1,
-						data: [][]any{{"root", "localhost", "caching_sha2_password", sql.NullString{String: "hash", Valid: true}}},
-					},
-					// Mock for CheckBroadAccess - secure
-					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
-					// Mock for CheckUnencryptedConnections - secure
-					requireSecureTransportRows: &globalVarMockRows{size: 0},
-					// Mock for CheckAuditingDisabled
-					auditLogPluginRows: &pluginStatusMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1392,18 +1332,6 @@ func TestCollectMetricsOnce(t *testing.T) {
 					engineErr:      nil,
 					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
 					bufferPoolErr:  nil,
-					versionRows:    &versionRows{size: 1, data: []string{"8.0.35"}},
-					// Mock for CheckRootPasswordNotSet - secure
-					mysqlUserRows: &mysqlUserMockRows{
-						size: 1,
-						data: [][]any{{"root", "localhost", "caching_sha2_password", sql.NullString{String: "hash", Valid: true}}},
-					},
-					// Mock for CheckBroadAccess - secure
-					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
-					// Mock for CheckUnencryptedConnections - secure
-					requireSecureTransportRows: &globalVarMockRows{size: 0},
-					// Mock for CheckAuditingDisabled
-					auditLogPluginRows: &pluginStatusMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1433,15 +1361,15 @@ func TestCollectMetricsOnce(t *testing.T) {
 	ctx := context.Background()
 
 	for _, tc := range tests {
-		gotMetrics, err := tc.m.CollectMetricsOnce(ctx, true)
+		gotMetrics, err := tc.m.CollectWlmMetricsOnce(ctx, true)
 		if tc.wantErr {
 			if err == nil {
-				t.Errorf("CollectMetricsOnce(%v) returned no error, want error", tc.name)
+				t.Errorf("CollectWlmMetricsOnce(%v) returned no error, want error", tc.name)
 			}
 			continue
 		}
 		if diff := cmp.Diff(tc.wantMetrics, gotMetrics, protocmp.Transform()); diff != "" {
-			t.Errorf("CollectMetricsOnce(%v) returned diff (-want +got):\n%s", tc.name, diff)
+			t.Errorf("CollectWlmMetricsOnce(%v) returned diff (-want +got):\n%s", tc.name, diff)
 		}
 	}
 }
@@ -2348,24 +2276,154 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			// Set the mock dbcenter client in the MySQLMetrics object
 			tc.m.DBcenterClient = mockClient
 			// Call the function under test
-			metrics, err := tc.m.CollectMetricsOnce(ctx, true)
+			err := tc.m.CollectDBCenterMetricsOnce(ctx)
 
 			// Assertions
 			if err != nil && !tc.wantErr {
-				t.Errorf("CollectMetricsOnce returned an unexpected error: %v", err)
+				t.Errorf("CollectDBCenterMetricsOnce returned an unexpected error: %v", err)
 			}
 			if err == nil && tc.wantErr {
-				t.Errorf("CollectMetricsOnce did not return an expected error")
+				t.Errorf("CollectDBCenterMetricsOnce did not return an expected error")
 			}
 			if mockClient.sendMetadataCalled != tc.wantSendMetadataCall {
-				t.Errorf("CollectMetricsOnce: sendMetadataCalled = %v, want %v", mockClient.sendMetadataCalled, tc.wantSendMetadataCall)
-			}
-			if metrics == nil {
-				t.Errorf("CollectMetricsOnce returned nil metrics")
+				t.Errorf("CollectDBCenterMetricsOnce: sendMetadataCalled = %v, want %v", mockClient.sendMetadataCalled, tc.wantSendMetadataCall)
 			}
 			if tc.wantSendMetadataCall {
 				if diff := cmp.Diff(tc.wantDBcenterMetrics, mockClient.gotMetrics.Metrics); diff != "" {
-					t.Errorf("CollectMetricsOnce() DBcenterMetrics diff (-want +got):\n%s", diff)
+					t.Errorf("CollectDBCenterMetricsOnce() DBcenterMetrics diff (-want +got):\n%s", diff)
+				}
+			}
+		})
+	}
+}
+
+func TestCollectDBCenterMetricsOnce(t *testing.T) {
+	tests := []struct {
+		name                 string
+		m                    MySQLMetrics
+		sendMetadataErr      error
+		wantSendMetadataCall bool
+		wantDBcenterMetrics  map[string]string
+		wantErr              bool
+	}{
+		{
+			name: "Send metadata success - secure",
+			m: MySQLMetrics{
+				db: &testDB{
+					versionRows: &versionRows{size: 1, data: []string{"8.0.35"}},
+					// Mock for CheckRootPasswordNotSet - secure
+					mysqlUserRows: &mysqlUserMockRows{
+						size: 1,
+						data: [][]any{{"root", "localhost", "caching_sha2_password", sql.NullString{String: "hash", Valid: true}}},
+					},
+					// Mock for CheckBroadAccess - secure
+					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
+					// Mock for CheckUnencryptedConnectionsAllowed - secure
+					requireSecureTransportRows: &globalVarMockRows{
+						size: 1,
+						data: [][]string{{"require_secure_transport", "ON"}},
+					},
+					// Mock for CheckAuditingDisabled - secure
+					auditLogPluginRows: &pluginStatusMockRows{size: 1, data: [][]string{{"ACTIVE"}}},
+				},
+				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{
+						StdOut: "MemTotal:        4025040 kB\n",
+					}
+				},
+				WLMClient: &gcefake.TestWLM{
+					WriteInsightErrs: []error{nil},
+					WriteInsightResponses: []*wlm.WriteInsightResponse{
+						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
+					},
+				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
+			},
+			sendMetadataErr:      nil,
+			wantSendMetadataCall: true,
+			wantDBcenterMetrics: map[string]string{
+				databasecenter.MajorVersionKey:             "8.0",
+				databasecenter.MinorVersionKey:             "8.0.35",
+				databasecenter.NoRootPasswordKey:           "false",
+				databasecenter.ExposedToPublicAccessKey:    "false",
+				databasecenter.UnencryptedConnectionsKey:   "false",
+				databasecenter.DatabaseAuditingDisabledKey: "false",
+			},
+			wantErr: false,
+		},
+		{
+			name: "Send metadata failure, should not return error",
+			m: MySQLMetrics{
+				db: &testDB{
+					versionRows: &versionRows{size: 1, data: []string{"8.0.35"}},
+					// Mock for CheckRootPasswordNotSet - secure
+					mysqlUserRows: &mysqlUserMockRows{
+						size: 1,
+						data: [][]any{{"root", "localhost", "caching_sha2_password", sql.NullString{String: "hash", Valid: true}}},
+					},
+					// Mock for CheckBroadAccess - secure
+					exposedToPublicAccessRows: &exposedToPublicAccessMockRows{size: 0},
+					// Mock for CheckUnencryptedConnectionsAllowed - secure
+					requireSecureTransportRows: &globalVarMockRows{
+						size: 1,
+						data: [][]string{{"require_secure_transport", "ON"}},
+					},
+					// Mock for CheckAuditingDisabled - secure
+					auditLogPluginRows: &pluginStatusMockRows{size: 1, data: [][]string{{"ACTIVE"}}},
+				},
+				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{
+						StdOut: "MemTotal:        4025040 kB\n",
+					}
+				},
+				WLMClient: &gcefake.TestWLM{
+					WriteInsightErrs: []error{nil},
+					WriteInsightResponses: []*wlm.WriteInsightResponse{
+						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
+					},
+				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
+			},
+			sendMetadataErr:      fmt.Errorf("db center error"),
+			wantSendMetadataCall: true,
+			wantDBcenterMetrics: map[string]string{
+				"database_auditing_disabled": "false",
+				"exposed_to_public_access":   "false",
+				"major_version":              "8.0",
+				"minor_version":              "8.0.35",
+				"no_root_password":           "false",
+				"unencrypted_connections":    "false",
+			},
+			wantErr: false,
+		},
+	}
+
+	ctx := context.Background()
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mockClient := &MockDatabaseCenterClient{
+				sendMetadataCalled: false,
+				sendMetadataErr:    tc.sendMetadataErr,
+			}
+			// Set the mock dbcenter client in the MySQLMetrics object
+			tc.m.DBcenterClient = mockClient
+			// Call the function under test
+			err := tc.m.CollectDBCenterMetricsOnce(ctx)
+
+			// Assertions
+			if err != nil && !tc.wantErr {
+				t.Errorf("CollectDBCenterMetricsOnce returned an unexpected error: %v", err)
+			}
+			if err == nil && tc.wantErr {
+				t.Errorf("CollectDBCenterMetricsOnce did not return an expected error")
+			}
+			if mockClient.sendMetadataCalled != tc.wantSendMetadataCall {
+				t.Errorf("CollectDBCenterMetricsOnce: sendMetadataCalled = %v, want %v", mockClient.sendMetadataCalled, tc.wantSendMetadataCall)
+			}
+			if tc.wantSendMetadataCall {
+				if diff := cmp.Diff(tc.wantDBcenterMetrics, mockClient.gotMetrics.Metrics); diff != "" {
+					t.Errorf("CollectDBCenterMetricsOnce() DBcenterMetrics diff (-want +got):\n%s", diff)
 				}
 			}
 		})
