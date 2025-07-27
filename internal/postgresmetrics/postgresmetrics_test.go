@@ -202,7 +202,7 @@ func TestInitDB(t *testing.T) {
 	tests := []struct {
 		name       string
 		m          PostgresMetrics
-		gceService gceInterface
+		gceService GceInterface
 		wantErr    bool
 	}{
 		{
@@ -644,25 +644,19 @@ func TestExposedToPublicAccess_Postgres(t *testing.T) {
 	}
 }
 
-func TestCollectMetricsOnce(t *testing.T) {
+func TestCollectWlmMetricsOnce(t *testing.T) {
 	tests := []struct {
 		name        string
 		m           PostgresMetrics
 		wantMetrics *workloadmanager.WorkloadMetrics
-		wantVersion string
 		wantErr     bool
 	}{
 		{
 			name: "HappyPath",
 			m: PostgresMetrics{
 				db: &testDB{
-					workMemRows:    &workMemRows{count: 0, size: 1, data: "80MB", shouldErr: false},
-					workMemErr:     nil,
-					versionRows:    &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
-					versionErr:     nil,
-					pgauditLogRows: &genericMockRows{value: "all"},
-					sslRows:        &genericMockRows{value: "off"},
-					hbaRulesRows:   &hbaRulesRows{value: 1},
+					workMemRows: &workMemRows{count: 0, size: 1, data: "80MB", shouldErr: false},
+					workMemErr:  nil,
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -678,20 +672,14 @@ func TestCollectMetricsOnce(t *testing.T) {
 					workMemKey: strconv.Itoa(80 * 1024 * 1024),
 				},
 			},
-			wantVersion: "14.4",
-			wantErr:     false,
+			wantErr: false,
 		},
 		{
 			name: "HappyPathKB",
 			m: PostgresMetrics{
 				db: &testDB{
-					workMemRows:    &workMemRows{count: 0, size: 1, data: "64kB", shouldErr: false},
-					workMemErr:     nil,
-					versionRows:    &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
-					versionErr:     nil,
-					pgauditLogRows: &genericMockRows{value: "all"},
-					sslRows:        &genericMockRows{value: "off"},
-					hbaRulesRows:   &hbaRulesRows{value: 1},
+					workMemRows: &workMemRows{count: 0, size: 1, data: "64kB", shouldErr: false},
+					workMemErr:  nil,
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -707,20 +695,14 @@ func TestCollectMetricsOnce(t *testing.T) {
 					workMemKey: strconv.Itoa(64 * 1024),
 				},
 			},
-			wantVersion: "14.4",
-			wantErr:     false,
+			wantErr: false,
 		},
 		{
 			name: "HappyPathGB",
 			m: PostgresMetrics{
 				db: &testDB{
-					workMemRows:    &workMemRows{count: 0, size: 1, data: "4GB", shouldErr: false},
-					workMemErr:     nil,
-					versionRows:    &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
-					versionErr:     nil,
-					pgauditLogRows: &genericMockRows{value: "all"},
-					sslRows:        &genericMockRows{value: "off"},
-					hbaRulesRows:   &hbaRulesRows{value: 1},
+					workMemRows: &workMemRows{count: 0, size: 1, data: "4GB", shouldErr: false},
+					workMemErr:  nil,
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -736,19 +718,13 @@ func TestCollectMetricsOnce(t *testing.T) {
 					workMemKey: strconv.Itoa(4 * 1024 * 1024 * 1024),
 				},
 			},
-			wantVersion: "14.4",
-			wantErr:     false,
+			wantErr: false,
 		},
 		{
 			name: "GetWorkMemError",
 			m: PostgresMetrics{
 				db: &testDB{
-					workMemErr:     errors.New("test-error"),
-					versionRows:    &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
-					versionErr:     nil,
-					pgauditLogRows: &genericMockRows{value: "all"},
-					sslRows:        &genericMockRows{value: "off"},
-					hbaRulesRows:   &hbaRulesRows{value: 1},
+					workMemErr: errors.New("test-error"),
 				},
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
@@ -759,36 +735,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
 			},
 			wantMetrics: nil,
-			wantVersion: "14.4",
 			wantErr:     true,
-		},
-		{
-			name: "GetVersionError",
-			m: PostgresMetrics{
-				db: &testDB{
-					workMemRows:    &workMemRows{count: 0, size: 1, data: "64MB", shouldErr: false},
-					workMemErr:     nil,
-					versionErr:     errors.New("test-error"),
-					pgauditLogRows: &genericMockRows{value: "all"},
-					sslRows:        &genericMockRows{value: "off"},
-					hbaRulesRows:   &hbaRulesRows{value: 1},
-				},
-				WLMClient: &gcefake.TestWLM{
-					WriteInsightErrs: []error{nil},
-					WriteInsightResponses: []*wlm.WriteInsightResponse{
-						&wlm.WriteInsightResponse{ServerResponse: googleapi.ServerResponse{HTTPStatusCode: 201}},
-					},
-				},
-				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
-			},
-			wantMetrics: &workloadmanager.WorkloadMetrics{
-				WorkloadType: workloadmanager.POSTGRES,
-				Metrics: map[string]string{
-					workMemKey: strconv.Itoa(64 * 1024 * 1024),
-				},
-			},
-			wantVersion: "",
-			wantErr:     false,
 		},
 		{
 			name: "WLMClientError",
@@ -840,7 +787,7 @@ func TestCollectMetricsOnce(t *testing.T) {
 	ctx := context.Background()
 
 	for _, tc := range tests {
-		gotMetrics, err := tc.m.CollectMetricsOnce(ctx, true)
+		gotMetrics, err := tc.m.CollectWlmMetricsOnce(ctx, true)
 		if tc.wantErr {
 			if err == nil {
 				t.Errorf("CollectMetricsOnce(%v) returned no error, want error", tc.name)
@@ -901,8 +848,6 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			name: "Send metadata success",
 			m: PostgresMetrics{
 				db: &testDB{
-					workMemRows:    &workMemRows{count: 0, size: 1, data: "80MB", shouldErr: false},
-					workMemErr:     nil,
 					versionRows:    &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
 					versionErr:     nil,
 					pgauditLogRows: &genericMockRows{value: "all"},
@@ -932,8 +877,6 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			name: "Send metadata failure, should not return error",
 			m: PostgresMetrics{
 				db: &testDB{
-					workMemRows:    &workMemRows{count: 0, size: 1, data: "80MB", shouldErr: false},
-					workMemErr:     nil,
 					versionRows:    &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
 					versionErr:     nil,
 					pgauditLogRows: &genericMockRows{value: "none"},
@@ -970,7 +913,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			// Set the mock dbcenter client in the PostgresMetrics object
 			tc.m.DBcenterClient = mockClient
 			// Call the function under test
-			metrics, err := tc.m.CollectMetricsOnce(ctx, true)
+			err := tc.m.CollectDBCenterMetricsOnce(ctx)
 
 			// Assertions
 			if err != nil && !tc.wantErr {
@@ -981,9 +924,6 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			}
 			if mockClient.sendMetadataCalled != tc.wantSendMetadataCall {
 				t.Errorf("CollectMetricsOnce: sendMetadataCalled = %v, want %v", mockClient.sendMetadataCalled, tc.wantSendMetadataCall)
-			}
-			if metrics == nil {
-				t.Errorf("CollectMetricsOnce returned nil metrics")
 			}
 		})
 	}

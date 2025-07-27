@@ -42,7 +42,8 @@ const (
 	gigabyte   = 1024 * 1024 * 1024
 )
 
-type gceInterface interface {
+// GceInterface defines an interface for gce.GCEClient to allow faking
+type GceInterface interface {
 	GetSecret(ctx context.Context, projectID, secretName string) (string, error)
 }
 
@@ -84,7 +85,7 @@ type PostgresMetrics struct {
 // If the password is set in the configuration, it is used directly (not recommended).
 // Otherwise, if the secret configuration is set, the secret is fetched from GCE.
 // Without either, the password is not set and requests to the Postgres database will fail.
-func (m *PostgresMetrics) password(ctx context.Context, gceService gceInterface) (secret.String, error) {
+func (m *PostgresMetrics) password(ctx context.Context, gceService GceInterface) (secret.String, error) {
 	pw := ""
 	if m.Config.GetPostgresConfiguration().GetConnectionParameters().GetPassword() != "" {
 		return secret.String(m.Config.GetPostgresConfiguration().GetConnectionParameters().GetPassword()), nil
@@ -109,7 +110,7 @@ func defaultConnect(ctx context.Context, dataSource string) (dbInterface, error)
 	return dbWrapper{db: d}, nil
 }
 
-func (m *PostgresMetrics) dbDSN(ctx context.Context, gceService gceInterface) (string, error) {
+func (m *PostgresMetrics) dbDSN(ctx context.Context, gceService GceInterface) (string, error) {
 	pw, err := m.password(ctx, gceService)
 	if err != nil {
 		return "", fmt.Errorf("initializing password: %w", err)
@@ -136,7 +137,7 @@ func New(ctx context.Context, config *configpb.Configuration, wlmClient workload
 }
 
 // InitDB initializes the Postgres database connection.
-func (m *PostgresMetrics) InitDB(ctx context.Context, gceService gceInterface) error {
+func (m *PostgresMetrics) InitDB(ctx context.Context, gceService GceInterface) error {
 	dbDSN, err := m.dbDSN(ctx, gceService)
 	if err != nil {
 		return fmt.Errorf("getting dbDSN: %w", err)
@@ -332,14 +333,43 @@ func (m *PostgresMetrics) exposedToPublicAccess(ctx context.Context) (bool, erro
 	return isExposed, nil
 }
 
-// CollectMetricsOnce collects metrics for Postgres databases running on the host.
-func (m *PostgresMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
+// CollectWlmMetricsOnce collects metrics for Postgres databases running on the host.
+func (m *PostgresMetrics) CollectWlmMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
 	workMemBytes, err := m.getWorkMem(ctx)
 	if err != nil {
 		log.CtxLogger(ctx).Warnf("Failed to get work mem: %w", err)
 		return nil, err
 	}
 	log.CtxLogger(ctx).Debugw("Finished collecting Postgres metrics once. Next step is to send to WLM (DW).", workMemKey, workMemBytes)
+
+	metrics := workloadmanager.WorkloadMetrics{
+		WorkloadType: workloadmanager.POSTGRES,
+		Metrics: map[string]string{
+			workMemKey: strconv.Itoa(workMemBytes),
+		},
+	}
+	if !dwActivated {
+		log.CtxLogger(ctx).Debugw("Data Warehouse is not activated, not sending metrics to Data Warehouse")
+		return &metrics, nil
+	}
+	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
+		WLMetrics:  metrics,
+		CloudProps: m.Config.GetCloudProperties(),
+		WLMService: m.WLMClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if res == nil {
+		log.CtxLogger(ctx).Warn("SendDataInsight did not return an error but the WriteInsight response is nil")
+		return &metrics, nil
+	}
+	log.CtxLogger(ctx).Debugw("WriteInsight response", "StatusCode", res.HTTPStatusCode)
+	return &metrics, nil
+}
+
+// CollectDBCenterMetricsOnce collects metrics for Postgres databases running on the host.
+func (m *PostgresMetrics) CollectDBCenterMetricsOnce(ctx context.Context) error {
 	majorVersion, minorVersion, err := m.version(ctx)
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if version send fails.
@@ -371,29 +401,5 @@ func (m *PostgresMetrics) CollectMetricsOnce(ctx context.Context, dwActivated bo
 		log.CtxLogger(ctx).Info("Unable to send information to Database Center, please refer to documentation to make sure that all prerequisites are met")
 		log.CtxLogger(ctx).Debugf("Failed to send metadata to database center: %v", err)
 	}
-
-	metrics := workloadmanager.WorkloadMetrics{
-		WorkloadType: workloadmanager.POSTGRES,
-		Metrics: map[string]string{
-			workMemKey: strconv.Itoa(workMemBytes),
-		},
-	}
-	if !dwActivated {
-		log.CtxLogger(ctx).Debugw("Data Warehouse is not activated, not sending metrics to Data Warehouse")
-		return &metrics, nil
-	}
-	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
-		WLMetrics:  metrics,
-		CloudProps: m.Config.GetCloudProperties(),
-		WLMService: m.WLMClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if res == nil {
-		log.CtxLogger(ctx).Warn("SendDataInsight did not return an error but the WriteInsight response is nil")
-		return &metrics, nil
-	}
-	log.CtxLogger(ctx).Debugw("WriteInsight response", "StatusCode", res.HTTPStatusCode)
-	return &metrics, nil
+	return nil
 }
