@@ -42,11 +42,14 @@ require (
   google.golang.org/protobuf v1.36.5
 )
 
-require github.com/GoogleCloudPlatform/agentcommunication_client v0.0.0-20250227185639-b70667e4a927
+require (
+  cloud.google.com/go/artifactregistry v1.16.1
+  github.com/GoogleCloudPlatform/agentcommunication_client v0.0.0-20250227185639-b70667e4a927
+  github.com/googleapis/gax-go v1.0.3
+)
 
 require (
   cloud.google.com/go v0.118.0 // indirect
-  cloud.google.com/go/artifactregistry v1.16.1 // indirect
   cloud.google.com/go/auth v0.14.1 // indirect
   cloud.google.com/go/auth/oauth2adapt v0.2.7 // indirect
   cloud.google.com/go/compute/metadata v0.6.0 // indirect
@@ -67,6 +70,7 @@ require (
   github.com/go-ole/go-ole v1.2.6 // indirect
   github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9 // indirect
   github.com/golang-sql/sqlexp v0.1.0 // indirect
+  github.com/golang/protobuf v1.5.4 // indirect
   github.com/golang/snappy v0.0.4 // indirect
   github.com/google/s2a-go v0.1.9 // indirect
   github.com/google/uuid v1.6.0 // indirect
@@ -95,6 +99,7 @@ require (
   go.opentelemetry.io/otel/metric v1.34.0 // indirect
   go.opentelemetry.io/otel/trace v1.34.0 // indirect
   go.uber.org/multierr v1.10.0 // indirect
+  golang.org/x/lint v0.0.0-20181026193005-c67002cb31c3 // indirect
   golang.org/x/mod v0.17.0 // indirect
   golang.org/x/net v0.34.0 // indirect
   golang.org/x/oauth2 v0.27.0 // indirect
@@ -102,6 +107,8 @@ require (
   golang.org/x/sys v0.29.0 // indirect
   golang.org/x/text v0.21.0 // indirect
   golang.org/x/time v0.9.0 // indirect
+  golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // indirect
   google.golang.org/genproto/googleapis/rpc v0.0.0-20250127172529-29210b9bc287 // indirect
   google.golang.org/grpc v1.70.0 // indirect
+  honnef.co/go/tools v0.0.0-20190102054323-c2f93a96b099 // indirect
 )
