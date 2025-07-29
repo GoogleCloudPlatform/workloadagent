@@ -21,10 +21,12 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"slices"
 
 	"cloud.google.com/go/artifactregistry/apiv1"
 	"github.com/spf13/cobra"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
+	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/statushelper"
@@ -33,11 +35,13 @@ import (
 )
 
 const (
-	agentPackageName = "google-cloud-workload-agent"
+	agentPackageName        = "google-cloud-workload-agent"
+	requiredScope           = "https://www.googleapis.com/auth/cloud-platform"
 )
 
+
 // NewCommand creates a new status command.
-func NewCommand() *cobra.Command {
+func NewCommand(cloudProps *cpb.CloudProperties) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Print the status of the agent",
@@ -48,7 +52,7 @@ func NewCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			statushelper.PrintStatus(ctx, agentStatus(ctx, arClient, commandlineexecutor.ExecuteCommand), false)
+			statushelper.PrintStatus(ctx, agentStatus(ctx, arClient, commandlineexecutor.ExecuteCommand, cloudProps), false)
 			return nil
 		},
 	}
@@ -67,7 +71,7 @@ func newARClient(ctx context.Context) (statushelper.ARClientInterface, error) {
 
 // agentStatus returns the agent version, enabled/running, config path, and the
 // configuration as parsed by the agent.
-func agentStatus(ctx context.Context, arClient statushelper.ARClientInterface, exec commandlineexecutor.Execute) *spb.AgentStatus {
+func agentStatus(ctx context.Context, arClient statushelper.ARClientInterface, exec commandlineexecutor.Execute, cloudProps *cpb.CloudProperties) *spb.AgentStatus {
 	agentStatus := &spb.AgentStatus{
 		AgentName:        agentPackageName,
 		InstalledVersion: fmt.Sprintf("%s-%s", configuration.AgentVersion, configuration.AgentBuildChange),
@@ -78,6 +82,18 @@ func agentStatus(ctx context.Context, arClient statushelper.ARClientInterface, e
 	if err != nil {
 		log.CtxLogger(ctx).Errorw("Could not fetch latest version", "error", err)
 		agentStatus.AvailableVersion = "Error: could not fetch latest version"
+	}
+
+	if cloudProps == nil {
+		log.CtxLogger(ctx).Errorw("Could not fetch cloud properties from metadata server. This may be because the agent is not running on a GCE VM, or the metadata server is not reachable.")
+		agentStatus.CloudApiAccessFullScopesGranted = spb.State_ERROR_STATE
+	} else {
+		if slices.Contains(cloudProps.GetScopes(), requiredScope) {
+			agentStatus.CloudApiAccessFullScopesGranted = spb.State_SUCCESS_STATE
+		} else {
+			agentStatus.CloudApiAccessFullScopesGranted = spb.State_FAILURE_STATE
+		}
+		agentStatus.InstanceUri = fmt.Sprintf("projects/%s/zones/%s/instances/%s", cloudProps.GetProjectId(), cloudProps.GetZone(), cloudProps.GetInstanceId())
 	}
 
 	agentStatus.SystemdServiceEnabled = spb.State_FAILURE_STATE
@@ -94,6 +110,11 @@ func agentStatus(ctx context.Context, arClient statushelper.ARClientInterface, e
 		if running {
 			agentStatus.SystemdServiceRunning = spb.State_SUCCESS_STATE
 		}
+	}
+
+	agentStatus.KernelVersion, err = statushelper.KernelVersion(ctx, runtime.GOOS, exec)
+	if err != nil && runtime.GOOS == "linux" {
+		log.CtxLogger(ctx).Errorw("Could not fetch kernel version", "error", err)
 	}
 	return agentStatus
 }
