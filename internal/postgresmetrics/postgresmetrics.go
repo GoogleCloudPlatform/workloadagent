@@ -335,6 +335,10 @@ func (m *PostgresMetrics) exposedToPublicAccess(ctx context.Context) (bool, erro
 
 // CollectWlmMetricsOnce collects metrics for Postgres databases running on the host.
 func (m *PostgresMetrics) CollectWlmMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
+	if !dwActivated {
+		log.CtxLogger(ctx).Debugw("Data Warehouse is not activated, not sending metrics to Data Warehouse")
+		return nil, nil
+	}
 	workMemBytes, err := m.getWorkMem(ctx)
 	if err != nil {
 		log.CtxLogger(ctx).Warnf("Failed to get work mem: %w", err)
@@ -347,10 +351,6 @@ func (m *PostgresMetrics) CollectWlmMetricsOnce(ctx context.Context, dwActivated
 		Metrics: map[string]string{
 			workMemKey: strconv.Itoa(workMemBytes),
 		},
-	}
-	if !dwActivated {
-		log.CtxLogger(ctx).Debugw("Data Warehouse is not activated, not sending metrics to Data Warehouse")
-		return &metrics, nil
 	}
 	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
 		WLMetrics:  metrics,

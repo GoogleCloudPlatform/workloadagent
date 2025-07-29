@@ -608,6 +608,10 @@ func (m *MySQLMetrics) auditingEnabled(ctx context.Context) (bool, error) {
 
 // CollectMetricsOnce collects metrics for MySQL databases running on the host.
 func (m *MySQLMetrics) CollectWlmMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
+	if !dwActivated {
+		log.CtxLogger(ctx).Debugw("Data Warehouse is not activated, not sending metrics to Data Warehouse")
+		return nil, nil
+	}
 	bufferPoolSize, err := m.bufferPoolSize(ctx)
 	if err != nil {
 		log.CtxLogger(ctx).Warnf("Failed to get buffer pool size: %v", err)
@@ -642,10 +646,6 @@ func (m *MySQLMetrics) CollectWlmMetricsOnce(ctx context.Context, dwActivated bo
 			currentRoleKey:      currentRole,
 			replicationZonesKey: strings.Join(replicationZones, ","),
 		},
-	}
-	if !dwActivated {
-		log.CtxLogger(ctx).Debugw("Data Warehouse is not activated, not sending metrics to Data Warehouse")
-		return &metrics, nil
 	}
 	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
 		WLMetrics:  metrics,
