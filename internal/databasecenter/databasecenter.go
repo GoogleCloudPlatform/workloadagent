@@ -157,7 +157,7 @@ func (c *realClient) buildDatabaseResourceMetadataMessage(ctx context.Context, m
 				},
 				MachineConfiguration: &dcpb.MachineConfiguration{
 					VcpuCount:         float64(cloudProps.GetVcpuCount()),
-					MemorySizeInBytes: cloudProps.GetMemorySizeMb() * 1024, // convert memory size to bytes
+					MemorySizeInBytes: cloudProps.GetMemorySizeMb() * 1024 * 1024, // convert memory size to bytes
 				},
 			},
 		},

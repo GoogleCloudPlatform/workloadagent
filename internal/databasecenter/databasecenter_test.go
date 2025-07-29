@@ -300,7 +300,7 @@ func TestBuildDatabaseResourceMetadataMessage(t *testing.T) {
 						},
 						MachineConfiguration: &dcpb.MachineConfiguration{
 							VcpuCount:         2,
-							MemorySizeInBytes: 8388608, // 8 GiB
+							MemorySizeInBytes: 8589934592, // 8 GiB
 						},
 					},
 				},
@@ -354,7 +354,7 @@ func TestBuildDatabaseResourceMetadataMessage(t *testing.T) {
 						},
 						MachineConfiguration: &dcpb.MachineConfiguration{
 							VcpuCount:         2,
-							MemorySizeInBytes: 8388608, // 8 GiB
+							MemorySizeInBytes: 8589934592, // 8 GiB
 						},
 					},
 				},
@@ -408,7 +408,7 @@ func TestBuildDatabaseResourceMetadataMessage(t *testing.T) {
 						},
 						MachineConfiguration: &dcpb.MachineConfiguration{
 							VcpuCount:         2,
-							MemorySizeInBytes: 8388608, // 8 GiB
+							MemorySizeInBytes: 8589934592, // 8 GiB
 						},
 					},
 				},
