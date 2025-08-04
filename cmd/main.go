@@ -59,6 +59,7 @@ func main() {
 			Image:            cp.Image,
 			NumericProjectId: cp.NumericProjectID,
 			MachineType:      cp.MachineType,
+			Scopes:           cp.Scopes,
 		}
 	}
 	lp.CloudLoggingClient = log.CloudLoggingClient(ctx, cloudProps.GetProjectId())
@@ -72,7 +73,7 @@ func main() {
 	rootCmd.AddCommand(logusage.NewCommand(lp, cloudProps))
 	rootCmd.AddCommand(migrate.NewCommand())
 	rootCmd.AddCommand(configure.NewCommand(lp))
-	rootCmd.AddCommand(status.NewCommand())
+	rootCmd.AddCommand(status.NewCommand(cloudProps))
 	d := daemon.NewDaemon(lp, cloudProps)
 	daemonCmd := daemon.NewDaemonSubCommand(d)
 
