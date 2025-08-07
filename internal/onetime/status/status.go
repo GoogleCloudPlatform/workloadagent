@@ -20,11 +20,13 @@ package status
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime"
 	"slices"
 
 	"cloud.google.com/go/artifactregistry/apiv1"
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/encoding/protojson"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
@@ -35,27 +37,34 @@ import (
 )
 
 const (
-	agentPackageName        = "google-cloud-workload-agent"
-	requiredScope           = "https://www.googleapis.com/auth/cloud-platform"
+	agentPackageName = "google-cloud-workload-agent"
+	requiredScope    = "https://www.googleapis.com/auth/cloud-platform"
 )
-
 
 // NewCommand creates a new status command.
 func NewCommand(cloudProps *cpb.CloudProperties) *cobra.Command {
+	var config string
+	var compact bool
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Print the status of the agent",
-		Long:  "Print the status of the agent",
+		Long:  "Print the status of the agent, including version, service status, and configuration validity.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			arClient, err := newARClient(ctx)
 			if err != nil {
 				return err
 			}
-			statushelper.PrintStatus(ctx, agentStatus(ctx, arClient, commandlineexecutor.ExecuteCommand, cloudProps), false)
+			if c, ok := arClient.(*statushelper.ArtifactRegistryClient); ok {
+				defer c.Client.Close()
+			}
+			status := agentStatus(ctx, arClient, commandlineexecutor.ExecuteCommand, cloudProps, config, os.ReadFile)
+			statushelper.PrintStatus(ctx, status, compact)
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&config, "config", "", "Configuration path override")
+	cmd.Flags().BoolVar(&compact, "compact", false, "Compact output")
 	return cmd
 }
 
@@ -71,7 +80,7 @@ func newARClient(ctx context.Context) (statushelper.ARClientInterface, error) {
 
 // agentStatus returns the agent version, enabled/running, config path, and the
 // configuration as parsed by the agent.
-func agentStatus(ctx context.Context, arClient statushelper.ARClientInterface, exec commandlineexecutor.Execute, cloudProps *cpb.CloudProperties) *spb.AgentStatus {
+func agentStatus(ctx context.Context, arClient statushelper.ARClientInterface, exec commandlineexecutor.Execute, cloudProps *cpb.CloudProperties, config string, readFile func(string) ([]byte, error)) *spb.AgentStatus {
 	agentStatus := &spb.AgentStatus{
 		AgentName:        agentPackageName,
 		InstalledVersion: fmt.Sprintf("%s-%s", configuration.AgentVersion, configuration.AgentBuildChange),
@@ -109,6 +118,30 @@ func agentStatus(ctx context.Context, arClient statushelper.ARClientInterface, e
 		}
 		if running {
 			agentStatus.SystemdServiceRunning = spb.State_SUCCESS_STATE
+		}
+	}
+
+	path := config
+	if len(path) == 0 {
+		switch runtime.GOOS {
+		case "linux":
+			path = configuration.LinuxConfigPath
+		case "windows":
+			path = configuration.WindowsConfigPath
+		}
+	}
+	agentStatus.ConfigurationFilePath = path
+	content, err := readFile(path)
+	if err != nil {
+		agentStatus.ConfigurationValid = spb.State_FAILURE_STATE
+		agentStatus.ConfigurationErrorMessage = err.Error()
+	} else {
+		configProto := &cpb.Configuration{}
+		if err := protojson.Unmarshal(content, configProto); err != nil {
+			agentStatus.ConfigurationValid = spb.State_FAILURE_STATE
+			agentStatus.ConfigurationErrorMessage = err.Error()
+		} else {
+			agentStatus.ConfigurationValid = spb.State_SUCCESS_STATE
 		}
 	}
 
