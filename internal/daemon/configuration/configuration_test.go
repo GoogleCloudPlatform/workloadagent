@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
 	"go.uber.org/zap/zapcore"
@@ -47,6 +48,61 @@ var (
 	testDefaultOracleQueriesContent []byte
 )
 
+func TestConfigFromFile(t *testing.T) {
+	tests := []struct {
+		name    string
+		path    string
+		read    ReadConfigFile
+		want    *cpb.Configuration
+		wantErr bool
+	}{
+		{
+			name: "FileReadError",
+			read: func(p string) ([]byte, error) {
+				return nil, cmpopts.AnyError
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "EmptyConfigFile",
+			read: func(p string) ([]byte, error) {
+				return nil, nil
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "Success",
+			read: func(p string) ([]byte, error) {
+				return []byte(`{"log_level": "INFO", "log_to_cloud": true, "common_discovery": {"enabled": true, "collection_frequency": "3600s"}}`), nil
+			},
+			want: &cpb.Configuration{
+				LogLevel:   cpb.Configuration_INFO,
+				LogToCloud: proto.Bool(true),
+				CommonDiscovery: &cpb.CommonDiscovery{
+					Enabled:             proto.Bool(true),
+					CollectionFrequency: &dpb.Duration{Seconds: 3600},
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := ConfigFromFile(test.path, test.read)
+			gotErr := err != nil
+			if gotErr != test.wantErr {
+				t.Errorf("ConfigFromFile() returned error: %v, want error: %v", err, test.wantErr)
+			}
+			if diff := cmp.Diff(test.want, got, protocmp.Transform()); diff != "" {
+				t.Errorf("ConfigFromFile() returned diff (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestLoad(t *testing.T) {
 	defaultOracleQueriesContent = testDefaultOracleQueriesContent
 	defaultCfg, err := defaultConfig(defaultCloudProps)
@@ -66,14 +122,16 @@ func TestLoad(t *testing.T) {
 			readFunc: func(p string) ([]byte, error) {
 				return nil, cmpopts.AnyError
 			},
-			want: defaultCfg,
+			want:    nil,
+			wantErr: true,
 		},
 		{
 			name: "EmptyConfigFile",
 			readFunc: func(p string) ([]byte, error) {
 				return nil, nil
 			},
-			want: defaultCfg,
+			want:    nil,
+			wantErr: true,
 		},
 		{
 			name: "ConfigFileWithContents",
@@ -997,5 +1055,36 @@ func TestEnsureConfigExists(t *testing.T) {
 				t.Errorf("EnsureConfigExists() returned error: %v, want error: %v", err, test.wantErr)
 			}
 		})
+	}
+}
+
+func TestWriteConfigToFile(t *testing.T) {
+	config := &cpb.Configuration{
+		LogLevel:   cpb.Configuration_INFO,
+		LogToCloud: proto.Bool(true),
+		CommonDiscovery: &cpb.CommonDiscovery{
+			Enabled:             proto.Bool(true),
+			CollectionFrequency: &dpb.Duration{Seconds: 3600},
+		},
+	}
+	f, err := os.CreateTemp("", "test_config")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(f.Name())
+	err = WriteConfigToFile(config, f.Name(), os.WriteFile)
+	if err != nil {
+		t.Fatalf("WriteConfigToFile() got error: %v, want error: %t", err, false)
+	}
+	contents, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatalf("Failed to read file: %v", err)
+	}
+	got := &cpb.Configuration{}
+	if err := protojson.Unmarshal(contents, got); err != nil {
+		t.Fatalf("Failed to unmarshal config: %v", err)
+	}
+	if diff := cmp.Diff(config, got, protocmp.Transform()); diff != "" {
+		t.Errorf("WriteConfigToFile() returned unexpected diff (-want +got):\n%s", diff)
 	}
 }
