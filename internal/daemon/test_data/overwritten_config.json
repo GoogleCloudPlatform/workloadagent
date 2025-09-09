@@ -1,0 +1,13 @@
+{
+  "log_level": "DEBUG",
+  "common_discovery": {
+    "enabled": false
+  },
+  "oracle_configuration": {
+    "enabled": true,
+    "oracle_discovery": {
+      "enabled": true,
+      "update_frequency": "10800s"
+    }
+  }
+}

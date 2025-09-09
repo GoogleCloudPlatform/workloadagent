@@ -116,28 +116,23 @@ const (
 
 // ConfigFromFile returns the configuration from the given file path.
 func ConfigFromFile(path string, read ReadConfigFile) (*cpb.Configuration, error) {
-	emptyConfig := &cpb.Configuration{}
 	content, err := read(path)
 	if err != nil {
-		log.Logger.Warnw("Configuration file cannot be read; Using defaults", "error", err)
-		return emptyConfig, nil
+		return nil, fmt.Errorf("configuration file cannot be read: %v", err)
 	}
 	if len(content) == 0 {
-		log.Logger.Warnw("Configuration file is empty; Using defaults", "path", path)
-		return emptyConfig, nil
+		return nil, fmt.Errorf("configuration file is empty")
 	}
-
 	cfgFromFile := &cpb.Configuration{}
 	err = protojson.Unmarshal(content, cfgFromFile)
 	if err != nil {
 		return nil, fmt.Errorf("parsing JSON content from %s configuration file: %w", path, err)
 	}
-
 	return cfgFromFile, nil
 }
 
-// configPath returns the default configuration file path based on the operating system.
-func configPath() string {
+// ConfigPath returns the default configuration file path based on the operating system.
+func ConfigPath() string {
 	if runtime.GOOS == "windows" {
 		return WindowsConfigPath
 	}
@@ -147,7 +142,7 @@ func configPath() string {
 // Load loads the configuration from a JSON file and applies defaults for missing fields.
 func Load(path string, read ReadConfigFile, cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) {
 	if path == "" {
-		path = configPath()
+		path = ConfigPath()
 	}
 
 	defaultCfg, err := defaultConfig(cloudProps)
@@ -337,7 +332,7 @@ func EnsureConfigExists() error {
 }
 
 func ensureConfigExists(stat StatFile, mkdirall MkdirAll, write WriteConfigFile) error {
-	path := configPath()
+	path := ConfigPath()
 
 	if stat == nil {
 		stat = os.Stat
@@ -373,4 +368,17 @@ func ensureConfigExists(stat StatFile, mkdirall MkdirAll, write WriteConfigFile)
 
 	log.Logger.Infow("Default configuration file created", "path", path)
 	return nil
+}
+
+// WriteConfigToFile writes the contents of a configuration struct to a file at the given path.
+func WriteConfigToFile(config *cpb.Configuration, path string, write WriteConfigFile) error {
+	content, err := protojson.MarshalOptions{
+		Multiline: true,
+		UseProtoNames: true,
+	}.Marshal(config)
+	if err != nil {
+		log.Logger.Errorf("Failed to marshal configuration to JSON: %v", err)
+		return err
+	}
+	return write(path, content, 0644)
 }
