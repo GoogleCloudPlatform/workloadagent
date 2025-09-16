@@ -80,6 +80,8 @@ const (
 	SQLServerDeploymentSuccess       = 2
 	SQLServerDeploymentGlobalTimeout = 3
 	SQLServerDeploymentTimeout       = 4
+	// Oracle deployment through Oracle-Toolkit.
+	OracleToolkitDeploymentSuccess = 5
 )
 
 // projectNumbers contains known project numbers for test instances.
