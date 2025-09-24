@@ -415,3 +415,46 @@ func TestAgentStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestGetRepositoryLocation(t *testing.T) {
+	tests := []struct {
+		name string
+		cp   *cpb.CloudProperties
+		want string
+	}{
+		{
+			name: "NilCloudProps",
+			cp:   nil,
+			want: "us",
+		},
+		{
+			name: "EmptyZone",
+			cp:   &cpb.CloudProperties{},
+			want: "us",
+		},
+		{
+			name: "USZone",
+			cp:   &cpb.CloudProperties{Zone: "us-central1-a"},
+			want: "us",
+		},
+		{
+			name: "EuropeZone",
+			cp:   &cpb.CloudProperties{Zone: "europe-west1-b"},
+			want: "europe",
+		},
+		{
+			name: "AsiaZone",
+			cp:   &cpb.CloudProperties{Zone: "asia-southeast1-c"},
+			want: "asia",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := getRepositoryLocation(tc.cp)
+			if got != tc.want {
+				t.Errorf("getRepositoryLocation(%v) = %q, want %q", tc.cp, got, tc.want)
+			}
+		})
+	}
+}

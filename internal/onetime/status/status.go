@@ -23,6 +23,7 @@ import (
 	"os"
 	"runtime"
 	"slices"
+	"strings"
 
 	"cloud.google.com/go/artifactregistry/apiv1"
 	"github.com/spf13/cobra"
@@ -87,16 +88,16 @@ func agentStatus(ctx context.Context, arClient statushelper.ARClientInterface, e
 	}
 
 	var err error
-	agentStatus.AvailableVersion, err = statushelper.LatestVersionArtifactRegistry(ctx, arClient, "workload-agent-products", "us", "google-cloud-workload-agent-x86-64", agentPackageName)
-	if err != nil {
-		log.CtxLogger(ctx).Errorw("Could not fetch latest version", "error", err)
-		agentStatus.AvailableVersion = "Error: could not fetch latest version"
-	}
-
 	if cloudProps == nil {
 		log.CtxLogger(ctx).Errorw("Could not fetch cloud properties from metadata server. This may be because the agent is not running on a GCE VM, or the metadata server is not reachable.")
 		agentStatus.CloudApiAccessFullScopesGranted = spb.State_ERROR_STATE
+		agentStatus.AvailableVersion = "Error: could not fetch latest version"
 	} else {
+		agentStatus.AvailableVersion, err = statushelper.LatestVersionArtifactRegistry(ctx, arClient, "workload-agent-products", getRepositoryLocation(cloudProps), "google-cloud-workload-agent-x86-64", agentPackageName)
+		if err != nil {
+			log.CtxLogger(ctx).Errorw("Could not fetch latest version", "error", err)
+			agentStatus.AvailableVersion = "Error: could not fetch latest version"
+		}
 		if slices.Contains(cloudProps.GetScopes(), requiredScope) {
 			agentStatus.CloudApiAccessFullScopesGranted = spb.State_SUCCESS_STATE
 		} else {
@@ -150,4 +151,27 @@ func agentStatus(ctx context.Context, arClient statushelper.ARClientInterface, e
 		log.CtxLogger(ctx).Errorw("Could not fetch kernel version", "error", err)
 	}
 	return agentStatus
+}
+
+// getRepositoryLocation returns the repository location based on the cloud properties.
+func getRepositoryLocation(cp *cpb.CloudProperties) string {
+	if cp.GetZone() == "" {
+		return "us"
+	}
+	zone := cp.GetZone()
+	idx := strings.LastIndex(zone, "-")
+	if idx == -1 {
+		return "us"
+	}
+	region := zone[:idx]
+	if strings.HasPrefix(region, "us-") {
+		return "us"
+	}
+	if strings.HasPrefix(region, "europe-") {
+		return "europe"
+	}
+	if strings.HasPrefix(region, "asia-") {
+		return "asia"
+	}
+	return region
 }
