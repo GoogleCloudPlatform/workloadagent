@@ -51,6 +51,7 @@ import (
 
 // Daemon has args for startdaemon subcommand.
 type Daemon struct {
+	cancel         context.CancelFunc
 	configFilePath string
 	lp             log.Parameters
 	config         *cpb.Configuration
@@ -96,8 +97,8 @@ func NewDaemonSubCommand(d *Daemon) *cobra.Command {
 			return d.Execute(cmd.Context())
 		},
 	}
-	cmd.Flags().StringVar(&d.configFilePath, "config", "", "configuration path for startdaemon mode")
-	cmd.Flags().StringVar(&d.configFilePath, "c", "", "configuration path for startdaemon mode")
+	cmd.Flags().StringVar(&d.configFilePath, "config", configuration.ConfigPath(), "configuration path for startdaemon mode")
+	cmd.Flags().StringVar(&d.configFilePath, "c", configuration.ConfigPath(), "configuration path for startdaemon mode")
 	return cmd
 }
 
@@ -120,25 +121,27 @@ func (d *Daemon) Execute(ctx context.Context) error {
 	}
 	d.osData = osData
 
-	// Run the daemon handler that will start any services
-	ctx, cancel := context.WithCancel(ctx)
-	return d.startdaemonHandler(ctx, cancel)
+	// Run the config poller and daemon handler that will start any services.
+	ctx, d.cancel = context.WithCancel(ctx)
+	d.startConfigPollerRoutine(ctx)
+	return d.startdaemonHandler(ctx, false)
 }
 
-func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFunc) error {
+func (d *Daemon) startdaemonHandler(ctx context.Context, restarting bool) error {
+	// Cloud properties are exclusively set from the metadata server.
+	configureUsageMetricsForDaemon(d.cloudProps)
+
+	// Load the agent configuration from the config file.
 	var err error
 	d.config, err = configuration.Load(d.configFilePath, os.ReadFile, d.cloudProps)
 	if err != nil {
-		if d.lp.OSType == "windows" {
-			// Windows gobbles up the error message, so we need to log it separately and exit.
-			log.Logger.Error("Invalid configuration file, please fix the configuration file and restart the service.")
-			log.Logger.Error(err)
-			usagemetrics.Misconfigured()
-			os.Exit(1)
-		}
-		return fmt.Errorf("loading %s configuration file, please fix the configuration file and restart the service: %w", d.configFilePath, err)
+		log.Logger.Errorw("Invalid configuration file, please fix the configuration file and restart the service.", "error", err, "configFile", d.configFilePath)
+		usagemetrics.Misconfigured()
+		return err
 	}
+	usagemetrics.Configured()
 
+	// Setup logging based on the agent configuration.
 	d.lp.LogToCloud = d.config.GetLogToCloud()
 	d.lp.Level = configuration.LogLevelToZapcore(d.config.GetLogLevel())
 	if d.config.GetCloudProperties().GetProjectId() != "" {
@@ -147,19 +150,21 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 	if d.lp.CloudLoggingClient != nil {
 		defer d.lp.CloudLoggingClient.Close()
 	}
-
 	log.SetupLogging(d.lp)
 
-	// Get vCPU count and memory size from GCE
+	// Get vCPU count and memory size from GCE and add to cloudProps.
 	gceClient, err := gce.NewGCEClient(ctx)
 	if err != nil {
-		log.Logger.Errorw("Error creating GCE client", "error", err)
+		log.Logger.Errorw("creating GCE client", "error", err)
+		usagemetrics.Error(usagemetrics.StartDaemonFailure)
+		return err
 	}
 	vCPU, memorySize, err := gceClient.GetInstanceCPUAndMemorySize(ctx, d.cloudProps.GetProjectId(), d.cloudProps.GetZone(), d.cloudProps.GetInstanceName())
 	if err != nil {
-		log.Logger.Errorw("Error getting vCPU and memory size from GCE", "error", err)
+		log.Logger.Errorw("getting vCPU and memory size from GCE", "error", err)
+		usagemetrics.Error(usagemetrics.StartDaemonFailure)
+		return err
 	}
-	// add vCPU and memory size to cloudProps
 	d.cloudProps.VcpuCount = vCPU
 	d.cloudProps.MemorySizeMb = memorySize
 
@@ -181,13 +186,6 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 		"vendor", d.osData.OSVendor,
 		"version", d.osData.OSVersion,
 	)
-
-	configureUsageMetricsForDaemon(d.cloudProps)
-	usagemetrics.Configured()
-	usagemetrics.Started()
-
-	shutdownch := make(chan os.Signal, 1)
-	signal.Notify(shutdownch, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 
 	wlmClient, err := workloadmanager.Client(ctx, d.config)
 	if err != nil {
@@ -212,9 +210,12 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 		}
 		recoverableStart.StartRoutine(metricCollectionCtx)
 
-		// Log a RUNNING usage metric once a day.
-		go usagemetrics.LogRunningDaily()
-		d.waitForShutdown(shutdownch, cancel)
+		log.Logger.Info("Daemon override mode startup complete")
+		if !restarting {
+			usagemetrics.Started()
+			go usagemetrics.LogRunningDaily()
+		}
+		d.waitForShutdown(ctx, restarting)
 		return nil
 	}
 
@@ -260,7 +261,7 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 	}
 	recoverableStart.StartRoutine(ctx)
 
-	// Create a new databasecenter client
+	// Create a new databasecenter client.
 	dbcenterClient := databasecenter.NewClient(d.config, nil)
 
 	// Add any additional services here.
@@ -284,9 +285,12 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, cancel context.CancelFu
 		recoverableStart.StartRoutine(ctx)
 	}
 
-	// Log a RUNNING usage metric once a day.
-	go usagemetrics.LogRunningDaily()
-	d.waitForShutdown(shutdownch, cancel)
+	log.Logger.Info("Daemon mode startup complete")
+	if !restarting {
+		usagemetrics.Started()
+		go usagemetrics.LogRunningDaily()
+	}
+	d.waitForShutdown(ctx, restarting)
 	return nil
 }
 
@@ -301,12 +305,89 @@ func configureUsageMetricsForDaemon(cp *cpb.CloudProperties) {
 }
 
 // waitForShutdown observes a channel for a shutdown signal, then proceeds to shut down the Agent.
-func (d *Daemon) waitForShutdown(ch <-chan os.Signal, cancel context.CancelFunc) {
-	// wait for the shutdown signal
-	<-ch
+func (d *Daemon) waitForShutdown(ctx context.Context, restarting bool) {
+	// If we're restarting, we only need to wait for context cancellation
+	// instead of a shutdown signal. This is because the initial shutdown
+	// channel is still active and we don't want to duplicate its logic.
+	if restarting {
+		<-ctx.Done()
+		return
+	}
+
+	shutdown := make(chan os.Signal, 1)
+	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
+	// Wait for the shutdown signal.
+	<-shutdown
 	log.Logger.Info("Shutdown signal observed, the agent will begin shutting down")
-	cancel()
+	d.cancel()
 	usagemetrics.Stopped()
 	time.Sleep(3 * time.Second)
 	log.Logger.Info("Shutting down...")
+}
+
+// restart cancels the current context and invokes the startdaemonHandler once more.
+func (d *Daemon) restart() {
+	log.Logger.Info("Restarting daemon services")
+	d.cancel()
+	// Context cancellation is ansynchronous, give agent services some time to clean up.
+	time.Sleep(5 * time.Second)
+	var ctx context.Context
+	ctx, d.cancel = context.WithCancel(context.Background())
+	go d.startdaemonHandler(ctx, true)
+}
+
+func (d *Daemon) startConfigPollerRoutine(ctx context.Context) {
+	pollConfigFileRoutine := &recovery.RecoverableRoutine{
+		Routine: func(_ context.Context, _ any) {
+			d.pollConfigFile()
+		},
+		UsageLogger:         *usagemetrics.UsageLogger,
+		ExpectedMinDuration: 30 * time.Second,
+	}
+	pollConfigFileRoutine.StartRoutine(ctx)
+}
+
+// pollConfigFile checks the last modified time of the agent config file.
+// If the file has been modified, the daemon is restarted to pick up the new config.
+func (d *Daemon) pollConfigFile() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	prev, err := d.lastModifiedTime()
+	if err != nil {
+		log.Logger.Errorw("Failed to get last modified time for config file", "error", err)
+		return
+	}
+	shutdownch := make(chan os.Signal, 1)
+	signal.Notify(shutdownch, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
+	for {
+		select {
+		case <-shutdownch:
+			log.Logger.Info("Shutdown signal observed, exiting the config poller")
+			return
+		case <-ticker.C:
+			log.Logger.Debug("Polling config file")
+			res, err := d.lastModifiedTime()
+			if err != nil {
+				log.Logger.Errorw("Failed to get last modified time for config file", "error", err)
+				continue
+			}
+			if res.After(prev) {
+				prev = res
+				log.Logger.Infow("Detected config file change", "configFile", d.configFilePath)
+				d.restart()
+			}
+		}
+	}
+}
+
+func (d *Daemon) lastModifiedTime() (time.Time, error) {
+	path := d.configFilePath
+	if len(path) == 0 {
+		path = configuration.ConfigPath()
+	}
+	res, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return res.ModTime(), nil
 }

@@ -70,6 +70,7 @@ const (
 	MongoDBServiceError                   = 32
 	MongoDBMetricCollectionFailure        = 33
 	MongoDBDiscoveryFailure               = 34
+	StartDaemonFailure                    = 35
 )
 
 // Agent wide action mappings.
