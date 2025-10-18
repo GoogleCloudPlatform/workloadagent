@@ -32,6 +32,7 @@ import (
 	"time"
 
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
+	"github.com/cenkalti/backoff/v4"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	odpb "github.com/GoogleCloudPlatform/workloadagent/protos/oraclediscovery"
@@ -247,10 +248,30 @@ func (d DiscoveryService) executeSQLQuery(ctx context.Context, username string, 
 		Env:        vars,
 		User:       username,
 	}
-	result := d.executeCommand(ctx, params)
-	if result.Error != nil {
-		log.CtxLogger(ctx).Errorw("Failed to execute command", "params", params, "result", result)
-		return database{}, fmt.Errorf("executing command to fetch database information: %w", result.Error)
+	var result commandlineexecutor.Result
+	b := &backoff.ExponentialBackOff{
+		InitialInterval:     5 * time.Second,
+		RandomizationFactor: 0.5,
+		Multiplier:          2,
+		MaxInterval:         30 * time.Second,
+		MaxElapsedTime:      2 * time.Minute,
+		Clock:               backoff.SystemClock,
+	}
+	b.Reset()
+
+	operation := func() error {
+		result = d.executeCommand(ctx, params)
+		if result.Error != nil {
+			return backoff.Permanent(fmt.Errorf("executing command to fetch database information: %w", result.Error))
+		}
+		if strings.Contains(result.StdOut, "ORA-01507") {
+			log.CtxLogger(ctx).Infow("Database not mounted, retrying...", "sid", envVars["ORACLE_SID"])
+			return errors.New("database not mounted")
+		}
+		return nil
+	}
+	if err := backoff.Retry(operation, b); err != nil {
+		return database{}, err
 	}
 
 	var db database
