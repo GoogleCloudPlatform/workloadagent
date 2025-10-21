@@ -19,13 +19,8 @@ limitations under the License.
 package onetime
 
 import (
-	"fmt"
-	"os"
-	"strings"
-
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"go.uber.org/zap/zapcore"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
@@ -71,31 +66,6 @@ func ConfigureUsageMetricsForOTE(cp *cpb.CloudProperties, name, version string) 
 	usagemetrics.SetCloudProperties(cp)
 }
 
-// SetupOneTimeLogging creates logging config for the agent's one time execution.
-func SetupOneTimeLogging(params log.Parameters, subcommandName string, level zapcore.Level, logFilePath string) log.Parameters {
-	oteLogDir := `/var/log/`
-	if params.OSType == "windows" {
-		oteLogDir = fmt.Sprintf(`%s\Google\google-cloud-workload-agent\logs\`, log.CreateWindowsLogBasePath())
-	}
-	if logFilePath != "" {
-		if params.OSType == "windows" && !strings.HasSuffix(logFilePath, `\`) {
-			logFilePath = logFilePath + `\`
-		} else if params.OSType != "windows" && !strings.HasSuffix(logFilePath, `/`) {
-			logFilePath = logFilePath + `/`
-		}
-		oteLogDir = logFilePath
-	}
-	params.Level = level
-	logFileNamePrefix := fmt.Sprintf("google-cloud-workload-agent-%s", subcommandName)
-	params.LogFileName = oteLogDir + logFileNamePrefix + ".log"
-	params.CloudLogName = logFileNamePrefix
-	params.LogFilePath = oteLogDir
-	log.SetupLogging(params)
-	// make all of the OTE log files global read + write
-	os.Chmod(params.LogFileName, 0666)
-	return params
-}
-
 // Persistent flags (defined at the ote command level)
 var (
 	logFile, logLevel string
@@ -111,7 +81,7 @@ func Register(osType string, cmd *cobra.Command) {
 
 // SetValues sets the persistent flags for the subcommand.
 func SetValues(agentName string, lp *log.Parameters, cmd *cobra.Command, logName string) {
-	flags := cmd.Flags()
+	flags := cmd.PersistentFlags()
 	lp.LogFileName = log.OTEFilePath("google-cloud-workload-agent", logName, lp.OSType, "")
 	logFileName, _ := flags.GetString("log-file")
 	if logFileName != "" {
