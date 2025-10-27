@@ -32,6 +32,7 @@ import (
 	"time"
 
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
+	"github.com/cenkalti/backoff/v4"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	odpb "github.com/GoogleCloudPlatform/workloadagent/protos/oraclediscovery"
@@ -70,12 +71,25 @@ const (
 )
 
 var (
+	// Backoff parameters for retrying SQL queries.
+	backoffInitialInterval     = 5 * time.Second
+	backoffRandomizationFactor = 0.5
+	backoffMultiplier          = 2.0
+	backoffMaxInterval         = 5 * time.Minute
+	backoffMaxElapsedTime      = 30 * time.Minute
+
 	errOracleHomeNotFound = errors.New("ORACLE_HOME not found")
 	errOracleSIDNotFound  = errors.New("ORACLE_SID not found")
 	errIncompleteData     = errors.New("required fields are missing")
+	errDatabaseNotReady   = errors.New("database not ready")
 	sqlPlusArgs           = []string{"-LOGON", "-SILENT", "-NOLOGINTIME", "/", "as", "sysdba"}
 	oraProcessPrefixes    = []string{"ora_pmon_", "db_pmon_"}
 	oraListenerProc       = []string{"tnslsnr"}
+	retryableOraErrors    = []string{
+		"ORA-01012", // not logged on
+		"ORA-01034", // ORACLE not available
+		"ORA-01507", // database not mounted
+	}
 )
 
 type database struct {
@@ -109,18 +123,28 @@ type hostname func() (string, error)
 
 // DiscoveryService is used to perform Oracle discovery operations.
 type DiscoveryService struct {
-	executeCommand executeCommand
-	readFile       readFile
-	hostname       hostname
+	executeCommand             executeCommand
+	readFile                   readFile
+	hostname                   hostname
+	backoffInitialInterval     time.Duration
+	backoffMaxElapsedTime      time.Duration
+	backoffRandomizationFactor float64
+	backoffMultiplier          float64
+	backoffMaxInterval         time.Duration
 }
 
 // New creates a new DiscoveryService.
 // The options are used to override the default behavior of the DiscoveryService.
 func New(options ...func(*DiscoveryService)) *DiscoveryService {
 	d := DiscoveryService{
-		executeCommand: commandlineexecutor.ExecuteCommand,
-		readFile:       os.ReadFile,
-		hostname:       os.Hostname,
+		executeCommand:             commandlineexecutor.ExecuteCommand,
+		readFile:                   os.ReadFile,
+		hostname:                   os.Hostname,
+		backoffInitialInterval:     backoffInitialInterval,
+		backoffMaxElapsedTime:      backoffMaxElapsedTime,
+		backoffRandomizationFactor: backoffRandomizationFactor,
+		backoffMultiplier:          backoffMultiplier,
+		backoffMaxInterval:         backoffMaxInterval,
 	}
 	for _, option := range options {
 		option(&d)
@@ -247,10 +271,37 @@ func (d DiscoveryService) executeSQLQuery(ctx context.Context, username string, 
 		Env:        vars,
 		User:       username,
 	}
-	result := d.executeCommand(ctx, params)
-	if result.Error != nil {
-		log.CtxLogger(ctx).Errorw("Failed to execute command", "params", params, "result", result)
-		return database{}, fmt.Errorf("executing command to fetch database information: %w", result.Error)
+	var result commandlineexecutor.Result
+	b := &backoff.ExponentialBackOff{
+		InitialInterval:     d.backoffInitialInterval,
+		RandomizationFactor: d.backoffRandomizationFactor,
+		Multiplier:          d.backoffMultiplier,
+		MaxInterval:         d.backoffMaxInterval,
+		MaxElapsedTime:      d.backoffMaxElapsedTime,
+		Clock:               backoff.SystemClock,
+	}
+
+	operation := func() error {
+		result = d.executeCommand(ctx, params)
+		if result.Error != nil {
+			return backoff.Permanent(fmt.Errorf("executing command to fetch database information: %w", result.Error))
+		}
+		for _, err := range retryableOraErrors {
+			if strings.Contains(result.StdOut, err) {
+				log.CtxLogger(ctx).Infow("Oracle database not ready, retrying...", "sid", envVars["ORACLE_SID"], "output", result.StdOut)
+				return errDatabaseNotReady
+			}
+		}
+		if strings.Contains(result.StdOut, "ORA-") {
+			return backoff.Permanent(fmt.Errorf("SQL query failed with non-retryable ORA- error for SID %q, output: %s", envVars["ORACLE_SID"], result.StdOut))
+		}
+		return nil
+	}
+	if err := backoff.Retry(operation, backoff.WithContext(b, ctx)); err != nil {
+		if errors.Is(err, errDatabaseNotReady) {
+			return database{}, fmt.Errorf("retries exceeded while waiting for database to be ready for SID %q", envVars["ORACLE_SID"])
+		}
+		return database{}, err
 	}
 
 	var db database

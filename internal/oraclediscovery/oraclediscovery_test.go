@@ -867,83 +867,119 @@ func TestDiscoverDatabases(t *testing.T) {
 }
 
 func TestExecuteSQLQuery(t *testing.T) {
+	defaultEnvVars := map[string]string{
+		"ORACLE_HOME": "/opt/oracle/product/19c/db",
+		"ORACLE_SID":  "ORCL1",
+	}
+	successJSON := `{"dbid":12345,"name":"ORCL1","db_unique_name":"ORCL1_UNIQUE","instances":[{"instance_number":1,"name":"orcl1","hostname":"test-host","version":"19.0.0.0.0","edition":"EE","database_type":"SINGLE"}],"cdb":"YES","con_id":1,"parent_db_unique_name":"PARENT","database_role":"PRIMARY"}`
+	successDB := database{
+		DBID:         12345,
+		Name:         "ORCL1",
+		DBUniqueName: "ORCL1_UNIQUE",
+		Instances: []instance{{
+			InstanceNumber: 1,
+			Name:           "orcl1",
+			Hostname:       "test-host",
+			Version:        "19.0.0.0.0",
+			Edition:        "EE",
+			Type:           "SINGLE",
+		}},
+		CDB:                "YES",
+		ConID:              1,
+		ParentDBUniqueName: "PARENT",
+		DatabaseRole:       "PRIMARY",
+	}
+
 	tests := []struct {
-		name    string
-		envVars map[string]string
-		want    database
-		wantErr bool
-		stdout  string
+		name           string
+		username       string
+		envVars        map[string]string
+		executeCommand executeCommand
+		want           database
+		wantErr        bool
+		errContains    string
 	}{
 		{
-			name:    "missing ORACLE_HOME env variable",
-			wantErr: true,
-		},
-		{
-			name:    "missing ORACLE_SID env variable",
-			envVars: map[string]string{"ORACLE_HOME": "/opt/oracle/product/19c/db"},
-			wantErr: true,
-		},
-		{
-			name:    "Error unmarshaling JSON",
-			envVars: map[string]string{"ORACLE_HOME": "/opt/oracle/product/19c/db", "ORACLE_SID": "orcl"},
-			stdout:  "invalid_json",
-			wantErr: true,
-		},
-		{
-			envVars: map[string]string{"ORACLE_HOME": "/opt/oracle/product/19c/db", "ORACLE_SID": "orcl"},
-			stdout: `
-        {
-            "dbid": 1234567890,
-            "name": "test_db",
-            "db_unique_name": "test_db_unique_name",
-            "con_id": 0,
-            "CDB": "NO",
-            "created": "2024-05-20",
-            "parent_db_unique_name": "test_parent_db_unique_name",
-            "database_role": "PRIMARY",
-            "instances": [
-                {
-                    "instance_number": 1,
-                    "name": "test_instance",
-                    "hostname": "test_hostname",
-                    "version": "12.3.4.5.6",
-                    "edition": "EE",
-                    "database_type": "SINGLE",
-                    "oracle_home": "/opt/oracle/product/19c/db",
-                    "oracle_sid": "orcl"
-                }
-            ]
-        }`,
-			want: database{
-				DBID:               1234567890,
-				Name:               "test_db",
-				DBUniqueName:       "test_db_unique_name",
-				ConID:              0,
-				CDB:                "NO",
-				ParentDBUniqueName: "test_parent_db_unique_name",
-				DatabaseRole:       "PRIMARY",
-				Instances: []instance{
-					{
-						InstanceNumber: 1,
-						Name:           "test_instance",
-						Hostname:       "test_hostname",
-						Version:        "12.3.4.5.6",
-						Edition:        "EE",
-						Type:           "SINGLE",
-					},
-				},
+			name:    "Success",
+			envVars: defaultEnvVars,
+			executeCommand: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				return commandlineexecutor.Result{StdOut: successJSON}
 			},
+			want: successDB,
+		},
+		{
+			name:        "Missing ORACLE_HOME",
+			envVars:     map[string]string{"ORACLE_SID": "ORCL1"},
+			wantErr:     true,
+			errContains: errOracleHomeNotFound.Error(),
+		},
+		{
+			name:        "Missing ORACLE_SID",
+			envVars:     map[string]string{"ORACLE_HOME": "/opt/oracle/product/19c/db"},
+			wantErr:     true,
+			errContains: errOracleSIDNotFound.Error(),
+		},
+		{
+			name:    "Command execution permanent error",
+			envVars: defaultEnvVars,
+			executeCommand: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				return commandlineexecutor.Result{Error: errors.New("command failed")}
+			},
+			wantErr:     true,
+			errContains: "executing command to fetch database information: command failed",
+		},
+		{
+			name:    "Retry logic success",
+			envVars: defaultEnvVars,
+			executeCommand: func() executeCommand {
+				count := 0
+				return func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+					count++
+					if count == 1 {
+						return commandlineexecutor.Result{StdOut: "ORA-01034: ORACLE not available"}
+					}
+					return commandlineexecutor.Result{StdOut: successJSON}
+				}
+			}(),
+			want: successDB,
+		},
+		{
+			name:    "Non-retryable ORA error",
+			envVars: defaultEnvVars,
+			executeCommand: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				return commandlineexecutor.Result{StdOut: "ORA-00942: table or view does not exist"}
+			},
+			wantErr:     true,
+			errContains: "SQL query failed with non-retryable ORA- error",
+		},
+		{
+			name:    "Invalid JSON output",
+			envVars: defaultEnvVars,
+			executeCommand: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				return commandlineexecutor.Result{StdOut: `invalid JSON output`}
+			},
+			wantErr:     true,
+			errContains: "parsing JSON output from SQL query",
 		},
 	}
+
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			d := New(executeCommandFunc(t, tc.stdout, nil, listenerStatusSuccessFilePath, listenerServicesSuccessFilePath))
-			got, err := d.executeSQLQuery(context.Background(), "", tc.envVars)
-			if err != nil && !tc.wantErr {
-				t.Errorf("executeSQLQuery() got error: %v, want: %v", err, tc.wantErr)
+			d := New(func(d *DiscoveryService) {
+				d.executeCommand = tc.executeCommand
+			})
+			got, err := d.executeSQLQuery(context.Background(), "testUser", tc.envVars)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("executeSQLQuery() error = %v, wantErr = %v", err, tc.wantErr)
 			}
-			if diff := cmp.Diff(tc.want, got, protocmp.IgnoreEmptyMessages(), protocmp.Transform()); diff != "" {
-				t.Errorf("executeSQLQuery() found mismatch (+got, -want):\n%s", diff)
+			if tc.wantErr {
+				if !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("executeSQLQuery() error = %v, want err containing %q", err, tc.errContains)
+				}
+				return
+			}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("executeSQLQuery() found mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
