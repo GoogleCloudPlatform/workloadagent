@@ -21,6 +21,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/openshiftmetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
@@ -32,7 +33,8 @@ import (
 )
 
 const (
-	wlmCollectionFrequency = 5 * time.Minute
+	wlmCollectionFrequency = 30 * time.Second
+	payloadVersion         = "v0.1.0-pre"
 )
 
 // Service implements the interfaces for OpenShift workload agent service.
@@ -99,7 +101,25 @@ func runMetricCollection(ctx context.Context, a any) {
 // collectMetrics collects metrics from the OpenShift cluster and sends to the datawarehouse API.
 func collectMetrics(ctx context.Context, args runMetricCollectionArgs) {
 	metricClient := openshiftmetrics.New(ctx, args.s.Config, args.s.WLMClient)
-	log.CtxLogger(ctx).Info("OpenShift metric client created: %v", metricClient)
+	if err := metricClient.Init(ctx); err != nil {
+		log.CtxLogger(ctx).Errorw("failed to initialize OpenShift metric client", "error", err)
+		return
+	}
+
+	log.CtxLogger(ctx).Debug("OpenShift metric client created")
+	versionData := openshiftmetrics.MetricVersioning{
+		PayloadVersion: payloadVersion,
+		AgentVersion:   configuration.AgentVersion,
+	}
+
+	log.CtxLogger(ctx).Debug("Collecting Openshift metrics")
+	metrics, err := metricClient.CollectMetrics(ctx, versionData)
+	if err != nil {
+		log.CtxLogger(ctx).Errorw("failed to collect metrics", "error", err)
+		return
+	}
+	log.CtxLogger(ctx).Debugw("Metrics collected", "metrics", metrics)
+	// TODO: send the payload to WLM
 }
 
 // String returns the name of the OpenShift service.

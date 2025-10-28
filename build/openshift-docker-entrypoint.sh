@@ -32,8 +32,17 @@ OCP_PASSWORD=$(cat /etc/secrets/ocp-password)
 LOG_LEVEL="${LOG_LEVEL:-INFO}"
 COLLECTION_FREQUENCY="${COLLECTION_FREQUENCY:-60s}"
 
-# Check that all required variables are set
-check_vars OCP_USERNAME OCP_PASSWORD OCP_HOST PROJECT_ID REGION
+
+echo "Checking for either kubernetes service account token or environment variables"
+
+# If the standard kubernetes serviceaccount token file is present then use that instead.
+KUBERNETES_SA_TOKEN=/var/run/secrets/kubernetes.io/serviceaccount/token
+if [ -e "$KUBERNETES_SA_TOKEN" ]; then
+  echo "Kubernetes service account token exists, ignoring environment variables"
+else
+  # Check that all required variables are set
+  check_vars OCP_USERNAME OCP_PASSWORD OCP_HOST PROJECT_ID REGION
+fi
 
 # Generate the workload agentconfig file
 CONFIG_FILE_PATH=/etc/google-cloud-workload-agent/configuration.json
@@ -53,9 +62,6 @@ jq -nc \
   --arg region "$REGION" \
   '{
     log_level: $log_level,
-    common_discovery: {
-      collection_frequency: $collection_frequency
-    },
     cloud_properties: {
       project_id: $project_id,
       region: $region
@@ -69,7 +75,8 @@ jq -nc \
       }
     },
     common_discovery: {
-      enabled: false
+      enabled: false,
+      collection_frequency: $collection_frequency
     },
     sqlserver_configuration: {
       enabled: false
