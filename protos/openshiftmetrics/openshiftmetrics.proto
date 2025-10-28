@@ -1,0 +1,87 @@
+/*
+Copyright 2025 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+syntax = "proto3";
+
+package workloadagent.protos.openshiftmetrics;
+
+import "google/protobuf/timestamp.proto";
+
+option java_outer_classname = "OpenshiftMetricsPayload";
+option java_multiple_files = true;
+option go_package = "github.com/GoogleCloudPlatform/workloadagent/protos/openshiftmetrics";
+
+// OpenshiftMetricsPayload is the payload for the Openshift WLM metrics.
+message OpenshiftMetricsPayload {
+  // The version of the metric payload.
+  string version = 1;
+  // The version of the agent that generated the metric payload.
+  string agent_version = 2;
+  // The ID of the Openshift cluster.
+  string cluster_id = 3;
+  // The project ID that the workload agent is running in.
+  string project_id = 4;
+  // The namespaces in the Openshift cluster.
+  ResourceListContainer namespaces = 5;
+}
+
+// General container for K8 resources.
+message ResourceListContainer {
+  // The K8 resource identifier.
+  string kind = 1;
+  // The K8 resource api version.
+  string api_version = 2;
+  // The K8 resource metadata.
+  Metadata metadata = 3;
+  // The items that are in the container.
+  oneof container_items {
+    NamespaceList namespaces = 4;
+  }
+  // The K8 resource metadata.
+  message Metadata {
+    string resource_version = 1;
+  }
+}
+
+// Equivalent to k8s.io/apimachinery/pkg/apis/meta/v1/ObjectMeta
+message ResourceMetadata {
+  // The K8 resource name that is unique within the namespace.
+  string name = 1;
+  // The K8 resource uid.
+  string uid = 2;
+  // ID of the owning namespace of the resource. If the resource is cluster
+  // scoped, this will be empty.
+  string namespace = 3;
+  // The K8 resource version.
+  string resource_version = 4;
+  // The K8 resource generation.
+  int64 generation = 5;
+  // The K8 resource creation timestamp.
+  google.protobuf.Timestamp creation_timestamp = 6;
+  // K8 labels are identifiers for the resource.
+  map<string, string> labels = 7;
+  // Non-identifying metadata about the resource.
+  map<string, string> annotations = 8;
+}
+
+// Container for K8/OCP namespaces.
+message NamespaceList {
+  repeated Namespace items = 1;
+}
+
+// Message describing a K8/OCP namespace.
+message Namespace {
+  ResourceMetadata metadata = 1;
+}
