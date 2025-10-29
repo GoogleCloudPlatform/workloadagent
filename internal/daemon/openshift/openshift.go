@@ -119,7 +119,13 @@ func collectMetrics(ctx context.Context, args runMetricCollectionArgs) {
 		return
 	}
 	log.CtxLogger(ctx).Debugw("Metrics collected", "metrics", metrics)
-	// TODO: send the payload to WLM
+	log.CtxLogger(ctx).Debug("Sending metrics to WLM")
+	if err := metricClient.SendMetricsToWLM(ctx, args.s.Config, metrics); err != nil {
+		// This fails silently so that the loop keeps running.
+		log.CtxLogger(ctx).Errorw("failed to write metrics to WLM", "error", err)
+		return
+	}
+	log.CtxLogger(ctx).Debug("Metrics successfully sent to WLM")
 }
 
 // String returns the name of the OpenShift service.
