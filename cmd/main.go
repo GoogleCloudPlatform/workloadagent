@@ -51,15 +51,16 @@ func main() {
 	cloudProps := &cpb.CloudProperties{}
 	if cp := metadataserver.FetchCloudProperties(); cp != nil {
 		cloudProps = &cpb.CloudProperties{
-			ProjectId:        cp.ProjectID,
-			InstanceId:       cp.InstanceID,
-			Zone:             cp.Zone,
-			Region:           cp.Region,
-			InstanceName:     cp.InstanceName,
-			Image:            cp.Image,
-			NumericProjectId: cp.NumericProjectID,
-			MachineType:      cp.MachineType,
-			Scopes:           cp.Scopes,
+			ProjectId:           cp.ProjectID,
+			InstanceId:          cp.InstanceID,
+			Zone:                cp.Zone,
+			Region:              cp.Region,
+			InstanceName:        cp.InstanceName,
+			Image:               cp.Image,
+			NumericProjectId:    cp.NumericProjectID,
+			MachineType:         cp.MachineType,
+			Scopes:              cp.Scopes,
+			ServiceAccountEmail: cp.ServiceAccountEmail,
 		}
 	}
 	lp.CloudLoggingClient = log.CloudLoggingClient(ctx, cloudProps.GetProjectId())

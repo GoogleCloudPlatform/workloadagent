@@ -59,6 +59,7 @@ message CloudProperties {
   int64 vcpu_count = 9;
   int64 memory_size_mb = 10;
   repeated string scopes = 11;
+  string service_account_email = 12;
 }
 
 message AgentProperties {

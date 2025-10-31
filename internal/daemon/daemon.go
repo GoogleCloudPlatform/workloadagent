@@ -180,7 +180,10 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, restarting bool) error 
 		"image", d.cloudProps.GetImage(),
 		"vCPU", d.cloudProps.GetVcpuCount(),
 		"memorysize", d.cloudProps.GetMemorySizeMb(),
+		"scopes", d.cloudProps.GetScopes(),
+		"defaultserviceaccountemail", d.cloudProps.GetServiceAccountEmail(),
 	)
+	logDefaultCredentials(ctx, d.cloudProps)
 	log.Logger.Infow("OS Data",
 		"name", d.osData.OSName,
 		"vendor", d.osData.OSVendor,
@@ -390,4 +393,13 @@ func (d *Daemon) lastModifiedTime() (time.Time, error) {
 		return time.Time{}, err
 	}
 	return res.ModTime(), nil
+}
+
+func logDefaultCredentials(ctx context.Context, cloudProps *cpb.CloudProperties) {
+	credsPath := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	if credsPath != "" {
+		log.CtxLogger(ctx).Infow("GOOGLE_APPLICATION_CREDENTIALS is set, authentication to GCP will use the service account associated with the key stored in this file.", "path", credsPath)
+	} else {
+		log.CtxLogger(ctx).Infow("Credentials are likely from the default service account.", "email", cloudProps.GetServiceAccountEmail())
+	}
 }

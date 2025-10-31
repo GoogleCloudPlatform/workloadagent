@@ -23,7 +23,7 @@ jobs:
         cd workloadagentplatform
         # this is the hash of the workloadagentplatform submodule
         # get the hash by running: go list -m -json github.com/GoogleCloudPlatform/workloadagentplatform@main
-        git checkout 90370f4da1f2e79d113adda6282cc143c27a2eb5
+        git checkout e32dea35788ea3d4ce1bb9e1266864b8c72930b1
         cd ..
         find workloadagentplatform/sharedprotos -type f -exec sed -i 's|"sharedprotos|"workloadagentplatform/sharedprotos|g' {} +
       env:
