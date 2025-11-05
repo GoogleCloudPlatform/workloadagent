@@ -35,6 +35,18 @@ message OpenshiftMetricsPayload {
   string project_id = 4;
   // The namespaces in the Openshift cluster.
   ResourceListContainer namespaces = 5;
+  // The CSI drivers in the Openshift cluster.
+  ResourceListContainer csi_drivers = 6;
+  // The cluster CSI drivers in the Openshiftcluster.
+  ResourceListContainer cluster_csi_drivers = 7;
+  // The storage classes in the Openshift cluster.
+  ResourceListContainer storage_classes = 8;
+  // The persistent volume claims in the Openshift cluster.
+  ResourceListContainer persistent_volume_claims = 9;
+  // The config maps in the Openshift cluster.
+  ResourceListContainer config_maps = 10;
+  // The deployments in the Openshift cluster.
+  ResourceListContainer deployments = 11;
 }
 
 // General container for K8 resources.
@@ -48,6 +60,12 @@ message ResourceListContainer {
   // The items that are in the container.
   oneof container_items {
     NamespaceList namespaces = 4;
+    CsiDriverList csi_drivers = 5;
+    ClusterCsiDriverList cluster_csi_drivers = 6;
+    StorageClassList storage_classes = 7;
+    PersistentVolumeClaimList persistent_volume_claims = 8;
+    ConfigMapList config_maps = 9;
+    DeploymentList deployments = 10;
   }
   // The K8 resource metadata.
   message Metadata {
@@ -83,5 +101,141 @@ message NamespaceList {
 
 // Message describing a K8/OCP namespace.
 message Namespace {
+  ResourceMetadata metadata = 1;
+}
+
+// Container for K8/OCP CSI drivers.
+message CsiDriverList {
+  repeated CsiDriver items = 1;
+}
+
+// Message describing a K8/OCP CSI driver.
+message CsiDriver {
+  ResourceMetadata metadata = 1;
+  Spec spec = 2;
+
+  message Spec {
+    bool attach_required = 1;
+    bool pod_info_on_mount = 2;
+    repeated string volume_lifecycle_modes = 3;
+    bool storage_capacity = 4;
+    string fs_group_policy = 5;
+    bool requires_republish = 6;
+    bool se_linux_mount = 7;
+  }
+}
+
+// Container for K8/OCP cluster CSI drivers.
+message ClusterCsiDriverList {
+  repeated ClusterCsiDriver items = 1;
+}
+
+// Message describing a K8/OCP cluster CSI driver.
+message ClusterCsiDriver {
+  ResourceMetadata metadata = 1;
+  Spec spec = 2;
+  Status status = 3;
+
+  message Spec {
+    DriverConfig driver_config = 1;
+    string log_level = 2;
+    string management_state = 3;
+    string operator_log_level = 4;
+  }
+
+  message DriverConfig {
+    string driver_type = 1;
+  }
+
+  message Status {
+    repeated Conditions conditions = 1;
+  }
+
+  message Conditions {
+    google.protobuf.Timestamp last_transition_time = 1;
+    string status = 2;
+    string type = 3;
+  }
+}
+
+// Container for K8/OCP storage classes.
+message StorageClassList {
+  repeated StorageClass items = 1;
+}
+
+// Message describing a K8/OCP storage class.
+message StorageClass {
+  ResourceMetadata metadata = 1;
+  string provisioner = 2;
+  Parameters parameters = 3;
+  string reclaim_policy = 4;
+  bool allow_volume_expansion = 5;
+  string volume_binding_mode = 6;
+
+  message Parameters {
+    string replication_type = 1;
+    string type = 2;
+    // The KMS key used for disk encryption.
+    // Format:
+    // projects/PROJECT_ID/locations/LOCATION/keyRings/KEY_RING/cryptoKeys/KEY_NAME
+    string disk_encryption_kms_key = 3;
+    // Comma separated list of storage pools.
+    // Format: projects/PROJECT_ID/zones/ZONE/storagePools/STORAGE_POOL_NAME
+    string storage_pools = 4;
+  }
+}
+
+// Container for K8/OCP persistent volume claims.
+message PersistentVolumeClaimList {
+  repeated PersistentVolumeClaim items = 1;
+}
+
+// Equivalent to k8s.io/api/core/v1/types.PersistentVolumeClaim
+message PersistentVolumeClaim {
+  ResourceMetadata metadata = 1;
+  Spec spec = 2;
+  Status status = 3;
+
+  message Spec {
+    repeated string access_modes = 1;
+    Resources resources = 2;
+    string volume_name = 3;
+    string storage_class_name = 4;
+    string volume_mode = 5;
+  }
+
+  message Resources {
+    Requests requests = 1;
+  }
+
+  message Requests {
+    string storage = 1;
+  }
+
+  message Status {
+    string phase = 1;
+    repeated string access_modes = 2;
+    Capacity capacity = 3;
+  }
+
+  message Capacity {
+    string storage = 1;
+  }
+}
+
+message ConfigMapList {
+  repeated ConfigMap items = 1;
+}
+
+message ConfigMap {
+  ResourceMetadata metadata = 1;
+  map<string, string> data = 2;
+}
+
+message DeploymentList {
+  repeated Deployment items = 1;
+}
+
+message Deployment {
   ResourceMetadata metadata = 1;
 }
