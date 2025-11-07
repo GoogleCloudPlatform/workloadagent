@@ -47,6 +47,8 @@ message OpenshiftMetricsPayload {
   ResourceListContainer config_maps = 10;
   // The deployments in the Openshift cluster.
   ResourceListContainer deployments = 11;
+  // The custom resource definitions in the cluster.
+  ResourceListContainer custom_resource_definitions = 12;
 }
 
 // General container for K8 resources.
@@ -66,6 +68,7 @@ message ResourceListContainer {
     PersistentVolumeClaimList persistent_volume_claims = 8;
     ConfigMapList config_maps = 9;
     DeploymentList deployments = 10;
+    CustomResourceDefinitionList custom_resource_definitions = 11;
   }
   // The K8 resource metadata.
   message Metadata {
@@ -227,15 +230,84 @@ message ConfigMapList {
   repeated ConfigMap items = 1;
 }
 
+// Derived from
+// https://kubernetes.io/docs/reference/kubernetes-api/config-and-storage-resources/config-map-v1/#ConfigMap
 message ConfigMap {
   ResourceMetadata metadata = 1;
   map<string, string> data = 2;
+}
+
+message CustomResourceDefinitionList {
+  repeated CustomResourceDefinition items = 1;
+}
+
+// Derived from
+// https://kubernetes.io/docs/reference/kubernetes-api/extend-resources/custom-resource-definition-v1/#CustomResourceDefinition
+message CustomResourceDefinition {
+  ResourceMetadata metadata = 1;
 }
 
 message DeploymentList {
   repeated Deployment items = 1;
 }
 
+// Derived from
+// https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/deployment-v1/#Deployment
 message Deployment {
   ResourceMetadata metadata = 1;
+  Spec spec = 2;
+
+  message Spec {
+    PodTemplateSpec pod_template = 1;
+
+    message PodTemplateSpec {
+      ResourceMetadata metadata = 1;
+      PodSpec spec = 2;
+    }
+  }
+}
+
+// Derived from
+// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#podspec-v1-core
+message PodSpec {
+  repeated Container containers = 1;
+  repeated Container init_containers = 2;
+  repeated Volume volumes = 3;
+}
+
+// Derived from
+// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#container-v1-core
+message Container {
+  repeated Env env = 1;
+  repeated EnvFrom env_from = 2;
+}
+
+// Derived from
+// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#volume-v1-core
+message Volume {
+  Secret secret = 1;
+  message Secret {
+    string secret_name = 1;
+  }
+}
+
+// Derived from
+// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#envvar-v1-core
+message Env {
+  ValueFrom value_from = 1;
+  message ValueFrom {
+    SecretKeyRef secret_key_ref = 1;
+    message SecretKeyRef {
+      string name = 1;
+    }
+  }
+}
+
+// Derived from
+// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#envfromsource-v1-core
+message EnvFrom {
+  SecretRef secret_ref = 1;
+  message SecretRef {
+    string name = 1;
+  }
 }
