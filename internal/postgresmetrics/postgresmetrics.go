@@ -149,7 +149,16 @@ func (m *PostgresMetrics) InitDB(ctx context.Context, gceService GceInterface) e
 	m.db = db
 	err = m.db.Ping()
 	if err != nil {
-		return fmt.Errorf("failed to ping Postgres connection: %w", err)
+		log.CtxLogger(ctx).Debugw("Failed to ping Postgres connection, trying to connect without SSL")
+		db, err = m.connect(ctx, fmt.Sprintf("%s sslmode=disable", dbDSN))
+		if err != nil {
+			return fmt.Errorf("connecting to Postgres without SSL: %w", err)
+		}
+		m.db = db
+		err = m.db.Ping()
+		if err != nil {
+			return fmt.Errorf("failed to ping Postgres connection: %w", err)
+		}
 	}
 	log.CtxLogger(ctx).Debugw("Postgres connection ping success")
 
