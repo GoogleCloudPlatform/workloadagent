@@ -49,6 +49,8 @@ message OpenshiftMetricsPayload {
   ResourceListContainer deployments = 11;
   // The custom resource definitions in the cluster.
   ResourceListContainer custom_resource_definitions = 12;
+  // The nodes in the Openshift cluster.
+  ResourceListContainer nodes = 13;
 }
 
 // General container for K8 resources.
@@ -69,6 +71,7 @@ message ResourceListContainer {
     ConfigMapList config_maps = 9;
     DeploymentList deployments = 10;
     CustomResourceDefinitionList custom_resource_definitions = 11;
+    NodeList nodes = 12;
   }
   // The K8 resource metadata.
   message Metadata {
@@ -247,6 +250,16 @@ message CustomResourceDefinition {
   ResourceMetadata metadata = 1;
 }
 
+message NodeList {
+  repeated Node items = 1;
+}
+
+// Derived from
+// https://kubernetes.io/docs/reference/kubernetes-api/cluster-resources/node-v1/#Node
+message Node {
+  ResourceMetadata metadata = 1;
+}
+
 message DeploymentList {
   repeated Deployment items = 1;
 }
@@ -258,13 +271,13 @@ message Deployment {
   Spec spec = 2;
 
   message Spec {
-    PodTemplateSpec pod_template = 1;
-
-    message PodTemplateSpec {
-      ResourceMetadata metadata = 1;
-      PodSpec spec = 2;
-    }
+    PodTemplate pod_template = 1;
   }
+}
+
+message PodTemplate {
+  ResourceMetadata metadata = 1;
+  PodSpec spec = 2;
 }
 
 // Derived from
@@ -273,6 +286,8 @@ message PodSpec {
   repeated Container containers = 1;
   repeated Container init_containers = 2;
   repeated Volume volumes = 3;
+  repeated TopolgySpreadConstraints topology_spread_constraints = 4;
+  Affinity affinity = 5;
 }
 
 // Derived from
@@ -309,5 +324,28 @@ message EnvFrom {
   SecretRef secret_ref = 1;
   message SecretRef {
     string name = 1;
+  }
+}
+
+// Derived from
+// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#topologyspreadconstraint-v1-core
+message TopolgySpreadConstraints {
+  string topology_key = 1;
+}
+
+// Derived from
+// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#affinity-v1-core
+message Affinity {
+  PodAntiAffinity pod_anti_affinity = 1;
+
+  message PodAntiAffinity {
+    PreferredDuringSchedulingIgnoredDuringExecution
+        preferred_during_scheduling_ignored_during_execution = 1;
+    message PreferredDuringSchedulingIgnoredDuringExecution {
+      PodAffinityTerm pod_affinity_term = 1;
+      message PodAffinityTerm {
+        string topology_key = 1;
+      }
+    }
   }
 }
