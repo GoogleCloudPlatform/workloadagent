@@ -51,12 +51,12 @@ type runMetricCollectionArgs struct {
 
 // Start initiates the Openshift workload agent service
 func (s *Service) Start(ctx context.Context, a any) {
-	log.CtxLogger(ctx).Info("Starting OpenShift workload agent service")
-	if s.Config.GetOpenshiftConfiguration() != nil && !s.Config.GetOpenshiftConfiguration().GetEnabled() {
-		// If Openshift workload agent service is explicitly disabled in the configuration, then return.
-		log.CtxLogger(ctx).Info("Openshift workload agent service is disabled in the configuration")
+	if !s.Config.GetOpenshiftConfiguration().GetEnabled() {
+		// If Openshift workload agent service is not explicitly enabled in the configuration, then return.
+		log.CtxLogger(ctx).Debug("Openshift workload agent service is not enabled in the configuration")
 		return
 	}
+	log.CtxLogger(ctx).Debug("Starting OpenShift workload agent service")
 
 	// Start Openshift Metric Collection
 	mcCtx := log.SetCtx(ctx, "context", "OpenShiftMetricCollection")
@@ -70,13 +70,13 @@ func (s *Service) Start(ctx context.Context, a any) {
 	metricCollectionRoutine.StartRoutine(mcCtx)
 	select {
 	case <-ctx.Done():
-		log.CtxLogger(ctx).Info("Openshift workload agent service cancellation requested")
+		log.CtxLogger(ctx).Debug("Openshift workload agent service cancellation requested")
 		return
 	}
 }
 
 func runMetricCollection(ctx context.Context, a any) {
-	log.CtxLogger(ctx).Info("Starting OpenShift Metric Collection")
+	log.CtxLogger(ctx).Debug("Starting OpenShift Metric Collection")
 	var args runMetricCollectionArgs
 	var ok bool
 	if args, ok = a.(runMetricCollectionArgs); !ok {
@@ -90,7 +90,7 @@ func runMetricCollection(ctx context.Context, a any) {
 		collectMetrics(ctx, args)
 		select {
 		case <-ctx.Done():
-			log.CtxLogger(ctx).Info("OpenShift metric collection cancellation requested")
+			log.CtxLogger(ctx).Debug("OpenShift metric collection cancellation requested")
 			return
 		case <-ticker.C:
 			continue
