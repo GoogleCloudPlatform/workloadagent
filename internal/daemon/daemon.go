@@ -148,7 +148,7 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, restarting bool) error 
 		d.lp.CloudLoggingClient = log.CloudLoggingClient(ctx, d.config.GetCloudProperties().GetProjectId())
 	}
 	if d.lp.CloudLoggingClient != nil {
-		defer d.lp.CloudLoggingClient.Close()
+		defer log.FlushCloudLog()
 	}
 	log.SetupLogging(d.lp)
 
@@ -332,7 +332,7 @@ func (d *Daemon) waitForShutdown(ctx context.Context, restarting bool) {
 func (d *Daemon) restart() {
 	log.Logger.Info("Restarting daemon services")
 	d.cancel()
-	// Context cancellation is ansynchronous, give agent services some time to clean up.
+	// Context cancellation is asynchronous, give agent services some time to clean up.
 	time.Sleep(5 * time.Second)
 	var ctx context.Context
 	ctx, d.cancel = context.WithCancel(context.Background())
