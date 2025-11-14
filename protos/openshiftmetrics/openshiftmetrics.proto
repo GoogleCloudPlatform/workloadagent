@@ -121,12 +121,12 @@ message CsiDriver {
   Spec spec = 2;
 
   message Spec {
-    bool attach_required = 1;
-    bool pod_info_on_mount = 2;
+    optional bool attach_required = 1;
+    optional bool pod_info_on_mount = 2;
     repeated string volume_lifecycle_modes = 3;
-    bool storage_capacity = 4;
-    string fs_group_policy = 5;
-    bool requires_republish = 6;
+    optional bool storage_capacity = 4;
+    optional string fs_group_policy = 5;
+    optional bool requires_republish = 6;
     bool se_linux_mount = 7;
   }
 }
@@ -173,22 +173,10 @@ message StorageClassList {
 message StorageClass {
   ResourceMetadata metadata = 1;
   string provisioner = 2;
-  Parameters parameters = 3;
-  string reclaim_policy = 4;
-  bool allow_volume_expansion = 5;
-  string volume_binding_mode = 6;
-
-  message Parameters {
-    string replication_type = 1;
-    string type = 2;
-    // The KMS key used for disk encryption.
-    // Format:
-    // projects/PROJECT_ID/locations/LOCATION/keyRings/KEY_RING/cryptoKeys/KEY_NAME
-    string disk_encryption_kms_key = 3;
-    // Comma separated list of storage pools.
-    // Format: projects/PROJECT_ID/zones/ZONE/storagePools/STORAGE_POOL_NAME
-    string storage_pools = 4;
-  }
+  map<string, string> parameters = 3;
+  optional string reclaim_policy = 4;
+  optional bool allow_volume_expansion = 5;
+  optional string volume_binding_mode = 6;
 }
 
 // Container for K8/OCP persistent volume claims.
@@ -206,8 +194,8 @@ message PersistentVolumeClaim {
     repeated string access_modes = 1;
     Resources resources = 2;
     string volume_name = 3;
-    string storage_class_name = 4;
-    string volume_mode = 5;
+    optional string storage_class_name = 4;
+    optional string volume_mode = 5;
   }
 
   message Resources {
@@ -286,7 +274,7 @@ message PodSpec {
   repeated Container containers = 1;
   repeated Container init_containers = 2;
   repeated Volume volumes = 3;
-  repeated TopolgySpreadConstraints topology_spread_constraints = 4;
+  repeated TopologySpreadConstraints topology_spread_constraints = 4;
   Affinity affinity = 5;
 }
 
@@ -329,7 +317,7 @@ message EnvFrom {
 
 // Derived from
 // https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#topologyspreadconstraint-v1-core
-message TopolgySpreadConstraints {
+message TopologySpreadConstraints {
   string topology_key = 1;
 }
 
@@ -339,10 +327,12 @@ message Affinity {
   PodAntiAffinity pod_anti_affinity = 1;
 
   message PodAntiAffinity {
-    PreferredDuringSchedulingIgnoredDuringExecution
+    repeated PreferredDuringSchedulingIgnoredDuringExecution
         preferred_during_scheduling_ignored_during_execution = 1;
+
     message PreferredDuringSchedulingIgnoredDuringExecution {
       PodAffinityTerm pod_affinity_term = 1;
+
       message PodAffinityTerm {
         string topology_key = 1;
       }
