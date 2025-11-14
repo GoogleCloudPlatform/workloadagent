@@ -23,6 +23,7 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"google.golang.org/protobuf/encoding/protojson"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/openshiftmetrics/clients/openshift"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
@@ -31,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	ompb "github.com/GoogleCloudPlatform/workloadagent/protos/openshiftmetrics"
+	dwpb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/datawarehouse"
 )
 
 // OpenShiftMetrics contains variables and methods to collect metrics for OpenShift running on the current host.
@@ -124,6 +126,47 @@ func (o *OpenShiftMetrics) CollectMetrics(ctx context.Context, versionData Metri
 	logger.Debugw("Metric payload after collection", "payload", payload)
 
 	return payload, nil
+}
+
+// SendMetricsToWLM sends the metrics to the WLM API.
+func (o *OpenShiftMetrics) SendMetricsToWLM(ctx context.Context, config *configpb.Configuration, payload *ompb.OpenshiftMetricsPayload) error {
+	logger := log.CtxLogger(ctx)
+
+	if payload.GetClusterId() == "" {
+		return fmt.Errorf("cluster id is required")
+	}
+
+	// Convert the payload to a google.protobuf.Struct for sending to the WLM API.
+	marshalOpts := protojson.MarshalOptions{
+		UseProtoNames: true,
+	}
+	jsonPayload, err := marshalOpts.Marshal(payload)
+
+	if err != nil {
+		return err
+	}
+	validationDetails, err := jsonStringToStruct(string(jsonPayload))
+	if err != nil {
+		return err
+	}
+
+	writeInsightRequest := &dwpb.WriteInsightRequest{
+		Insight: &dwpb.Insight{
+			InstanceId: config.GetCloudProperties().GetInstanceId(),
+			OpenShiftValidation: &dwpb.OpenShiftValidation{
+				ClusterId:         payload.GetClusterId(),
+				ValidationDetails: validationDetails,
+			},
+		},
+	}
+	logger.Debugw("Generated WriteInsightRequest", "writeInsightRequest", writeInsightRequest)
+
+	resp, err := o.WLMClient.WriteInsightAndGetResponse(config.GetCloudProperties().GetProjectId(), config.GetCloudProperties().GetRegion(), writeInsightRequest)
+	if err != nil {
+		return err
+	}
+	logger.Debugw("WriteInsightAndGetResponse response", "response", resp)
+	return nil
 }
 
 // collectCusterVersionData collects the cluster version data from the cluster.

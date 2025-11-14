@@ -100,6 +100,7 @@ func runMetricCollection(ctx context.Context, a any) {
 
 // collectMetrics collects metrics from the OpenShift cluster and sends to the datawarehouse API.
 func collectMetrics(ctx context.Context, args runMetricCollectionArgs) {
+	log.CtxLogger(ctx).Debug("Creating OpenShift metric client")
 	metricClient := openshiftmetrics.New(ctx, args.s.Config, args.s.WLMClient)
 	if err := metricClient.Init(ctx); err != nil {
 		log.CtxLogger(ctx).Errorw("failed to initialize OpenShift metric client", "error", err)
@@ -118,8 +119,13 @@ func collectMetrics(ctx context.Context, args runMetricCollectionArgs) {
 		log.CtxLogger(ctx).Errorw("failed to collect metrics", "error", err)
 		return
 	}
-	log.CtxLogger(ctx).Debugw("Metrics collected", "metrics", metrics)
-	// TODO: send the payload to WLM
+	log.CtxLogger(ctx).Debugw("Metrics collected\n", metrics, "\nSending metrics to WLM")
+	if err := metricClient.SendMetricsToWLM(ctx, args.s.Config, metrics); err != nil {
+		// This fails silently so that the loop keeps running.
+		log.CtxLogger(ctx).Errorw("failed to write metrics to WLM", "error", err)
+		return
+	}
+	log.CtxLogger(ctx).Debug("Metrics successfully sent to WLM")
 }
 
 // String returns the name of the OpenShift service.
