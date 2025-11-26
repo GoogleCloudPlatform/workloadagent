@@ -246,7 +246,7 @@ func (o *OpenShiftMetrics) collectDeploymentData(ctx context.Context, namespaces
 				var envFrom []*ompb.EnvFrom
 				for _, e := range container.Env {
 					var valueFrom *ompb.Env_ValueFrom
-					if e.ValueFrom != nil {
+					if e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil {
 						valueFrom = &ompb.Env_ValueFrom{
 							SecretKeyRef: &ompb.Env_ValueFrom_SecretKeyRef{
 								Name: e.ValueFrom.SecretKeyRef.Name,
@@ -279,7 +279,7 @@ func (o *OpenShiftMetrics) collectDeploymentData(ctx context.Context, namespaces
 				var envFrom []*ompb.EnvFrom
 				for _, e := range container.Env {
 					var valueFrom *ompb.Env_ValueFrom
-					if e.ValueFrom != nil {
+					if e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil {
 						valueFrom = &ompb.Env_ValueFrom{
 							SecretKeyRef: &ompb.Env_ValueFrom_SecretKeyRef{
 								Name: e.ValueFrom.SecretKeyRef.Name,
@@ -417,7 +417,7 @@ func (o *OpenShiftMetrics) collectPersistentVolumeClaims(ctx context.Context, na
 				volumeMode = &vm
 			}
 
-			pvcList = append(pvcList, &ompb.PersistentVolumeClaim{
+			pvcProto := &ompb.PersistentVolumeClaim{
 				Metadata: &ompb.ResourceMetadata{
 					Name:              pvc.Name,
 					Uid:               string(pvc.UID),
@@ -428,12 +428,8 @@ func (o *OpenShiftMetrics) collectPersistentVolumeClaims(ctx context.Context, na
 					Annotations:       pvc.Annotations,
 				},
 				Spec: &ompb.PersistentVolumeClaim_Spec{
-					AccessModes: specAccessModes,
-					Resources: &ompb.PersistentVolumeClaim_Resources{
-						Requests: &ompb.PersistentVolumeClaim_Requests{
-							Storage: pvc.Spec.Resources.Requests.Storage().String(),
-						},
-					},
+					AccessModes:      specAccessModes,
+					Resources:        &ompb.PersistentVolumeClaim_Resources{},
 					VolumeName:       pvc.Spec.VolumeName,
 					StorageClassName: pvc.Spec.StorageClassName,
 					VolumeMode:       volumeMode,
@@ -441,11 +437,21 @@ func (o *OpenShiftMetrics) collectPersistentVolumeClaims(ctx context.Context, na
 				Status: &ompb.PersistentVolumeClaim_Status{
 					Phase:       string(pvc.Status.Phase),
 					AccessModes: statusAccessModes,
-					Capacity: &ompb.PersistentVolumeClaim_Capacity{
-						Storage: pvc.Status.Capacity.Storage().String(),
-					},
 				},
-			})
+			}
+
+			if pvc.Spec.Resources.Requests != nil {
+				pvcProto.Spec.Resources.Requests = &ompb.PersistentVolumeClaim_Requests{
+					Storage: pvc.Spec.Resources.Requests.Storage().String(),
+				}
+			}
+
+			if pvc.Status.Capacity != nil {
+				pvcProto.Status.Capacity = &ompb.PersistentVolumeClaim_Capacity{
+					Storage: pvc.Status.Capacity.Storage().String(),
+				}
+			}
+			pvcList = append(pvcList, pvcProto)
 		}
 	}
 
