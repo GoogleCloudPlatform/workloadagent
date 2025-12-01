@@ -209,151 +209,21 @@
               {
                 "timeSeriesQuery": {
                   "timeSeriesFilter": {
-                    "filter": "metric.type=\"workload.googleapis.com/oracle/process/sga_memory/buffer_cache_size\" resource.type=\"gce_instance\"",
+                    "filter": "metric.type=\"workload.googleapis.com/oracle/process/sga_memory/size\" resource.type=\"gce_instance\"",
                     "aggregation": {
                       "alignmentPeriod": "60s",
                       "perSeriesAligner": "ALIGN_MEAN",
                       "crossSeriesReducer": "REDUCE_SUM",
-                      "groupByFields": []
+                      "groupByFields": [
+                        "metric.label.\"component_name\""
+                      ]
                     }
                   },
                   "unitOverride": "",
                   "outputFullDuration": false
                 },
-                "plotType": "STACKED_AREA",
-                "legendTemplate": "SGA: Buffer Cache",
-                "minAlignmentPeriod": "60s",
-                "targetAxis": "Y1",
-                "dimensions": [],
-                "measures": [],
-                "breakdowns": []
-              },
-              {
-                "timeSeriesQuery": {
-                  "timeSeriesFilter": {
-                    "filter": "metric.type=\"workload.googleapis.com/oracle/process/sga_memory/fixed_sga_size\" resource.type=\"gce_instance\"",
-                    "aggregation": {
-                      "alignmentPeriod": "60s",
-                      "perSeriesAligner": "ALIGN_MEAN",
-                      "crossSeriesReducer": "REDUCE_SUM",
-                      "groupByFields": []
-                    }
-                  },
-                  "unitOverride": "",
-                  "outputFullDuration": false
-                },
-                "plotType": "STACKED_AREA",
-                "legendTemplate": "SGA: Fixed",
-                "minAlignmentPeriod": "60s",
-                "targetAxis": "Y1",
-                "dimensions": [],
-                "measures": [],
-                "breakdowns": []
-              },
-              {
-                "timeSeriesQuery": {
-                  "timeSeriesFilter": {
-                    "filter": "metric.type=\"workload.googleapis.com/oracle/process/sga_memory/free_sga_memory_available\" resource.type=\"gce_instance\"",
-                    "aggregation": {
-                      "alignmentPeriod": "60s",
-                      "perSeriesAligner": "ALIGN_MEAN",
-                      "crossSeriesReducer": "REDUCE_SUM",
-                      "groupByFields": []
-                    }
-                  },
-                  "unitOverride": "",
-                  "outputFullDuration": false
-                },
-                "plotType": "STACKED_AREA",
-                "legendTemplate": "SGA: Free",
-                "minAlignmentPeriod": "60s",
-                "targetAxis": "Y1",
-                "dimensions": [],
-                "measures": [],
-                "breakdowns": []
-              },
-              {
-                "timeSeriesQuery": {
-                  "timeSeriesFilter": {
-                    "filter": "metric.type=\"workload.googleapis.com/oracle/process/sga_memory/large_pool_size\" resource.type=\"gce_instance\"",
-                    "aggregation": {
-                      "alignmentPeriod": "60s",
-                      "perSeriesAligner": "ALIGN_MEAN",
-                      "crossSeriesReducer": "REDUCE_SUM",
-                      "groupByFields": []
-                    }
-                  },
-                  "unitOverride": "",
-                  "outputFullDuration": false
-                },
-                "plotType": "STACKED_AREA",
-                "legendTemplate": "SGA: Large Pool",
-                "minAlignmentPeriod": "60s",
-                "targetAxis": "Y1",
-                "dimensions": [],
-                "measures": [],
-                "breakdowns": []
-              },
-              {
-                "timeSeriesQuery": {
-                  "timeSeriesFilter": {
-                    "filter": "metric.type=\"workload.googleapis.com/oracle/process/sga_memory/shared_pool_size\" resource.type=\"gce_instance\"",
-                    "aggregation": {
-                      "alignmentPeriod": "60s",
-                      "perSeriesAligner": "ALIGN_MEAN",
-                      "crossSeriesReducer": "REDUCE_SUM",
-                      "groupByFields": []
-                    }
-                  },
-                  "unitOverride": "",
-                  "outputFullDuration": false
-                },
-                "plotType": "STACKED_AREA",
-                "legendTemplate": "SGA: Shared Pool",
-                "minAlignmentPeriod": "60s",
-                "targetAxis": "Y1",
-                "dimensions": [],
-                "measures": [],
-                "breakdowns": []
-              },
-              {
-                "timeSeriesQuery": {
-                  "timeSeriesFilter": {
-                    "filter": "metric.type=\"workload.googleapis.com/oracle/process/sga_memory/java_pool_size\" resource.type=\"gce_instance\"",
-                    "aggregation": {
-                      "alignmentPeriod": "60s",
-                      "perSeriesAligner": "ALIGN_MEAN",
-                      "crossSeriesReducer": "REDUCE_SUM",
-                      "groupByFields": []
-                    }
-                  },
-                  "unitOverride": "",
-                  "outputFullDuration": false
-                },
-                "plotType": "STACKED_AREA",
-                "legendTemplate": "SGA: Java Pool",
-                "minAlignmentPeriod": "60s",
-                "targetAxis": "Y1",
-                "dimensions": [],
-                "measures": [],
-                "breakdowns": []
-              },
-              {
-                "timeSeriesQuery": {
-                  "timeSeriesFilter": {
-                    "filter": "metric.type=\"workload.googleapis.com/oracle/process/sga_memory/streams_pool_size\" resource.type=\"gce_instance\"",
-                    "aggregation": {
-                      "alignmentPeriod": "60s",
-                      "perSeriesAligner": "ALIGN_MEAN",
-                      "crossSeriesReducer": "REDUCE_SUM",
-                      "groupByFields": []
-                    }
-                  },
-                  "unitOverride": "",
-                  "outputFullDuration": false
-                },
-                "plotType": "STACKED_AREA",
-                "legendTemplate": "SGA: Streams Pool",
+                "plotType": "LINE",
+                "legendTemplate": "SGA: ${metric.labels.component_name}",
                 "minAlignmentPeriod": "60s",
                 "targetAxis": "Y1",
                 "dimensions": [],
