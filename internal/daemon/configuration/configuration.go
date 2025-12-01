@@ -85,7 +85,7 @@ const (
 	
 
 	// AgentVersion is the version of the agent.
-	AgentVersion = `1.2`
+	AgentVersion = `1.3`
 	
 
 	// LinuxConfigPath is the default path to agent configuration file on linux.
@@ -373,7 +373,7 @@ func ensureConfigExists(stat StatFile, mkdirall MkdirAll, write WriteConfigFile)
 // WriteConfigToFile writes the contents of a configuration struct to a file at the given path.
 func WriteConfigToFile(config *cpb.Configuration, path string, write WriteConfigFile) error {
 	content, err := protojson.MarshalOptions{
-		Multiline: true,
+		Multiline:     true,
 		UseProtoNames: true,
 	}.Marshal(config)
 	if err != nil {
