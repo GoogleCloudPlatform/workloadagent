@@ -13,10 +13,10 @@ require (
   github.com/DATA-DOG/go-sqlmock v1.5.0
   // Get the version by running:
   // go list -m -json github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries@main
-  github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20251031163745-e32dea35788e
+  github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20251121062745-f54e4d15148c
   // Get the version by running:
   // go list -m -json github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos@main
-  github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20251031163745-e32dea35788e
+  github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20251121062745-f54e4d15148c
   github.com/StackExchange/wmi v1.2.1
   github.com/cenkalti/backoff/v4 v4.3.0
   github.com/gammazero/workerpool v1.1.3

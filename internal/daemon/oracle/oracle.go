@@ -24,14 +24,52 @@ import (
 	"time"
 
 	"github.com/GoogleCloudPlatform/workloadagent/internal/oraclediscovery"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/oraclehandlers"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/oraclemetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/metadataserver"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/guestactions"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/recovery"
 
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
+
+const (
+	defaultChannel = "oracle-operations-unregistered-channel"
+)
+
+var guestActionsHandlers = map[string]guestactions.GuestActionHandler{
+	"oracle_run_discovery":           oraclehandlers.RunDiscovery,
+	"oracle_stop_database":           oraclehandlers.StopDatabase,
+	"oracle_disable_autostart":       oraclehandlers.DisableAutostart,
+	"oracle_start_database":          oraclehandlers.StartDatabase,
+	"oracle_run_datapatch":           oraclehandlers.RunDatapatch,
+	"oracle_disable_restricted_mode": oraclehandlers.DisableRestrictedMode,
+	"oracle_start_listener":          oraclehandlers.StartListener,
+	"oracle_enable_autostart":        oraclehandlers.EnableAutostart,
+	"oracle_health_check":            oraclehandlers.HealthCheck,
+	"oracle_data_guard_switchover":   oraclehandlers.DataGuardSwitchover,
+}
+
+func convertCloudProperties(cp *cpb.CloudProperties) *metadataserver.CloudProperties {
+	if cp == nil {
+		return nil
+	}
+	return &metadataserver.CloudProperties{
+		ProjectID:           cp.GetProjectId(),
+		NumericProjectID:    cp.GetNumericProjectId(),
+		InstanceID:          cp.GetInstanceId(),
+		Zone:                cp.GetZone(),
+		InstanceName:        cp.GetInstanceName(),
+		Image:               cp.GetImage(),
+		MachineType:         cp.GetMachineType(),
+		Region:              cp.GetRegion(),
+		ServiceAccountEmail: cp.GetServiceAccountEmail(),
+		Scopes:              cp.GetScopes(),
+	}
+}
 
 // Service implements the interfaces for Oracle workload agent service.
 type Service struct {
@@ -44,6 +82,10 @@ type Service struct {
 	isProcessPresent        bool
 	processes               []servicecommunication.ProcessWrapper
 	processesMutex          sync.Mutex
+}
+
+type runGuestActionsArgs struct {
+	s *Service
 }
 
 type runDiscoveryArgs struct {
@@ -104,11 +146,40 @@ func (s *Service) Start(ctx context.Context, a any) {
 		}
 		s.metricCollectionRoutine.StartRoutine(mcCtx)
 	}
+
+	gaCtx := log.SetCtx(ctx, "context", "OracleGuestActions")
+	communicateRoutine := &recovery.RecoverableRoutine{
+		Routine:             runGuestActions,
+		RoutineArg:          runGuestActionsArgs{s},
+		ErrorCode:           usagemetrics.GuestActionsFailure,
+		UsageLogger:         *usagemetrics.UsageLogger,
+		ExpectedMinDuration: 10 * time.Second,
+	}
+	log.CtxLogger(ctx).Info("Starting ACS communication routine")
+	communicateRoutine.StartRoutine(gaCtx)
+
 	select {
 	case <-ctx.Done():
 		log.CtxLogger(ctx).Info("Oracle workload agent service cancellation requested")
 		return
 	}
+}
+
+func runGuestActions(ctx context.Context, a any) {
+	log.CtxLogger(ctx).Info("Running GuestActions")
+	var args runGuestActionsArgs
+	var ok bool
+	if args, ok = a.(runGuestActionsArgs); !ok {
+		log.CtxLogger(ctx).Error("args is not of type runGuestActionsArgs")
+		return
+	}
+	ga := &guestactions.GuestActions{}
+	gaOpts := guestactions.Options{
+		Channel:         defaultChannel,
+		CloudProperties: convertCloudProperties(args.s.CloudProps),
+		Handlers:        guestActionsHandlers,
+	}
+	ga.Start(ctx, gaOpts)
 }
 
 func runDiscovery(ctx context.Context, a any) {
