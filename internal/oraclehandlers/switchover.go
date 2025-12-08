@@ -25,7 +25,7 @@ import (
 )
 
 // DataGuardSwitchover implements the oracle_data_guard_switchover guest action.
-func DataGuardSwitchover(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
+func (h *OracleHandler) DataGuardSwitchover(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
 	log.CtxLogger(ctx).Info("oracle_data_guard_switchover handler called")
 	// TODO: Implement oracle_data_guard_switchover handler.
 	return &gpb.CommandResult{
