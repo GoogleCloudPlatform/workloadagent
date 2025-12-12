@@ -71,6 +71,7 @@ const (
 	MongoDBMetricCollectionFailure        = 33
 	MongoDBDiscoveryFailure               = 34
 	StartDaemonFailure                    = 35
+	GuestActionsFailure                   = 36
 )
 
 // Agent wide action mappings.

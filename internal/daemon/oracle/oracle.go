@@ -24,14 +24,54 @@ import (
 	"time"
 
 	"github.com/GoogleCloudPlatform/workloadagent/internal/oraclediscovery"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/oraclehandlers"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/oraclemetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/metadataserver"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/guestactions"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/recovery"
 
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
+
+const (
+	// This is an ephemeral channel, meaning ACLs/quota are managed within the instance's project
+	// where the agent is running, unlike registered channels that use a producer project.
+	defaultChannel = "oracle-operations-ephemeral-channel"
+)
+
+var guestActionsHandlers = map[string]guestactions.GuestActionHandler{
+	"oracle_run_discovery":           oraclehandlers.RunDiscovery,
+	"oracle_stop_database":           oraclehandlers.StopDatabase,
+	"oracle_disable_autostart":       oraclehandlers.DisableAutostart,
+	"oracle_start_database":          oraclehandlers.StartDatabase,
+	"oracle_run_datapatch":           oraclehandlers.RunDatapatch,
+	"oracle_disable_restricted_mode": oraclehandlers.DisableRestrictedMode,
+	"oracle_start_listener":          oraclehandlers.StartListener,
+	"oracle_enable_autostart":        oraclehandlers.EnableAutostart,
+	"oracle_health_check":            oraclehandlers.HealthCheck,
+	"oracle_data_guard_switchover":   oraclehandlers.DataGuardSwitchover,
+}
+
+func convertCloudProperties(cp *cpb.CloudProperties) *metadataserver.CloudProperties {
+	if cp == nil {
+		return nil
+	}
+	return &metadataserver.CloudProperties{
+		ProjectID:           cp.GetProjectId(),
+		NumericProjectID:    cp.GetNumericProjectId(),
+		InstanceID:          cp.GetInstanceId(),
+		Zone:                cp.GetZone(),
+		InstanceName:        cp.GetInstanceName(),
+		Image:               cp.GetImage(),
+		MachineType:         cp.GetMachineType(),
+		Region:              cp.GetRegion(),
+		ServiceAccountEmail: cp.GetServiceAccountEmail(),
+		Scopes:              cp.GetScopes(),
+	}
+}
 
 // Service implements the interfaces for Oracle workload agent service.
 type Service struct {
@@ -44,6 +84,10 @@ type Service struct {
 	isProcessPresent        bool
 	processes               []servicecommunication.ProcessWrapper
 	processesMutex          sync.Mutex
+}
+
+type runGuestActionsArgs struct {
+	s *Service
 }
 
 type runDiscoveryArgs struct {
@@ -104,6 +148,18 @@ func (s *Service) Start(ctx context.Context, a any) {
 		}
 		s.metricCollectionRoutine.StartRoutine(mcCtx)
 	}
+
+	gaCtx := log.SetCtx(ctx, "context", "OracleGuestActions")
+	guestActionsRoutine := &recovery.RecoverableRoutine{
+		Routine:             runGuestActions,
+		RoutineArg:          runGuestActionsArgs{s},
+		ErrorCode:           usagemetrics.GuestActionsFailure,
+		UsageLogger:         *usagemetrics.UsageLogger,
+		ExpectedMinDuration: 10 * time.Second,
+	}
+	log.CtxLogger(ctx).Info("Starting guest actions routine")
+	guestActionsRoutine.StartRoutine(gaCtx)
+
 	select {
 	case <-ctx.Done():
 		log.CtxLogger(ctx).Info("Oracle workload agent service cancellation requested")
@@ -111,11 +167,26 @@ func (s *Service) Start(ctx context.Context, a any) {
 	}
 }
 
+func runGuestActions(ctx context.Context, a any) {
+	log.CtxLogger(ctx).Infow("Starting guest actions listener", "channel_id", defaultChannel)
+	args, ok := a.(runGuestActionsArgs)
+	if !ok {
+		log.CtxLogger(ctx).Error("args is not of type runGuestActionsArgs")
+		return
+	}
+	ga := &guestactions.GuestActions{}
+	gaOpts := guestactions.Options{
+		Channel:         defaultChannel,
+		CloudProperties: convertCloudProperties(args.s.CloudProps),
+		Handlers:        guestActionsHandlers,
+	}
+	ga.Start(ctx, gaOpts)
+}
+
 func runDiscovery(ctx context.Context, a any) {
 	log.CtxLogger(ctx).Info("Running Oracle Discovery")
-	var args runDiscoveryArgs
-	var ok bool
-	if args, ok = a.(runDiscoveryArgs); !ok {
+	args, ok := a.(runDiscoveryArgs)
+	if !ok {
 		log.CtxLogger(ctx).Error("args is not of type runDiscoveryArgs")
 		return
 	}
@@ -164,9 +235,8 @@ func runDiscovery(ctx context.Context, a any) {
 
 func runMetricCollection(ctx context.Context, a any) {
 	log.CtxLogger(ctx).Info("Running Oracle metric collection")
-	var args runMetricCollectionArgs
-	var ok bool
-	if args, ok = a.(runMetricCollectionArgs); !ok {
+	args, ok := a.(runMetricCollectionArgs)
+	if !ok {
 		log.CtxLogger(ctx).Errorw("Failed to parse metric collection args", "args", a)
 		return
 	}
