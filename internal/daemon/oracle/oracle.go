@@ -42,19 +42,6 @@ const (
 	defaultChannel = "oracle-operations-ephemeral-channel"
 )
 
-var guestActionsHandlers = map[string]guestactions.GuestActionHandler{
-	"oracle_run_discovery":           oraclehandlers.RunDiscovery,
-	"oracle_stop_database":           oraclehandlers.StopDatabase,
-	"oracle_disable_autostart":       oraclehandlers.DisableAutostart,
-	"oracle_start_database":          oraclehandlers.StartDatabase,
-	"oracle_run_datapatch":           oraclehandlers.RunDatapatch,
-	"oracle_disable_restricted_mode": oraclehandlers.DisableRestrictedMode,
-	"oracle_start_listener":          oraclehandlers.StartListener,
-	"oracle_enable_autostart":        oraclehandlers.EnableAutostart,
-	"oracle_health_check":            oraclehandlers.HealthCheck,
-	"oracle_data_guard_switchover":   oraclehandlers.DataGuardSwitchover,
-}
-
 func convertCloudProperties(cp *cpb.CloudProperties) *metadataserver.CloudProperties {
 	if cp == nil {
 		return nil
@@ -87,7 +74,8 @@ type Service struct {
 }
 
 type runGuestActionsArgs struct {
-	s *Service
+	s        *Service
+	handlers map[string]guestactions.GuestActionHandler
 }
 
 type runDiscoveryArgs struct {
@@ -149,10 +137,24 @@ func (s *Service) Start(ctx context.Context, a any) {
 		s.metricCollectionRoutine.StartRoutine(mcCtx)
 	}
 
+	oracleHandler := oraclehandlers.New()
+	handlers := map[string]guestactions.GuestActionHandler{
+		"oracle_run_discovery":           oracleHandler.RunDiscovery,
+		"oracle_stop_database":           oracleHandler.StopDatabase,
+		"oracle_disable_autostart":       oracleHandler.DisableAutostart,
+		"oracle_start_database":          oracleHandler.StartDatabase,
+		"oracle_run_datapatch":           oracleHandler.RunDatapatch,
+		"oracle_disable_restricted_mode": oracleHandler.DisableRestrictedMode,
+		"oracle_start_listener":          oracleHandler.StartListener,
+		"oracle_enable_autostart":        oracleHandler.EnableAutostart,
+		"oracle_health_check":            oracleHandler.HealthCheck,
+		"oracle_data_guard_switchover":   oracleHandler.DataGuardSwitchover,
+	}
+
 	gaCtx := log.SetCtx(ctx, "context", "OracleGuestActions")
 	guestActionsRoutine := &recovery.RecoverableRoutine{
 		Routine:             runGuestActions,
-		RoutineArg:          runGuestActionsArgs{s},
+		RoutineArg:          runGuestActionsArgs{s: s, handlers: handlers},
 		ErrorCode:           usagemetrics.GuestActionsFailure,
 		UsageLogger:         *usagemetrics.UsageLogger,
 		ExpectedMinDuration: 10 * time.Second,
@@ -178,7 +180,7 @@ func runGuestActions(ctx context.Context, a any) {
 	gaOpts := guestactions.Options{
 		Channel:         defaultChannel,
 		CloudProperties: convertCloudProperties(args.s.CloudProps),
-		Handlers:        guestActionsHandlers,
+		Handlers:        args.handlers,
 	}
 	ga.Start(ctx, gaOpts)
 }
