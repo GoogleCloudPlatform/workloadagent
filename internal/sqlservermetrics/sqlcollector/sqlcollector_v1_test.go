@@ -240,3 +240,98 @@ func TestClose(t *testing.T) {
 		t.Errorf("Close() = %v, want nil", err)
 	}
 }
+
+func TestExecuteSQL(t *testing.T) {
+	ctx := context.Background()
+	cols := []string{"id", "name", "value"}
+	baseQuery := "SELECT id, name, value FROM test_table"
+
+	testcases := []struct {
+		name           string
+		mockQueryError error
+		expectedRows   *sqlmock.Rows
+		expectedResult [][]any
+		wantErr        bool
+	}{
+		{
+			name:           "Success_MultipleRows",
+			mockQueryError: nil,
+			expectedRows: sqlmock.NewRows(cols).
+				AddRow(int64(1), "Alice", "data1").
+				AddRow(int64(2), "Bob", "data2").
+				AddRow(nil, "Charlie", nil), // Testing nil values
+			expectedResult: [][]any{
+				{int64(1), "Alice", "data1"},
+				{int64(2), "Bob", "data2"},
+				{nil, "Charlie", nil},
+			},
+			wantErr: false,
+		},
+		{
+			name:           "Error_QueryFails",
+			mockQueryError: errors.New("invalid SQL syntax"),
+			expectedRows:   nil,
+			expectedResult: nil,
+			wantErr:        true,
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			// 1. Setup Mock DB
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
+			}
+			defer db.Close()
+
+			c := &V1{
+				dbConn:  db,
+				windows: false,
+			}
+			// 2. Setup Mock Expectations
+			queryExpect := mock.ExpectQuery(baseQuery)
+			if tc.mockQueryError != nil {
+				queryExpect.WillReturnError(tc.mockQueryError)
+			} else if tc.expectedRows != nil {
+				queryExpect.WillReturnRows(tc.expectedRows)
+			}
+			// 3. Execute the function
+			result, err := c.ExecuteSQL(ctx, baseQuery)
+
+			// 4. Assertions
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("ExecuteSQL() expected error, but got none")
+				}
+				if result != nil {
+					t.Errorf("ExecuteSQL() got result %v on error, want nil", result)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("ExecuteSQL() unexpected error: %v", err)
+				}
+				// Compare successful results
+				if len(result) != len(tc.expectedResult) {
+					t.Errorf("ExecuteSQL() got %d rows, want %d", len(result), len(tc.expectedResult))
+				} else {
+					// Check content row by row, cell by cell
+					for i, row := range result {
+						for j, cell := range row {
+							expectedCell := tc.expectedResult[i][j]
+							if cell != expectedCell {
+								// Note: %v works well for comparing any types, including nil/NULL values
+								t.Errorf("ExecuteSQL() row %d, col %d got %v (%T), want %v (%T)",
+									i, j, cell, cell, expectedCell, expectedCell)
+							}
+						}
+					}
+				}
+			}
+			// 5. Ensure all expectations were met
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("There were unfulfilled expectations: %s", err)
+			}
+		})
+	}
+}

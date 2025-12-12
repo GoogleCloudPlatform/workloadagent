@@ -156,7 +156,7 @@ var (
 
 // Version returns the major and minor version of the SQL Server.
 func Version(ctx context.Context, c *V1) (string, string, error) {
-	queryResult, err := c.executeSQL(ctx, sqlMetrics[versionQueryKey].query)
+	queryResult, err := c.ExecuteSQL(ctx, sqlMetrics[versionQueryKey].query)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to run sql query: %v", err)
 	}
@@ -228,7 +228,7 @@ func exposedToBroadIPAccess(result, metrics map[string]string) {
 // PopulateSignals populates the signals for the SQL Server in the metrics map.
 func PopulateSignals(ctx context.Context, c *V1, metrics map[string]string) {
 	for _, signal := range signals {
-		queryResult, err := c.executeSQL(ctx, sqlMetrics[signal].query)
+		queryResult, err := c.ExecuteSQL(ctx, sqlMetrics[signal].query)
 		if err != nil {
 			log.Logger.Errorw("Failed to run sql query", "query", sqlMetrics[signal].query, "error", err)
 			continue

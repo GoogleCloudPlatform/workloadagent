@@ -49,7 +49,7 @@ func (c *V1) CollectSQLMetrics(ctx context.Context, timeout time.Duration) []sql
 		func() {
 			ctxWithTimeout, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
-			queryResult, err := c.executeSQL(ctxWithTimeout, rule.Query)
+			queryResult, err := c.ExecuteSQL(ctxWithTimeout, rule.Query)
 			if err != nil {
 				log.Logger.Errorw("Failed to run sql query", "query", rule.Query, "error", err)
 				return
@@ -81,7 +81,7 @@ func (c *V1) Close() error {
 	return c.dbConn.Close()
 }
 
-func (c *V1) executeSQL(ctx context.Context, query string) ([][]any, error) {
+func (c *V1) ExecuteSQL(ctx context.Context, query string) ([][]any, error) {
 	err := c.dbConn.PingContext(ctx)
 	if err != nil {
 		return nil, err
