@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package oraclehandlers implements guest action handlers for Oracle.
 package oraclehandlers
 
 import (
@@ -26,7 +25,7 @@ import (
 )
 
 // HealthCheck implements the oracle_health_check guest action.
-func HealthCheck(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
+func (h *OracleHandler) HealthCheck(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
 	log.CtxLogger(ctx).Info("oracle_health_check handler called")
 	// TODO: Implement oracle_health_check handler.
 	return &gpb.CommandResult{

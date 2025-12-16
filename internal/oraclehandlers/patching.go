@@ -25,7 +25,7 @@ import (
 )
 
 // DisableAutostart implements the oracle_disable_autostart guest action.
-func DisableAutostart(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
+func (h *OracleHandler) DisableAutostart(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
 	log.CtxLogger(ctx).Info("oracle_disable_autostart handler called")
 	// TODO: Implement oracle_disable_autostart handler.
 	return &gpb.CommandResult{
@@ -36,7 +36,7 @@ func DisableAutostart(ctx context.Context, command *gpb.Command, cloudProperties
 }
 
 // RunDatapatch implements the oracle_run_datapatch guest action.
-func RunDatapatch(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
+func (h *OracleHandler) RunDatapatch(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
 	log.CtxLogger(ctx).Info("oracle_run_datapatch handler called")
 	// TODO: Implement oracle_run_datapatch handler.
 	return &gpb.CommandResult{
@@ -47,7 +47,7 @@ func RunDatapatch(ctx context.Context, command *gpb.Command, cloudProperties *me
 }
 
 // DisableRestrictedMode implements the oracle_disable_restricted_mode guest action.
-func DisableRestrictedMode(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
+func (h *OracleHandler) DisableRestrictedMode(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
 	log.CtxLogger(ctx).Info("oracle_disable_restricted_mode handler called")
 	// TODO: Implement oracle_disable_restricted_mode handler.
 	return &gpb.CommandResult{
@@ -58,7 +58,7 @@ func DisableRestrictedMode(ctx context.Context, command *gpb.Command, cloudPrope
 }
 
 // StartListener implements the oracle_start_listener guest action.
-func StartListener(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
+func (h *OracleHandler) StartListener(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
 	log.CtxLogger(ctx).Info("oracle_start_listener handler called")
 	// TODO: Implement oracle_start_listener handler.
 	return &gpb.CommandResult{
@@ -69,7 +69,7 @@ func StartListener(ctx context.Context, command *gpb.Command, cloudProperties *m
 }
 
 // EnableAutostart implements the oracle_enable_autostart guest action.
-func EnableAutostart(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
+func (h *OracleHandler) EnableAutostart(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
 	log.CtxLogger(ctx).Info("oracle_enable_autostart handler called")
 	// TODO: Implement oracle_enable_autostart handler.
 	return &gpb.CommandResult{
