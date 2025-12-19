@@ -19,6 +19,8 @@ package openshift
 
 import (
 	"context"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
@@ -33,8 +35,8 @@ import (
 )
 
 const (
-	wlmCollectionFrequency = 30 * time.Second
-	payloadVersion         = "v0.1.0-pre"
+	defaultCollectionFrequency = 30 * time.Second
+	payloadVersion             = "v0.1.0-pre"
 )
 
 // Service implements the interfaces for OpenShift workload agent service.
@@ -47,6 +49,24 @@ type Service struct {
 
 type runMetricCollectionArgs struct {
 	s *Service
+}
+
+func getCollectionFrequencySeconds(ctx context.Context) time.Duration {
+	raw := os.Getenv("OPENSHIFT_WLA_COLLECTION_FREQUENCY_SECONDS")
+	if raw == "" {
+		return defaultCollectionFrequency
+	}
+
+	parsed, err := strconv.Atoi(raw)
+	if err != nil {
+		log.CtxLogger(ctx).Warnf("failed to parse collection frequency seconds", "error", err)
+		return defaultCollectionFrequency
+	}
+	if parsed == 0 {
+		return defaultCollectionFrequency
+	}
+
+	return time.Duration(parsed) * time.Second
 }
 
 // Start initiates the Openshift workload agent service
@@ -65,7 +85,7 @@ func (s *Service) Start(ctx context.Context, a any) {
 		RoutineArg:          runMetricCollectionArgs{s},
 		ErrorCode:           usagemetrics.OpenShiftMetricCollectionFailure,
 		UsageLogger:         *usagemetrics.UsageLogger,
-		ExpectedMinDuration: wlmCollectionFrequency,
+		ExpectedMinDuration: getCollectionFrequencySeconds(ctx),
 	}
 	metricCollectionRoutine.StartRoutine(mcCtx)
 	select {
@@ -83,7 +103,7 @@ func runMetricCollection(ctx context.Context, a any) {
 		log.CtxLogger(ctx).Errorf("failed to parse metric collection args", "args", a)
 		return
 	}
-	ticker := time.NewTicker(wlmCollectionFrequency)
+	ticker := time.NewTicker(getCollectionFrequencySeconds(ctx))
 	defer ticker.Stop()
 
 	for {
