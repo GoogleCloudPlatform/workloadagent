@@ -21,9 +21,11 @@ import (
 	"fmt"
 	"strings"
 
-	codepb "google.golang.org/genproto/googleapis/rpc/code"
+	"go.uber.org/zap"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/metadataserver"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
+
+	codepb "google.golang.org/genproto/googleapis/rpc/code"
 	gpb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/guestactions"
 )
 
@@ -40,48 +42,37 @@ const (
 	alreadyRunning = "ORA-01081"
 )
 
-func validateParams(ctx context.Context, command *gpb.Command, params map[string]string) *gpb.CommandResult {
-	for _, requiredParam := range []string{"oracle_sid", "oracle_home", "oracle_user"} {
-		if params[requiredParam] == "" {
-			errMsg := fmt.Sprintf("parameter %s is missing", requiredParam)
-			log.CtxLogger(ctx).Warnw(errMsg, "oracle_sid", params["oracle_sid"], "oracle_home", params["oracle_home"], "oracle_user", params["oracle_user"])
-			return commandResult(ctx, command, errMsg, "", codepb.Code_INVALID_ARGUMENT, errMsg, fmt.Errorf("%s", errMsg))
-		}
-	}
-	return nil
-}
-
 // StopDatabase implements the oracle_stop_database guest action.
 // It attempts to shut down the database gracefully using "SHUTDOWN IMMEDIATE".
 // If the command fails, it returns an error in the payload.
 func (h *OracleHandler) StopDatabase(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
 	params := command.GetAgentCommand().GetParameters()
-	logger := log.CtxLogger(ctx).With("oracle_sid", params["oracle_sid"], "oracle_home", params["oracle_home"], "oracle_user", params["oracle_user"])
-	logger.Infow("oracle_stop_database handler called")
-	if result := validateParams(ctx, command, params); result != nil {
+	logger := log.CtxLogger(ctx)
+	if result := validateParams(ctx, logger, command, params); result != nil {
 		return result
 	}
+	logger = logger.With("oracle_sid", params["oracle_sid"], "oracle_home", params["oracle_home"], "oracle_user", params["oracle_user"])
+	logger.Infow("oracle_stop_database handler called")
 
-	unlock, result := h.lockDatabase(ctx, command)
+	unlock, result := h.lockDatabase(ctx, logger, command)
 	if result != nil {
 		return result
 	}
 	defer unlock()
 
 	// TODO: Handle Data Guard standby databases.
-	stdout, stderr, err := stopDatabase(ctx, params)
+	stdout, stderr, err := stopDatabase(ctx, logger, params)
 	if err != nil {
 		logger.Warnw("stopDatabase failed", "stdout", stdout, "stderr", stderr, "error", err)
-		return commandResult(ctx, command, stdout, stderr, codepb.Code_FAILED_PRECONDITION, err.Error(), err)
+		return commandResult(ctx, logger, command, stdout, stderr, codepb.Code_FAILED_PRECONDITION, err.Error(), err)
 	}
-	return commandResult(ctx, command, stdout, stderr, codepb.Code_OK, "database stopped successfully", nil)
+	return commandResult(ctx, logger, command, stdout, stderr, codepb.Code_OK, "Database stopped successfully", nil)
 }
 
 // stopDatabase contains the core logic for stopping the database.
-func stopDatabase(ctx context.Context, params map[string]string) (stdout, stderr string, err error) {
-	logger := log.CtxLogger(ctx).With("oracle_sid", params["oracle_sid"], "oracle_home", params["oracle_home"], "oracle_user", params["oracle_user"])
+func stopDatabase(ctx context.Context, logger *zap.SugaredLogger, params map[string]string) (stdout, stderr string, err error) {
 	// TODO: Handle Data Guard standby databases.
-	stdout, stderr, err = runSQL(ctx, params, "SHUTDOWN IMMEDIATE")
+	stdout, stderr, err = runSQL(ctx, params, "SHUTDOWN IMMEDIATE", 120)
 	if err != nil {
 		return stdout, stderr, fmt.Errorf("shutdown command failed: %w", err)
 	}
@@ -101,13 +92,14 @@ func stopDatabase(ctx context.Context, params map[string]string) (stdout, stderr
 // If the database is already mounted, it attempts to open it.
 func (h *OracleHandler) StartDatabase(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
 	params := command.GetAgentCommand().GetParameters()
-	logger := log.CtxLogger(ctx).With("oracle_sid", params["oracle_sid"], "oracle_home", params["oracle_home"], "oracle_user", params["oracle_user"])
-	logger.Infow("oracle_start_database handler called")
-	if result := validateParams(ctx, command, params); result != nil {
+	logger := log.CtxLogger(ctx)
+	if result := validateParams(ctx, logger, command, params); result != nil {
 		return result
 	}
+	logger = logger.With("oracle_sid", params["oracle_sid"], "oracle_home", params["oracle_home"], "oracle_user", params["oracle_user"])
+	logger.Infow("oracle_start_database handler called")
 
-	unlock, result := h.lockDatabase(ctx, command)
+	unlock, result := h.lockDatabase(ctx, logger, command)
 	if result != nil {
 		return result
 	}
@@ -117,26 +109,25 @@ func (h *OracleHandler) StartDatabase(ctx context.Context, command *gpb.Command,
 	// Cases to consider:
 	// 1. Active Data Guard: Open read-only.
 	// 2. Manual standby (no broker): Initiate managed recovery.
-	stdout, stderr, err := startDatabase(ctx, params)
+	stdout, stderr, err := startDatabase(ctx, logger, params)
 	if err != nil {
 		logger.Warnw("startDatabase failed", "stdout", stdout, "stderr", stderr, "error", err)
-		return commandResult(ctx, command, stdout, stderr, codepb.Code_FAILED_PRECONDITION, err.Error(), err)
+		return commandResult(ctx, logger, command, stdout, stderr, codepb.Code_FAILED_PRECONDITION, err.Error(), err)
 	}
-	return commandResult(ctx, command, stdout, stderr, codepb.Code_OK, "database started successfully", nil)
+	return commandResult(ctx, logger, command, stdout, stderr, codepb.Code_OK, "Database started successfully", nil)
 }
 
 // startDatabase contains the core logic for starting the database.
-func startDatabase(ctx context.Context, params map[string]string) (stdout, stderr string, err error) {
-	logger := log.CtxLogger(ctx).With("oracle_sid", params["oracle_sid"], "oracle_home", params["oracle_home"], "oracle_user", params["oracle_user"], "startup_mode", params["startup_mode"])
+func startDatabase(ctx context.Context, logger *zap.SugaredLogger, params map[string]string) (stdout, stderr string, err error) {
 	startupCmd := "STARTUP"
 	if params["startup_mode"] == "restricted" {
 		startupCmd += " RESTRICT"
 	}
-	logger.Infow("Attempting database startup")
+	logger.Infow("Attempting database startup", "startup_cmd", startupCmd)
 
 	// TODO: Handle ORA-16005: database requires recovery.
 	// See https://docs.oracle.com/en/error-help/db/ora-16005/?r=19c for more details.
-	stdout, stderr, err = runSQL(ctx, params, startupCmd)
+	stdout, stderr, err = runSQL(ctx, params, startupCmd, 120)
 	if err != nil {
 		return stdout, stderr, fmt.Errorf("startup command failed: %w", err)
 	}
@@ -148,7 +139,7 @@ func startDatabase(ctx context.Context, params map[string]string) (stdout, stder
 
 	if strings.Contains(stdout, alreadyRunning) {
 		logger.Infow("Database is already running, checking status (MOUNTED or OPEN)")
-		statusStdOut, statusStdErr, statusErr := runSQL(ctx, params, "SELECT status FROM v$instance;")
+		statusStdOut, statusStdErr, statusErr := runSQL(ctx, params, "SELECT status FROM v$instance;", 120)
 		if statusErr != nil {
 			return statusStdOut, statusStdErr, fmt.Errorf("failed to get instance status: %w", statusErr)
 		}
@@ -159,7 +150,7 @@ func startDatabase(ctx context.Context, params map[string]string) (stdout, stder
 		}
 
 		logger.Infow("Database is not OPEN, attempting to open", "current_status", statusStdOut)
-		alterStdOut, alterStdErr, alterErr := runSQL(ctx, params, "WHENEVER SQLERROR EXIT FAILURE\nALTER DATABASE OPEN")
+		alterStdOut, alterStdErr, alterErr := runSQL(ctx, params, "WHENEVER SQLERROR EXIT FAILURE\nALTER DATABASE OPEN", 120)
 
 		if alterErr != nil {
 			return alterStdOut, alterStdErr, fmt.Errorf("alter database open failed: %w", alterErr)

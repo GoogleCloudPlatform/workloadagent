@@ -22,16 +22,17 @@ import (
 	"strings"
 	"testing"
 
+	"google.golang.org/protobuf/proto"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
+
 	anypb "google.golang.org/protobuf/types/known/anypb"
 	codepb "google.golang.org/genproto/googleapis/rpc/code"
 	spb "google.golang.org/genproto/googleapis/rpc/status"
-	"google.golang.org/protobuf/proto"
-	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
 	gpb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/guestactions"
 )
 
-func createMockRunSQL(queries map[string]*commandlineexecutor.Result) func(context.Context, map[string]string, string) (string, string, error) {
-	return func(ctx context.Context, params map[string]string, query string) (string, string, error) {
+func createMockRunSQL(queries map[string]*commandlineexecutor.Result) func(context.Context, map[string]string, string, int) (string, string, error) {
+	return func(ctx context.Context, params map[string]string, query string, timeout int) (string, string, error) {
 		result, ok := queries[query]
 		if !ok {
 			return "", "", fmt.Errorf("unexpected query: %s", query)
@@ -144,7 +145,7 @@ func TestStopDatabaseLocked(t *testing.T) {
 	runSQLBlocked := make(chan bool)
 	unblockRunSQL := make(chan bool)
 
-	runSQL = func(ctx context.Context, params map[string]string, query string) (string, string, error) {
+	runSQL = func(ctx context.Context, params map[string]string, query string, timeout int) (string, string, error) {
 		runSQLBlocked <- true
 		<-unblockRunSQL
 		return shutdownSuccess, "", nil
@@ -317,7 +318,7 @@ func TestStartDatabaseLocked(t *testing.T) {
 	runSQLBlocked := make(chan bool)
 	unblockRunSQL := make(chan bool)
 
-	runSQL = func(ctx context.Context, params map[string]string, query string) (string, string, error) {
+	runSQL = func(ctx context.Context, params map[string]string, query string, timeout int) (string, string, error) {
 		runSQLBlocked <- true // Signal that runSQL has been reached
 		<-unblockRunSQL       // Pause here until signaled to continue
 		return startupSuccess, "", nil

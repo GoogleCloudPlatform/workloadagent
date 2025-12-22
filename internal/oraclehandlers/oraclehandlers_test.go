@@ -21,11 +21,13 @@ import (
 	"fmt"
 	"testing"
 
+	"google.golang.org/protobuf/proto"
+	"go.uber.org/zap"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
+
 	anypb "google.golang.org/protobuf/types/known/anypb"
 	codepb "google.golang.org/genproto/googleapis/rpc/code"
 	spb "google.golang.org/genproto/googleapis/rpc/status"
-	"google.golang.org/protobuf/proto"
-	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
 	gpb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/guestactions"
 )
 
@@ -85,7 +87,7 @@ func TestCommandResult(t *testing.T) {
 			if tc.code != codepb.Code_OK {
 				err = fmt.Errorf("%s", tc.message)
 			}
-			got := commandResult(context.Background(), tc.command, tc.result.StdOut, tc.result.StdErr, tc.code, tc.message, err)
+			got := commandResult(context.Background(), zap.NewNop().Sugar(), tc.command, tc.result.StdOut, tc.result.StdErr, tc.code, tc.message, err)
 			if got.GetCommand() != tc.command {
 				t.Errorf("commandResult() command = %v, want %v", got.GetCommand(), tc.command)
 			}

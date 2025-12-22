@@ -19,13 +19,15 @@ package oraclehandlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
+
+	"go.uber.org/zap"
 
 	anypb "google.golang.org/protobuf/types/known/anypb"
 	codepb "google.golang.org/genproto/googleapis/rpc/code"
 	spb "google.golang.org/genproto/googleapis/rpc/status"
-	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 	gpb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/guestactions"
 )
 
@@ -54,9 +56,8 @@ func New() *OracleHandler {
 // and returns:
 // 1. A cleanup function to release the lock, which should be deferred by the caller.
 // 2. A nil CommandResult.
-func (h *OracleHandler) lockDatabase(ctx context.Context, command *gpb.Command) (func(), *gpb.CommandResult) {
+func (h *OracleHandler) lockDatabase(ctx context.Context, logger *zap.SugaredLogger, command *gpb.Command) (func(), *gpb.CommandResult) {
 	params := command.GetAgentCommand().GetParameters()
-	logger := log.CtxLogger(ctx).With("oracle_sid", params["oracle_sid"], "oracle_home", params["oracle_home"], "oracle_user", params["oracle_user"])
 	commandName := command.GetAgentCommand().GetCommand()
 
 	h.opMu.Lock()
@@ -87,9 +88,7 @@ func (h *OracleHandler) lockDatabase(ctx context.Context, command *gpb.Command) 
 }
 
 // commandResult creates a gpb.CommandResult with the given status code and message packed into the payload.
-func commandResult(ctx context.Context, command *gpb.Command, stdout, stderr string, code codepb.Code, message string, execErr error) *gpb.CommandResult {
-	params := command.GetAgentCommand().GetParameters()
-	logger := log.CtxLogger(ctx).With("oracle_sid", params["oracle_sid"], "oracle_home", params["oracle_home"], "oracle_user", params["oracle_user"])
+func commandResult(ctx context.Context, logger *zap.SugaredLogger, command *gpb.Command, stdout, stderr string, code codepb.Code, message string, execErr error) *gpb.CommandResult {
 	anyPayload, err := anypb.New(&spb.Status{
 		Code:    int32(code),
 		Message: message,
@@ -113,4 +112,20 @@ func commandResult(ctx context.Context, command *gpb.Command, stdout, stderr str
 		res.ExitCode = 1 // Generic failure code
 	}
 	return res
+}
+
+func validateParams(ctx context.Context, logger *zap.SugaredLogger, command *gpb.Command, params map[string]string) *gpb.CommandResult {
+	if params == nil {
+		errMsg := "Agent command parameters are missing"
+		logger.Warnw(errMsg)
+		return commandResult(ctx, logger, command, errMsg, "", codepb.Code_INVALID_ARGUMENT, errMsg, errors.New(errMsg))
+	}
+	for _, requiredParam := range []string{"oracle_sid", "oracle_home", "oracle_user"} {
+		if val, ok := params[requiredParam]; !ok || val == "" {
+			errMsg := fmt.Sprintf("Parameter %s is missing", requiredParam)
+			logger.Warnw(errMsg)
+			return commandResult(ctx, logger, command, errMsg, "", codepb.Code_INVALID_ARGUMENT, errMsg, errors.New(errMsg))
+		}
+	}
+	return nil
 }

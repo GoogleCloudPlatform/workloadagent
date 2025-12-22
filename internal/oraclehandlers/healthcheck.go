@@ -18,19 +18,52 @@ package oraclehandlers
 
 import (
 	"context"
+	"fmt"
+	"regexp"
 
+	"go.uber.org/zap"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/metadataserver"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
+
+	codepb "google.golang.org/genproto/googleapis/rpc/code"
 	gpb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/guestactions"
 )
 
-// HealthCheck implements the oracle_health_check guest action.
+var errorRegex = regexp.MustCompile(`ORA-\d+`)
+
+const healthCheckTimeoutSeconds = 15
+
+// HealthCheck checks if the database is healthy by executing a simple SQL query.
 func (h *OracleHandler) HealthCheck(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
-	log.CtxLogger(ctx).Info("oracle_health_check handler called")
-	// TODO: Implement oracle_health_check handler.
-	return &gpb.CommandResult{
-		Command:  command,
-		ExitCode: 1,
-		Stdout:   "oracle_health_check not implemented.",
+	params := command.GetAgentCommand().GetParameters()
+	logger := log.CtxLogger(ctx)
+	if result := validateParams(ctx, logger, command, params); result != nil {
+		return result
 	}
+	logger = logger.With("oracle_sid", params["oracle_sid"], "oracle_home", params["oracle_home"], "oracle_user", params["oracle_user"])
+	logger.Debugw("oracle_health_check handler called")
+	unlock, result := h.lockDatabase(ctx, logger, command)
+	if result != nil {
+		return result
+	}
+	defer unlock()
+
+	stdout, stderr, err := healthCheck(ctx, logger, params)
+	if err != nil {
+		logger.Warnw("healthCheck failed", "stdout", stdout, "stderr", stderr, "error", err)
+		return commandResult(ctx, logger, command, stdout, stderr, codepb.Code_FAILED_PRECONDITION, err.Error(), err)
+	}
+	logger.Debugw("Database is healthy")
+	return commandResult(ctx, logger, command, stdout, stderr, codepb.Code_OK, "Database is healthy", nil)
+}
+
+func healthCheck(ctx context.Context, logger *zap.SugaredLogger, params map[string]string) (stdout, stderr string, err error) {
+	stdout, stderr, err = runSQL(ctx, params, "SELECT 1 FROM dual;", healthCheckTimeoutSeconds)
+	if err != nil {
+		return stdout, stderr, fmt.Errorf("health check failed: %w", err)
+	}
+	if errorRegex.MatchString(stdout) {
+		return stdout, stderr, fmt.Errorf("health check failed: %s", stdout)
+	}
+	return stdout, stderr, nil
 }

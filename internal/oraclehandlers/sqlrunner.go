@@ -43,7 +43,7 @@ var (
 )
 
 // runSQL executes the given SQL query and returns the result.
-var runSQL = func(ctx context.Context, params map[string]string, query string) (string, string, error) {
+var runSQL = func(ctx context.Context, params map[string]string, query string, timeout int) (string, string, error) {
 	oracleSID := params["oracle_sid"]
 	oracleHome := params["oracle_home"]
 	oracleUser := params["oracle_user"]
@@ -56,7 +56,7 @@ var runSQL = func(ctx context.Context, params map[string]string, query string) (
 		Env:     []string{"ORACLE_SID=" + oracleSID, "ORACLE_HOME=" + oracleHome, "LD_LIBRARY_PATH=" + filepath.Join(oracleHome, "lib")},
 		User:    oracleUser,
 		Stdin:   fmt.Sprintf("%s\n%s", sqlSettings, query),
-		Timeout: 120,
+		Timeout: timeout,
 	})
 
 	stdout := strings.TrimSpace(result.StdOut)
