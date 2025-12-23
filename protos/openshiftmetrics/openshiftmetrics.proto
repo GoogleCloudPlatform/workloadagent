@@ -51,6 +51,8 @@ message OpenshiftMetricsPayload {
   ResourceListContainer custom_resource_definitions = 12;
   // The nodes in the Openshift cluster.
   ResourceListContainer nodes = 13;
+  // The cloud credential config of the Openshift cluster.
+  CloudCredentialConfig cloud_credential_config = 14;
 }
 
 // General container for K8 resources.
@@ -337,5 +339,15 @@ message Affinity {
         string topology_key = 1;
       }
     }
+  }
+}
+
+// Reference: https://docs.redhat.com/en/documentation/openshift_container_platform/4.10/html/authentication_and_authorization/managing-cloud-provider-credentials
+message CloudCredentialConfig {
+  ResourceMetadata metadata = 1;
+  Spec spec = 2;
+
+  message Spec {
+    string credentials_mode = 1;
   }
 }
