@@ -74,3 +74,31 @@ func (c *Client) GetClusterVersion() (*ClusterVersionResponse, error) {
 	}
 	return &clusterVersionResponse, nil
 }
+
+// GetCloudCredentialConfig returns the cloud credential config of the Openshift cluster.
+func (c *Client) GetCloudCredentialConfig() (*CloudCredentialConfigResponse, error) {
+	uri := "/apis/operator.openshift.io/v1/cloudcredentials/cluster"
+	url := fmt.Sprintf("%s%s", c.config.Host, uri)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	// TODO: implement retry logic.
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get cloud credential config: %v", string(body))
+	}
+	var cloudCredentialConfigResponse CloudCredentialConfigResponse
+	if err := json.Unmarshal(body, &cloudCredentialConfigResponse); err != nil {
+		return nil, err
+	}
+	return &cloudCredentialConfigResponse, nil
+}

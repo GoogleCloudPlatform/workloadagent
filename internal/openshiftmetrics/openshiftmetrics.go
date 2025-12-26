@@ -123,6 +123,10 @@ func (o *OpenShiftMetrics) CollectMetrics(ctx context.Context, versionData Metri
 		logger.Warnw("Failed to collect CSI drivers data", "error", err)
 	}
 
+	if err := o.collectCloudCredentialConfig(ctx, payload); err != nil {
+		logger.Warnw("Failed to collect cloud credential config data", "error", err)
+	}
+
 	logger.Debugw("Metric payload after collection", "payload", payload)
 
 	return payload, nil
@@ -609,5 +613,27 @@ func (o *OpenShiftMetrics) collectCSIDrivers(ctx context.Context, payload *ompb.
 		ContainerItems: &ompb.ResourceListContainer_CsiDrivers{CsiDrivers: &ompb.CsiDriverList{Items: csiDriverList}},
 	}
 
+	return nil
+}
+
+// collectCloudCredentialConfig collects the cloud credential config from the cluster.
+func (o *OpenShiftMetrics) collectCloudCredentialConfig(ctx context.Context, payload *ompb.OpenshiftMetricsPayload) error {
+	cloudCredentialConfig, err := o.OpenShiftClient.GetCloudCredentialConfig()
+	if err != nil {
+		log.CtxLogger(ctx).Warnw("Failed to get cloud credential config", "error", err)
+		return err
+	}
+	payload.CloudCredentialConfig = &ompb.CloudCredentialConfig{
+		Metadata: &ompb.ResourceMetadata{
+			Name:              cloudCredentialConfig.Metadata.Name,
+			Uid:               string(cloudCredentialConfig.Metadata.UID),
+			ResourceVersion:   cloudCredentialConfig.Metadata.ResourceVersion,
+			Generation:        int64(cloudCredentialConfig.Metadata.Generation),
+			CreationTimestamp: tspb.New(cloudCredentialConfig.Metadata.CreationTimestamp),
+		},
+		Spec: &ompb.CloudCredentialConfig_Spec{
+			CredentialsMode: cloudCredentialConfig.Spec.CredentialsMode,
+		},
+	}
 	return nil
 }

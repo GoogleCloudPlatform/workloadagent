@@ -39,3 +39,19 @@ type ClusterVersionResponse struct {
 		} `json:"spec"`
 	} `json:"items"`
 }
+
+// CloudCredentialConfigResponse is the response from the Openshift cloud credential API.
+type CloudCredentialConfigResponse struct {
+	APIVersion string `json:"apiVersion"`
+	Kind       string `json:"kind"`
+	Metadata   struct {
+		CreationTimestamp time.Time `json:"creationTimestamp"`
+		Generation        int       `json:"generation"`
+		Name              string    `json:"name"`
+		ResourceVersion   string    `json:"resourceVersion"`
+		UID               string    `json:"uid"`
+	} `json:"metadata"`
+	Spec struct {
+		CredentialsMode string `json:"credentialsMode"`
+	} `json:"spec"`
+}

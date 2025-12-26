@@ -60,6 +60,28 @@ func (f *fakeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			}`))),
 		}, nil
 	}
+	if req.URL.Path == "/apis/operator.openshift.io/v1/cloudcredentials/cluster" {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(bytes.NewReader([]byte(`{
+				"apiVersion": "operator.openshift.io/v1",
+				"kind": "CloudCredential",
+				"metadata": {
+					"creationTimestamp": "2025-05-14T06:33:06Z",
+					"generation": 1,
+					"name": "cluster",
+					"resourceVersion": "508",
+					"uid": "4f896355-45cd-403a-9953-2b4c9dab04e6"
+				},
+				"spec": {
+					"credentialsMode": "Mint",
+					"logLevel": "Normal",
+					"operatorLogLevel": "Normal"
+				}
+			}`))),
+		}, nil
+	}
 
 	serializer := k8sjson.NewSerializerWithOptions(k8sjson.DefaultMetaFactory, k8sscheme.Scheme, k8sscheme.Scheme, k8sjson.SerializerOptions{Yaml: false, Pretty: false, Strict: false})
 	var obj runtime.Object
@@ -265,5 +287,21 @@ func TestCollectMetrics(t *testing.T) {
 	}
 	if diff := cmp.Diff(wantCsiDrivers, payload.GetCsiDrivers().GetCsiDrivers(), cmpOpts...); diff != "" {
 		t.Errorf("CollectMetrics() csi drivers diff (-want +got):\n%s", diff)
+	}
+
+	wantCloudCredentialConfig := &ompb.CloudCredentialConfig{
+		Metadata: &ompb.ResourceMetadata{
+			Name:              "cluster",
+			Uid:               "4f896355-45cd-403a-9953-2b4c9dab04e6",
+			ResourceVersion:   "508",
+			CreationTimestamp: tspb.New(time.Date(2025, time.May, 14, 6, 33, 6, 0, time.UTC)),
+			Generation:        1,
+		},
+		Spec: &ompb.CloudCredentialConfig_Spec{
+			CredentialsMode: "Mint",
+		},
+	}
+	if diff := cmp.Diff(wantCloudCredentialConfig, payload.GetCloudCredentialConfig(), cmpOpts...); diff != "" {
+		t.Errorf("CollectMetrics() cloud credential config diff (-want +got):\n%s", diff)
 	}
 }
