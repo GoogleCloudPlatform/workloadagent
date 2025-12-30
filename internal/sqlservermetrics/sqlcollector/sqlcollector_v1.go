@@ -82,13 +82,8 @@ func (c *V1) Close() error {
 }
 
 func (c *V1) ExecuteSQL(ctx context.Context, query string) ([][]any, error) {
-	err := c.dbConn.PingContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	// Execute query
-	rows, err := c.dbConn.QueryContext(ctx, query)
+	rows, err := c.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -114,4 +109,13 @@ func (c *V1) ExecuteSQL(ctx context.Context, query string) ([][]any, error) {
 
 	}
 	return res, nil
+}
+
+func (c *V1) QueryContext(ctx context.Context, query string) (*sql.Rows, error) {
+	err := c.dbConn.PingContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Execute query
+	return c.dbConn.QueryContext(ctx, query)
 }
