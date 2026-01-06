@@ -35,6 +35,9 @@ import (
 	dwpb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/datawarehouse"
 )
 
+// WLMNamespace is the namespace that the WLM agent is installed in.
+const WLMNamespace = "workloadmanager"
+
 // OpenShiftMetrics contains variables and methods to collect metrics for OpenShift running on the current host.
 type OpenShiftMetrics struct {
 	WLMClient       workloadmanager.WLMWriter
@@ -115,7 +118,8 @@ func (o *OpenShiftMetrics) CollectMetrics(ctx context.Context, versionData Metri
 		logger.Warnw("Failed to collect storage classes data", "error", err)
 	}
 
-	if err := o.collectConfigMaps(ctx, namespaces, payload); err != nil {
+	// TODO: Clean this up once we have a better way to handle config map we need.
+	if err := o.collectConfigMaps(ctx, []string{WLMNamespace}, payload); err != nil {
 		logger.Warnw("Failed to collect config maps data", "error", err)
 	}
 

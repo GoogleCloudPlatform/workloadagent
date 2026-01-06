@@ -127,6 +127,13 @@ func (f *fakeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 				Data:       map[string]string{"key": "value"},
 			}},
 		}
+	case "/api/v1/namespaces/workloadmanager/configmaps":
+		obj = &corev1.ConfigMapList{
+			Items: []corev1.ConfigMap{{
+				ObjectMeta: metav1.ObjectMeta{Name: "wlm-cluster-environment", Namespace: "workloadmanager", UID: "cm-uid-2", ResourceVersion: "5", CreationTimestamp: metav1.NewTime(f.now)},
+				Data:       map[string]string{"environment": "production"},
+			}},
+		}
 	case "/apis/storage.k8s.io/v1/csidrivers":
 		obj = &storagev1.CSIDriverList{
 			Items: []storagev1.CSIDriver{{
@@ -268,8 +275,8 @@ func TestCollectMetrics(t *testing.T) {
 	wantCms := &ompb.ConfigMapList{
 		Items: []*ompb.ConfigMap{
 			{
-				Metadata: &ompb.ResourceMetadata{Name: "test-cm", Uid: "cm-uid", ResourceVersion: "5", CreationTimestamp: nowProto},
-				Data:     map[string]string{"key": "value"},
+				Metadata: &ompb.ResourceMetadata{Name: "wlm-cluster-environment", Uid: "cm-uid-2", ResourceVersion: "5", CreationTimestamp: nowProto},
+				Data:     map[string]string{"environment": "production"},
 			},
 		},
 	}
