@@ -25,7 +25,7 @@ import (
 )
 
 // RunDiscovery implements the oracle_run_discovery guest action.
-func (h *OracleHandler) RunDiscovery(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
+func RunDiscovery(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
 	log.CtxLogger(ctx).Info("oracle_run_discovery handler called")
 	// TODO: Implement oracle_run_discovery handler.
 	return &gpb.CommandResult{

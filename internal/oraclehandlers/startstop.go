@@ -45,7 +45,7 @@ const (
 // StopDatabase implements the oracle_stop_database guest action.
 // It attempts to shut down the database gracefully using "SHUTDOWN IMMEDIATE".
 // If the command fails, it returns an error in the payload.
-func (h *OracleHandler) StopDatabase(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
+func StopDatabase(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
 	params := command.GetAgentCommand().GetParameters()
 	logger := log.CtxLogger(ctx)
 	if result := validateParams(ctx, logger, command, params); result != nil {
@@ -53,12 +53,6 @@ func (h *OracleHandler) StopDatabase(ctx context.Context, command *gpb.Command, 
 	}
 	logger = logger.With("oracle_sid", params["oracle_sid"], "oracle_home", params["oracle_home"], "oracle_user", params["oracle_user"])
 	logger.Infow("oracle_stop_database handler called")
-
-	unlock, result := h.lockDatabase(ctx, logger, command)
-	if result != nil {
-		return result
-	}
-	defer unlock()
 
 	// TODO: Handle Data Guard standby databases.
 	stdout, stderr, err := stopDatabase(ctx, logger, params)
@@ -90,7 +84,7 @@ func stopDatabase(ctx context.Context, logger *zap.SugaredLogger, params map[str
 // StartDatabase implements the oracle_start_database guest action.
 // It checks the current status of the database and starts it if it is not already running.
 // If the database is already mounted, it attempts to open it.
-func (h *OracleHandler) StartDatabase(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
+func StartDatabase(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
 	params := command.GetAgentCommand().GetParameters()
 	logger := log.CtxLogger(ctx)
 	if result := validateParams(ctx, logger, command, params); result != nil {
@@ -98,12 +92,6 @@ func (h *OracleHandler) StartDatabase(ctx context.Context, command *gpb.Command,
 	}
 	logger = logger.With("oracle_sid", params["oracle_sid"], "oracle_home", params["oracle_home"], "oracle_user", params["oracle_user"])
 	logger.Infow("oracle_start_database handler called")
-
-	unlock, result := h.lockDatabase(ctx, logger, command)
-	if result != nil {
-		return result
-	}
-	defer unlock()
 
 	// TODO: Handle Data Guard standby databases.
 	// Cases to consider:
