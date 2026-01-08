@@ -217,7 +217,7 @@ func TestCollectMetrics(t *testing.T) {
 	wantDeployments := &ompb.DeploymentList{
 		Items: []*ompb.Deployment{
 			{
-				Metadata: &ompb.ResourceMetadata{Name: "test-dep", Uid: "dep-uid", ResourceVersion: "2", CreationTimestamp: nowProto},
+				Metadata: &ompb.ResourceMetadata{Name: "test-dep", Uid: "dep-uid", ResourceVersion: "2", CreationTimestamp: nowProto, Namespace: "default"},
 				Spec: &ompb.Deployment_Spec{
 					PodTemplate: &ompb.PodTemplate{
 						Metadata: &ompb.ResourceMetadata{
@@ -243,7 +243,7 @@ func TestCollectMetrics(t *testing.T) {
 		wantPvcs := &ompb.PersistentVolumeClaimList{
 			Items: []*ompb.PersistentVolumeClaim{
 				{
-					Metadata: &ompb.ResourceMetadata{Name: "test-pvc", Uid: "pvc-uid", ResourceVersion: "3", CreationTimestamp: nowProto},
+					Metadata: &ompb.ResourceMetadata{Name: "test-pvc", Uid: "pvc-uid", ResourceVersion: "3", CreationTimestamp: nowProto, Namespace: "default"},
 					Spec: &ompb.PersistentVolumeClaim_Spec{
 						Resources: &ompb.PersistentVolumeClaim_Resources{
 							Requests: &ompb.PersistentVolumeClaim_Requests{Storage: "1Gi"},
@@ -275,7 +275,7 @@ func TestCollectMetrics(t *testing.T) {
 	wantCms := &ompb.ConfigMapList{
 		Items: []*ompb.ConfigMap{
 			{
-				Metadata: &ompb.ResourceMetadata{Name: "wlm-cluster-environment", Uid: "cm-uid-2", ResourceVersion: "5", CreationTimestamp: nowProto},
+				Metadata: &ompb.ResourceMetadata{Name: "wlm-cluster-environment", Uid: "cm-uid-2", ResourceVersion: "5", CreationTimestamp: nowProto, Namespace: "workloadmanager"},
 				Data:     map[string]string{"environment": "production"},
 			},
 		},

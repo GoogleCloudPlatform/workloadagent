@@ -352,6 +352,7 @@ func (o *OpenShiftMetrics) collectDeploymentData(ctx context.Context, namespaces
 					CreationTimestamp: tspb.New(deployment.CreationTimestamp.Time),
 					Labels:            deployment.Labels,
 					Annotations:       deployment.Annotations,
+					Namespace:         namespace,
 				},
 				Spec: &ompb.Deployment_Spec{
 					PodTemplate: &ompb.PodTemplate{
@@ -434,6 +435,7 @@ func (o *OpenShiftMetrics) collectPersistentVolumeClaims(ctx context.Context, na
 					CreationTimestamp: tspb.New(pvc.CreationTimestamp.Time),
 					Labels:            pvc.Labels,
 					Annotations:       pvc.Annotations,
+					Namespace:         namespace,
 				},
 				Spec: &ompb.PersistentVolumeClaim_Spec{
 					AccessModes:      specAccessModes,
@@ -551,6 +553,7 @@ func (o *OpenShiftMetrics) collectConfigMaps(ctx context.Context, namespaces []s
 					CreationTimestamp: tspb.New(configMap.CreationTimestamp.Time),
 					Labels:            configMap.Labels,
 					Annotations:       configMap.Annotations,
+					Namespace:         namespace,
 				},
 				Data: configMap.Data,
 			})
