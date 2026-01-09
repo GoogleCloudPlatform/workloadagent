@@ -91,6 +91,7 @@ func (o *OpenShiftMetrics) CollectMetrics(ctx context.Context, versionData Metri
 	payload := &ompb.OpenshiftMetricsPayload{
 		Version:      versionData.PayloadVersion,
 		AgentVersion: versionData.AgentVersion,
+		ScanTimestamp: tspb.Now(),
 	}
 	logger := log.CtxLogger(ctx)
 	logger.Debugw("Base metric payload", "payload", payload)

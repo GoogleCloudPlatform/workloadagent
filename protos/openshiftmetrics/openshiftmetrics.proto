@@ -53,6 +53,8 @@ message OpenshiftMetricsPayload {
   ResourceListContainer nodes = 13;
   // The cloud credential config of the Openshift cluster.
   CloudCredentialConfig cloud_credential_config = 14;
+  // The UTC timestamp when the metric payload was generated.
+  google.protobuf.Timestamp scan_timestamp = 15;
 }
 
 // General container for K8 resources.
@@ -342,7 +344,8 @@ message Affinity {
   }
 }
 
-// Reference: https://docs.redhat.com/en/documentation/openshift_container_platform/4.10/html/authentication_and_authorization/managing-cloud-provider-credentials
+// Reference:
+// https://docs.redhat.com/en/documentation/openshift_container_platform/4.20/html/authentication_and_authorization/managing-cloud-provider-credentials
 message CloudCredentialConfig {
   ResourceMetadata metadata = 1;
   Spec spec = 2;
