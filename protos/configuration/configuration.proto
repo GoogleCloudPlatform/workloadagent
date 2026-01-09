@@ -98,6 +98,7 @@ message MySQLConfiguration {
 message OpenShiftConfiguration {
   optional bool enabled = 1;
   ConnectionParameters connection_parameters = 2;
+  google.protobuf.Duration collection_frequency = 3;
 }
 
 message CommonDiscovery {
