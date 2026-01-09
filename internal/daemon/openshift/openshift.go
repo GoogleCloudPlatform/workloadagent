@@ -33,8 +33,8 @@ import (
 )
 
 const (
-	wlmCollectionFrequency = 30 * time.Second
-	payloadVersion         = "v0.1.0-pre"
+	wlmCollectionFrequency = 30 * time.Minute
+	payloadVersion         = "v0.0.1-pre"
 )
 
 // Service implements the interfaces for OpenShift workload agent service.
