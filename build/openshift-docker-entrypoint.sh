@@ -23,7 +23,6 @@ check_vars() {
     return 0
 }
 
-# TODO: check for existence of secret files
 # Sensitive variables are from mounted secrets
 OCP_USERNAME=$(cat /etc/secrets/ocp-username)
 OCP_PASSWORD=$(cat /etc/secrets/ocp-password)
@@ -31,6 +30,7 @@ OCP_PASSWORD=$(cat /etc/secrets/ocp-password)
 # Non sensitive variables with reasonable defaults
 LOG_LEVEL="${LOG_LEVEL:-INFO}"
 COLLECTION_FREQUENCY="${COLLECTION_FREQUENCY:-60s}"
+DATA_WAREHOUSE_ENDPOINT="${DATA_WAREHOUSE_ENDPOINT:-'https://workloadmanager-datawarehouse.googleapis.com/'}"
 
 
 echo "Checking for either kubernetes service account token or environment variables"
@@ -54,6 +54,7 @@ CONFIG_FILE_PATH=/etc/google-cloud-workload-agent/configuration.json
 # https://www.baeldung.com/linux/jq-json-nesting-variables
 jq -nc \
   --arg log_level "$LOG_LEVEL" \
+  --arg data_warehouse_endpoint "$DATA_WAREHOUSE_ENDPOINT" \
   --arg collection_frequency "$COLLECTION_FREQUENCY" \
   --arg ocp_username "$OCP_USERNAME" \
   --arg ocp_password "$OCP_PASSWORD" \
@@ -62,6 +63,7 @@ jq -nc \
   --arg region "$REGION" \
   '{
     log_level: $log_level,
+    data_warehouse_endpoint: $data_warehouse_endpoint,
     cloud_properties: {
       project_id: $project_id,
       region: $region
