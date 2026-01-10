@@ -20,6 +20,7 @@ package oracle
 import (
 	"context"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,6 +35,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/recovery"
 
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
+	gpb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/guestactions"
 )
 
 const (
@@ -74,8 +76,8 @@ type Service struct {
 }
 
 type runGuestActionsArgs struct {
-	s        *Service
-	handlers map[string]guestactions.GuestActionHandler
+	s           *Service
+	lroHandlers map[string]guestactions.GuestActionHandler
 }
 
 type runDiscoveryArgs struct {
@@ -137,24 +139,23 @@ func (s *Service) Start(ctx context.Context, a any) {
 		s.metricCollectionRoutine.StartRoutine(mcCtx)
 	}
 
-	oracleHandler := oraclehandlers.New()
-	handlers := map[string]guestactions.GuestActionHandler{
-		"oracle_run_discovery":           oracleHandler.RunDiscovery,
-		"oracle_stop_database":           oracleHandler.StopDatabase,
-		"oracle_disable_autostart":       oracleHandler.DisableAutostart,
-		"oracle_start_database":          oracleHandler.StartDatabase,
-		"oracle_run_datapatch":           oracleHandler.RunDatapatch,
-		"oracle_disable_restricted_mode": oracleHandler.DisableRestrictedMode,
-		"oracle_start_listener":          oracleHandler.StartListener,
-		"oracle_enable_autostart":        oracleHandler.EnableAutostart,
-		"oracle_health_check":            oracleHandler.HealthCheck,
-		"oracle_data_guard_switchover":   oracleHandler.DataGuardSwitchover,
+	lroHandlers := map[string]guestactions.GuestActionHandler{
+		"oracle_data_guard_switchover":   oraclehandlers.DataGuardSwitchover,
+		"oracle_disable_autostart":       oraclehandlers.DisableAutostart,
+		"oracle_disable_restricted_mode": oraclehandlers.DisableRestrictedMode,
+		"oracle_enable_autostart":        oraclehandlers.EnableAutostart,
+		"oracle_health_check":            oraclehandlers.HealthCheck,
+		"oracle_run_datapatch":           oraclehandlers.RunDatapatch,
+		"oracle_run_discovery":           oraclehandlers.RunDiscovery,
+		"oracle_start_database":          oraclehandlers.StartDatabase,
+		"oracle_start_listener":          oraclehandlers.StartListener,
+		"oracle_stop_database":           oraclehandlers.StopDatabase,
 	}
 
 	gaCtx := log.SetCtx(ctx, "context", "OracleGuestActions")
 	guestActionsRoutine := &recovery.RecoverableRoutine{
 		Routine:             runGuestActions,
-		RoutineArg:          runGuestActionsArgs{s: s, handlers: handlers},
+		RoutineArg:          runGuestActionsArgs{s: s, lroHandlers: lroHandlers},
 		ErrorCode:           usagemetrics.GuestActionsFailure,
 		UsageLogger:         *usagemetrics.UsageLogger,
 		ExpectedMinDuration: 10 * time.Second,
@@ -178,11 +179,37 @@ func runGuestActions(ctx context.Context, a any) {
 	}
 	ga := &guestactions.GuestActions{}
 	gaOpts := guestactions.Options{
-		Channel:         defaultChannel,
-		CloudProperties: convertCloudProperties(args.s.CloudProps),
-		Handlers:        args.handlers,
+		Channel:               defaultChannel,
+		CloudProperties:       convertCloudProperties(args.s.CloudProps),
+		LROHandlers:           args.lroHandlers,
+		CommandConcurrencyKey: oracleCommandKey,
 	}
 	ga.Start(ctx, gaOpts)
+}
+
+// oracleCommandKey returns the locking key and timeout for a given command and whether the command
+// should be locked.
+// The locking key is the Oracle SID.
+func oracleCommandKey(cmd *gpb.Command) (key string, timeout time.Duration, lock bool) {
+	if cmd.GetAgentCommand().GetParameters() == nil {
+		return "", 0, false
+	}
+	sid, ok := cmd.GetAgentCommand().GetParameters()["oracle_sid"]
+	if !ok || sid == "" {
+		return "", 0, false
+	}
+
+	cmdName := strings.ToLower(cmd.GetAgentCommand().GetCommand())
+	switch cmdName {
+	case "oracle_start_database", "oracle_stop_database", "oracle_data_guard_switchover", "oracle_run_discovery", "oracle_start_listener":
+		return sid, 3 * time.Minute, true
+	case "oracle_run_datapatch":
+		return sid, 30 * time.Minute, true
+	case "oracle_disable_autostart", "oracle_disable_restricted_mode", "oracle_enable_autostart", "oracle_health_check":
+		return sid, 1 * time.Minute, true
+	default:
+		return sid, 10 * time.Minute, true
+	}
 }
 
 func runDiscovery(ctx context.Context, a any) {

@@ -19,7 +19,6 @@ package oraclehandlers
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -84,7 +83,6 @@ func TestHealthCheck(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			origRunSQL := runSQL
-			h := New()
 			defer func() { runSQL = origRunSQL }()
 			runSQL = createMockRunSQL(tc.sqlQueries)
 
@@ -96,7 +94,7 @@ func TestHealthCheck(t *testing.T) {
 					},
 				},
 			}
-			result := h.HealthCheck(context.Background(), command, nil)
+			result := HealthCheck(context.Background(), command, nil)
 
 			s := &spb.Status{}
 			if err := anypb.UnmarshalTo(result.Payload, s, proto.UnmarshalOptions{}); err != nil {
@@ -106,51 +104,5 @@ func TestHealthCheck(t *testing.T) {
 				t.Errorf("HealthCheck() with params %v returned error code %d, want %d", tc.params, s.Code, tc.wantErrorCode)
 			}
 		})
-	}
-}
-
-func TestHealthCheckLocked(t *testing.T) {
-	h := New()
-	sid := "locked_sid"
-	params := map[string]string{
-		"oracle_sid":  sid,
-		"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
-		"oracle_user": "oracle",
-	}
-	command := &gpb.Command{
-		CommandType: &gpb.Command_AgentCommand{
-			AgentCommand: &gpb.AgentCommand{
-				Command:    "oracle_health_check",
-				Parameters: params,
-			},
-		},
-	}
-
-	origRunSQL := runSQL
-	defer func() { runSQL = origRunSQL }()
-
-	runSQLBlocked := make(chan bool)
-	unblockRunSQL := make(chan bool)
-
-	runSQL = func(ctx context.Context, params map[string]string, query string, timeout int) (string, string, error) {
-		runSQLBlocked <- true
-		<-unblockRunSQL
-		return "1", "", nil
-	}
-
-	go h.HealthCheck(context.Background(), command, nil)
-	<-runSQLBlocked
-	result := h.HealthCheck(context.Background(), command, nil)
-	unblockRunSQL <- true
-
-	s := &spb.Status{}
-	if err := anypb.UnmarshalTo(result.Payload, s, proto.UnmarshalOptions{}); err != nil {
-		t.Fatalf("Failed to unmarshal payload: %v", err)
-	}
-	if s.Code != int32(codepb.Code_ABORTED) {
-		t.Errorf("HealthCheck() with params %v returned error code %d, want %d", params, s.Code, codepb.Code_ABORTED)
-	}
-	if !strings.Contains(s.Message, "oracle_health_check") {
-		t.Errorf("HealthCheck() with params %v returned %q, want %q", params, s.Message, "oracle_health_check")
 	}
 }
