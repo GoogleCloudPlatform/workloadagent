@@ -18,19 +18,25 @@ package oraclehandlers
 
 import (
 	"context"
+	"strings"
+	"testing"
 
-	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/metadataserver"
-	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 	gpb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/guestactions"
 )
 
-// DataGuardSwitchover implements the oracle_data_guard_switchover guest action.
-func DataGuardSwitchover(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
-	log.CtxLogger(ctx).Info("oracle_data_guard_switchover handler called")
-	// TODO: Implement oracle_data_guard_switchover handler.
-	return &gpb.CommandResult{
-		Command:  command,
-		ExitCode: 1,
-		Stdout:   "oracle_data_guard_switchover not implemented.",
+func TestDataGuardSwitchover_NotImplemented(t *testing.T) {
+	command := &gpb.Command{
+		CommandType: &gpb.Command_AgentCommand{
+			AgentCommand: &gpb.AgentCommand{
+				Command: "oracle_data_guard_switchover",
+			},
+		},
+	}
+	result := DataGuardSwitchover(context.Background(), command, nil)
+	if result.GetExitCode() != 1 {
+		t.Errorf("DataGuardSwitchover() returned exit code %d, want 1", result.GetExitCode())
+	}
+	if !strings.Contains(result.GetStdout(), "not implemented") {
+		t.Errorf("DataGuardSwitchover() returned stdout %q, want 'not implemented'", result.GetStdout())
 	}
 }

@@ -19,7 +19,6 @@ package oraclehandlers
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -92,12 +91,23 @@ func TestStopDatabase(t *testing.T) {
 			},
 			wantErrorCode: codepb.Code_OK,
 		},
+		{
+			name: "shutdown immediate unexpected output",
+			params: map[string]string{
+				"oracle_sid":  "orcl",
+				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
+				"oracle_user": "oracle",
+			},
+			sqlQueries: map[string]*commandlineexecutor.Result{
+				"SHUTDOWN IMMEDIATE": &commandlineexecutor.Result{StdOut: "Some unexpected output"},
+			},
+			wantErrorCode: codepb.Code_FAILED_PRECONDITION,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			origRunSQL := runSQL
-			h := New()
 			defer func() { runSQL = origRunSQL }()
 			runSQL = createMockRunSQL(tc.sqlQueries)
 
@@ -109,7 +119,7 @@ func TestStopDatabase(t *testing.T) {
 					},
 				},
 			}
-			result := h.StopDatabase(context.Background(), command, nil)
+			result := StopDatabase(context.Background(), command, nil)
 
 			s := &spb.Status{}
 			if err := anypb.UnmarshalTo(result.Payload, s, proto.UnmarshalOptions{}); err != nil {
@@ -119,59 +129,6 @@ func TestStopDatabase(t *testing.T) {
 				t.Errorf("StopDatabase() with params %v returned error code %d, want %d", tc.params, s.Code, tc.wantErrorCode)
 			}
 		})
-	}
-}
-
-func TestStopDatabaseLocked(t *testing.T) {
-	h := New()
-	sid := "locked_sid"
-	params := map[string]string{
-		"oracle_sid":  sid,
-		"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
-		"oracle_user": "oracle",
-	}
-	command := &gpb.Command{
-		CommandType: &gpb.Command_AgentCommand{
-			AgentCommand: &gpb.AgentCommand{
-				Command:    "oracle_stop_database",
-				Parameters: params,
-			},
-		},
-	}
-
-	origRunSQL := runSQL
-	defer func() { runSQL = origRunSQL }()
-
-	runSQLBlocked := make(chan bool)
-	unblockRunSQL := make(chan bool)
-
-	runSQL = func(ctx context.Context, params map[string]string, query string, timeout int) (string, string, error) {
-		runSQLBlocked <- true
-		<-unblockRunSQL
-		return shutdownSuccess, "", nil
-	}
-
-	// Start the first operation in a goroutine.
-	go h.StopDatabase(context.Background(), command, nil)
-
-	// Wait until the first operation has locked the DB and is blocked in runSQL.
-	<-runSQLBlocked
-
-	// Attempt to start a second operation on the same SID.
-	result := h.StopDatabase(context.Background(), command, nil)
-
-	// Unblock the first operation.
-	unblockRunSQL <- true
-
-	s := &spb.Status{}
-	if err := anypb.UnmarshalTo(result.Payload, s, proto.UnmarshalOptions{}); err != nil {
-		t.Fatalf("Failed to unmarshal payload: %v", err)
-	}
-	if s.Code != int32(codepb.Code_ABORTED) {
-		t.Errorf("StopDatabase() returned error code %d, want %d", s.Code, codepb.Code_ABORTED)
-	}
-	if !strings.Contains(s.Message, `"oracle_stop_database"`) {
-		t.Errorf("StopDatabase() returned message %q, want it to contain %q", s.Message, `"oracle_stop_database"`)
 	}
 }
 
@@ -265,12 +222,36 @@ func TestStartDatabase(t *testing.T) {
 			},
 			wantErrorCode: codepb.Code_FAILED_PRECONDITION,
 		},
+		{
+			name: "startup unexpected output",
+			params: map[string]string{
+				"oracle_sid":  "orcl",
+				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
+				"oracle_user": "oracle",
+			},
+			sqlQueries: map[string]*commandlineexecutor.Result{
+				"STARTUP": &commandlineexecutor.Result{StdOut: "Some unexpected output"},
+			},
+			wantErrorCode: codepb.Code_FAILED_PRECONDITION,
+		},
+		{
+			name: "startup already running status check fail",
+			params: map[string]string{
+				"oracle_sid":  "orcl",
+				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
+				"oracle_user": "oracle",
+			},
+			sqlQueries: map[string]*commandlineexecutor.Result{
+				"STARTUP":                        &commandlineexecutor.Result{StdOut: alreadyRunning},
+				"SELECT status FROM v$instance;": &commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("status check failed")},
+			},
+			wantErrorCode: codepb.Code_FAILED_PRECONDITION,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			origRunSQL := runSQL
-			h := New()
 			defer func() { runSQL = origRunSQL }()
 			runSQL = createMockRunSQL(tc.sqlQueries)
 
@@ -282,7 +263,7 @@ func TestStartDatabase(t *testing.T) {
 					},
 				},
 			}
-			result := h.StartDatabase(context.Background(), command, nil)
+			result := StartDatabase(context.Background(), command, nil)
 
 			s := &spb.Status{}
 			if err := anypb.UnmarshalTo(result.Payload, s, proto.UnmarshalOptions{}); err != nil {
@@ -292,58 +273,5 @@ func TestStartDatabase(t *testing.T) {
 				t.Errorf("StartDatabase() with params %v returned error code %d, want %d", tc.params, s.Code, tc.wantErrorCode)
 			}
 		})
-	}
-}
-
-func TestStartDatabaseLocked(t *testing.T) {
-	h := New()
-	sid := "locked_sid"
-	params := map[string]string{
-		"oracle_sid":  sid,
-		"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
-		"oracle_user": "oracle",
-	}
-	command := &gpb.Command{
-		CommandType: &gpb.Command_AgentCommand{
-			AgentCommand: &gpb.AgentCommand{
-				Command:    "oracle_start_database",
-				Parameters: params,
-			},
-		},
-	}
-
-	origRunSQL := runSQL
-	defer func() { runSQL = origRunSQL }()
-
-	runSQLBlocked := make(chan bool)
-	unblockRunSQL := make(chan bool)
-
-	runSQL = func(ctx context.Context, params map[string]string, query string, timeout int) (string, string, error) {
-		runSQLBlocked <- true // Signal that runSQL has been reached
-		<-unblockRunSQL       // Pause here until signaled to continue
-		return startupSuccess, "", nil
-	}
-
-	// Start the first operation in a goroutine.
-	go h.StartDatabase(context.Background(), command, nil)
-
-	// Wait until the first operation has locked the DB and is blocked in runSQL.
-	<-runSQLBlocked
-
-	// Attempt to start a second operation on the same SID.
-	result := h.StartDatabase(context.Background(), command, nil)
-
-	// Unblock the first operation.
-	unblockRunSQL <- true
-
-	s := &spb.Status{}
-	if err := anypb.UnmarshalTo(result.Payload, s, proto.UnmarshalOptions{}); err != nil {
-		t.Fatalf("Failed to unmarshal payload: %v", err)
-	}
-	if s.Code != int32(codepb.Code_ABORTED) {
-		t.Errorf("StartDatabase() returned error code %d, want %d", s.Code, codepb.Code_ABORTED)
-	}
-	if !strings.Contains(s.Message, `"oracle_start_database"`) {
-		t.Errorf("StartDatabase() returned message %q, want it to contain %q", s.Message, `"oracle_start_database"`)
 	}
 }

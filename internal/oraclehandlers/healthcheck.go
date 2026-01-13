@@ -34,7 +34,7 @@ var errorRegex = regexp.MustCompile(`ORA-\d+`)
 const healthCheckTimeoutSeconds = 15
 
 // HealthCheck checks if the database is healthy by executing a simple SQL query.
-func (h *OracleHandler) HealthCheck(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
+func HealthCheck(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
 	params := command.GetAgentCommand().GetParameters()
 	logger := log.CtxLogger(ctx)
 	if result := validateParams(ctx, logger, command, params); result != nil {
@@ -42,11 +42,6 @@ func (h *OracleHandler) HealthCheck(ctx context.Context, command *gpb.Command, c
 	}
 	logger = logger.With("oracle_sid", params["oracle_sid"], "oracle_home", params["oracle_home"], "oracle_user", params["oracle_user"])
 	logger.Debugw("oracle_health_check handler called")
-	unlock, result := h.lockDatabase(ctx, logger, command)
-	if result != nil {
-		return result
-	}
-	defer unlock()
 
 	stdout, stderr, err := healthCheck(ctx, logger, params)
 	if err != nil {

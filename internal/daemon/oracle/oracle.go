@@ -19,6 +19,7 @@ package oracle
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"sync"
 	"time"
@@ -34,13 +35,26 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/recovery"
 
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
+	gapb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/guestactions"
 )
 
 const (
 	// This is an ephemeral channel, meaning ACLs/quota are managed within the instance's project
 	// where the agent is running, unlike registered channels that use a producer project.
-	defaultChannel = "oracle-operations-ephemeral-channel"
+	defaultChannel     = "oracle-operations-ephemeral-channel"
+	defaultLockTimeout = 24 * time.Hour
 )
+
+// guestActionsManager is an interface satisfied by guestactions.GuestActions
+// to allow for mocking in tests.
+type guestActionsManager interface {
+	Start(context.Context, any)
+}
+
+// newGuestActionsManager allows overriding the GuestActions implementation for testing.
+var newGuestActionsManager = func() guestActionsManager {
+	return &guestactions.GuestActions{}
+}
 
 func convertCloudProperties(cp *cpb.CloudProperties) *metadataserver.CloudProperties {
 	if cp == nil {
@@ -137,24 +151,10 @@ func (s *Service) Start(ctx context.Context, a any) {
 		s.metricCollectionRoutine.StartRoutine(mcCtx)
 	}
 
-	oracleHandler := oraclehandlers.New()
-	handlers := map[string]guestactions.GuestActionHandler{
-		"oracle_run_discovery":           oracleHandler.RunDiscovery,
-		"oracle_stop_database":           oracleHandler.StopDatabase,
-		"oracle_disable_autostart":       oracleHandler.DisableAutostart,
-		"oracle_start_database":          oracleHandler.StartDatabase,
-		"oracle_run_datapatch":           oracleHandler.RunDatapatch,
-		"oracle_disable_restricted_mode": oracleHandler.DisableRestrictedMode,
-		"oracle_start_listener":          oracleHandler.StartListener,
-		"oracle_enable_autostart":        oracleHandler.EnableAutostart,
-		"oracle_health_check":            oracleHandler.HealthCheck,
-		"oracle_data_guard_switchover":   oracleHandler.DataGuardSwitchover,
-	}
-
 	gaCtx := log.SetCtx(ctx, "context", "OracleGuestActions")
 	guestActionsRoutine := &recovery.RecoverableRoutine{
 		Routine:             runGuestActions,
-		RoutineArg:          runGuestActionsArgs{s: s, handlers: handlers},
+		RoutineArg:          runGuestActionsArgs{s: s, handlers: guestActionHandlers()},
 		ErrorCode:           usagemetrics.GuestActionsFailure,
 		UsageLogger:         *usagemetrics.UsageLogger,
 		ExpectedMinDuration: 10 * time.Second,
@@ -169,6 +169,23 @@ func (s *Service) Start(ctx context.Context, a any) {
 	}
 }
 
+func guestActionHandlers() map[string]guestactions.GuestActionHandler {
+	return map[string]guestactions.GuestActionHandler{
+		// go/keep-sorted start
+		"oracle_data_guard_switchover":   oraclehandlers.DataGuardSwitchover,
+		"oracle_disable_autostart":       oraclehandlers.DisableAutostart,
+		"oracle_disable_restricted_mode": oraclehandlers.DisableRestrictedMode,
+		"oracle_enable_autostart":        oraclehandlers.EnableAutostart,
+		"oracle_health_check":            oraclehandlers.HealthCheck,
+		"oracle_run_datapatch":           oraclehandlers.RunDatapatch,
+		"oracle_run_discovery":           oraclehandlers.RunDiscovery,
+		"oracle_start_database":          oraclehandlers.StartDatabase,
+		"oracle_start_listener":          oraclehandlers.StartListener,
+		"oracle_stop_database":           oraclehandlers.StopDatabase,
+		// go/keep-sorted end
+	}
+}
+
 func runGuestActions(ctx context.Context, a any) {
 	log.CtxLogger(ctx).Infow("Starting guest actions listener", "channel_id", defaultChannel)
 	args, ok := a.(runGuestActionsArgs)
@@ -176,13 +193,32 @@ func runGuestActions(ctx context.Context, a any) {
 		log.CtxLogger(ctx).Error("args is not of type runGuestActionsArgs")
 		return
 	}
-	ga := &guestactions.GuestActions{}
+	ga := newGuestActionsManager()
+
 	gaOpts := guestactions.Options{
-		Channel:         defaultChannel,
-		CloudProperties: convertCloudProperties(args.s.CloudProps),
-		Handlers:        args.handlers,
+		Channel:               defaultChannel,
+		CloudProperties:       convertCloudProperties(args.s.CloudProps),
+		LROHandlers:           args.handlers,
+		CommandConcurrencyKey: oracleCommandKey,
 	}
 	ga.Start(ctx, gaOpts)
+}
+
+// oracleCommandKey returns the locking key and timeout for a given command and whether the command
+// should be locked.
+// The locking key is formed by ORACLE_SID and ORACLE_HOME.
+func oracleCommandKey(cmd *gapb.Command) (key string, timeout time.Duration, lock bool) {
+	params := cmd.GetAgentCommand().GetParameters()
+	sid, sidOk := params["oracle_sid"]
+	home, homeOk := params["oracle_home"]
+
+	if !sidOk || !homeOk {
+		// Cannot form a unique key, don't lock
+		// TODO: Add ctx to CommandConcurrencyKey to allow logging this case.
+		return "", 0, false
+	}
+	// TODO: Add GCE Instance ID to the key to make it unique across different GCE instances.
+	return fmt.Sprintf("%s:%s", sid, home), defaultLockTimeout, true
 }
 
 func runDiscovery(ctx context.Context, a any) {

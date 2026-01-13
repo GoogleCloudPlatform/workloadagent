@@ -113,3 +113,89 @@ func TestCommandResult(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateParams(t *testing.T) {
+	tests := []struct {
+		name          string
+		params        map[string]string
+		wantErrorCode codepb.Code
+	}{
+		{
+			name:          "nil params",
+			params:        nil,
+			wantErrorCode: codepb.Code_INVALID_ARGUMENT,
+		},
+		{
+			name:          "empty params",
+			params:        map[string]string{},
+			wantErrorCode: codepb.Code_INVALID_ARGUMENT,
+		},
+		{
+			name: "missing oracle_sid",
+			params: map[string]string{
+				"oracle_home": "home",
+				"oracle_user": "user",
+			},
+			wantErrorCode: codepb.Code_INVALID_ARGUMENT,
+		},
+		{
+			name: "empty oracle_sid",
+			params: map[string]string{
+				"oracle_sid":  "",
+				"oracle_home": "home",
+				"oracle_user": "user",
+			},
+			wantErrorCode: codepb.Code_INVALID_ARGUMENT,
+		},
+		{
+			name: "missing oracle_home",
+			params: map[string]string{
+				"oracle_sid":  "sid",
+				"oracle_user": "user",
+			},
+			wantErrorCode: codepb.Code_INVALID_ARGUMENT,
+		},
+		{
+			name: "missing oracle_user",
+			params: map[string]string{
+				"oracle_sid":  "sid",
+				"oracle_home": "home",
+			},
+			wantErrorCode: codepb.Code_INVALID_ARGUMENT,
+		},
+		{
+			name: "valid params",
+			params: map[string]string{
+				"oracle_sid":  "sid",
+				"oracle_home": "home",
+				"oracle_user": "user",
+			},
+			wantErrorCode: codepb.Code_OK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := validateParams(context.Background(), zap.NewNop().Sugar(), nil, tc.params)
+
+			if tc.wantErrorCode == codepb.Code_OK {
+				if got != nil {
+					t.Errorf("validateParams() returned %v, want nil", got)
+				}
+				return
+			}
+
+			if got == nil {
+				t.Fatalf("validateParams() returned nil, want error")
+			}
+
+			s := &spb.Status{}
+			if err := anypb.UnmarshalTo(got.Payload, s, proto.UnmarshalOptions{}); err != nil {
+				t.Fatalf("Failed to unmarshal payload: %v", err)
+			}
+			if s.Code != int32(tc.wantErrorCode) {
+				t.Errorf("validateParams() returned error code %d, want %d", s.Code, tc.wantErrorCode)
+			}
+		})
+	}
+}
