@@ -48,12 +48,12 @@ func TestConvertCloudProperties(t *testing.T) {
 		want *metadataserver.CloudProperties
 	}{
 		{
-			name: "nil cloud properties",
+			name: "NilCloudProperties",
 			cp:   nil,
 			want: nil,
 		},
 		{
-			name: "non-nil cloud properties",
+			name: "NonNilCloudProperties",
 			cp: &cpb.CloudProperties{
 				ProjectId:           "test-project",
 				NumericProjectId:    "12345",
@@ -95,19 +95,21 @@ func TestOracleCommandKey(t *testing.T) {
 	tests := []struct {
 		name        string
 		cmd         *gapb.Command
+		cp          *metadataserver.CloudProperties
 		wantKey     string
 		wantTimeout time.Duration
 		wantLock    bool
 	}{
 		{
-			name:        "nil agent command",
+			name:        "NilAgentCommand",
 			cmd:         &gapb.Command{},
+			cp:          &metadataserver.CloudProperties{InstanceID: "test-instance"},
 			wantKey:     "",
 			wantTimeout: 0,
 			wantLock:    false,
 		},
 		{
-			name: "nil parameters",
+			name: "NilParameters",
 			cmd: &gapb.Command{
 				CommandType: &gapb.Command_AgentCommand{
 					AgentCommand: &gapb.AgentCommand{
@@ -115,12 +117,13 @@ func TestOracleCommandKey(t *testing.T) {
 					},
 				},
 			},
+			cp:          &metadataserver.CloudProperties{InstanceID: "test-instance"},
 			wantKey:     "",
 			wantTimeout: 0,
 			wantLock:    false,
 		},
 		{
-			name: "empty parameters",
+			name: "EmptyParameters",
 			cmd: &gapb.Command{
 				CommandType: &gapb.Command_AgentCommand{
 					AgentCommand: &gapb.AgentCommand{
@@ -129,12 +132,13 @@ func TestOracleCommandKey(t *testing.T) {
 					},
 				},
 			},
+			cp:          &metadataserver.CloudProperties{InstanceID: "test-instance"},
 			wantKey:     "",
 			wantTimeout: 0,
 			wantLock:    false,
 		},
 		{
-			name: "missing oracle_home",
+			name: "MissingOracleHome",
 			cmd: &gapb.Command{
 				CommandType: &gapb.Command_AgentCommand{
 					AgentCommand: &gapb.AgentCommand{
@@ -145,12 +149,13 @@ func TestOracleCommandKey(t *testing.T) {
 					},
 				},
 			},
+			cp:          &metadataserver.CloudProperties{InstanceID: "test-instance"},
 			wantKey:     "",
 			wantTimeout: 0,
 			wantLock:    false,
 		},
 		{
-			name: "missing oracle_sid",
+			name: "MissingOracleSID",
 			cmd: &gapb.Command{
 				CommandType: &gapb.Command_AgentCommand{
 					AgentCommand: &gapb.AgentCommand{
@@ -161,12 +166,13 @@ func TestOracleCommandKey(t *testing.T) {
 					},
 				},
 			},
+			cp:          &metadataserver.CloudProperties{InstanceID: "test-instance"},
 			wantKey:     "",
 			wantTimeout: 0,
 			wantLock:    false,
 		},
 		{
-			name: "with oracle_sid and oracle_home",
+			name: "SIDAndHome_NilCloudProperties",
 			cmd: &gapb.Command{
 				CommandType: &gapb.Command_AgentCommand{
 					AgentCommand: &gapb.AgentCommand{
@@ -178,7 +184,26 @@ func TestOracleCommandKey(t *testing.T) {
 					},
 				},
 			},
-			wantKey:     "orcl:/u01/app/oracle/product/19.3.0/dbhome_1",
+			cp:          nil,
+			wantKey:     "",
+			wantTimeout: 0,
+			wantLock:    false,
+		},
+		{
+			name: "SIDAndHome_CloudProperties",
+			cmd: &gapb.Command{
+				CommandType: &gapb.Command_AgentCommand{
+					AgentCommand: &gapb.AgentCommand{
+						Command: "oracle_health_check",
+						Parameters: map[string]string{
+							"oracle_sid":  "orcl",
+							"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
+						},
+					},
+				},
+			},
+			cp:          &metadataserver.CloudProperties{InstanceID: "test-instance"},
+			wantKey:     "test-instance:/u01/app/oracle/product/19.3.0/dbhome_1:orcl",
 			wantTimeout: 24 * time.Hour,
 			wantLock:    true,
 		},
@@ -186,9 +211,9 @@ func TestOracleCommandKey(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			gotKey, gotTimeout, gotLock := oracleCommandKey(tc.cmd)
+			gotKey, gotTimeout, gotLock := oracleCommandKey(context.Background(), tc.cmd, tc.cp)
 			if gotKey != tc.wantKey || gotTimeout != tc.wantTimeout || gotLock != tc.wantLock {
-				t.Errorf("oracleCommandKey(%v) = (%q, %v, %v), want (%q, %v, %v)", tc.cmd, gotKey, gotTimeout, gotLock, tc.wantKey, tc.wantTimeout, tc.wantLock)
+				t.Errorf("oracleCommandKey(%v, %v) = (%q, %v, %v), want (%q, %v, %v)", tc.cmd, tc.cp, gotKey, gotTimeout, gotLock, tc.wantKey, tc.wantTimeout, tc.wantLock)
 			}
 		})
 	}

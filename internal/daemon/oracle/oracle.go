@@ -206,19 +206,21 @@ func runGuestActions(ctx context.Context, a any) {
 
 // oracleCommandKey returns the locking key and timeout for a given command and whether the command
 // should be locked.
-// The locking key is formed by ORACLE_SID and ORACLE_HOME.
-func oracleCommandKey(cmd *gapb.Command) (key string, timeout time.Duration, lock bool) {
+// The locking key is formed by instance ID, oracle home, and oracle sid.
+func oracleCommandKey(ctx context.Context, cmd *gapb.Command, cp *metadataserver.CloudProperties) (key string, timeout time.Duration, lock bool) {
 	params := cmd.GetAgentCommand().GetParameters()
 	sid, sidOk := params["oracle_sid"]
 	home, homeOk := params["oracle_home"]
 
 	if !sidOk || !homeOk {
-		// Cannot form a unique key, don't lock
-		// TODO: Add ctx to CommandConcurrencyKey to allow logging this case.
+		log.CtxLogger(ctx).Warnw("Required parameters are missing, cannot form a unique key", "command", cmd.GetAgentCommand(), "cloud_properties", cp, "oracle_sid", sid, "oracle_home", home)
 		return "", 0, false
 	}
-	// TODO: Add GCE Instance ID to the key to make it unique across different GCE instances.
-	return fmt.Sprintf("%s:%s", sid, home), defaultLockTimeout, true
+	if cp == nil {
+		log.CtxLogger(ctx).Warnw("Cloud properties are nil, cannot form locking key", "command", cmd.GetAgentCommand(), "cloud_properties", cp, "oracle_sid", sid, "oracle_home", home)
+		return "", 0, false
+	}
+	return fmt.Sprintf("%s:%s:%s", cp.InstanceID, home, sid), defaultLockTimeout, true
 }
 
 func runDiscovery(ctx context.Context, a any) {
