@@ -207,7 +207,7 @@ message PersistentVolumeClaim {
   }
 
   message Requests {
-    string storage = 1;
+    int64 storage = 1;
   }
 
   message Status {
@@ -217,7 +217,7 @@ message PersistentVolumeClaim {
   }
 
   message Capacity {
-    string storage = 1;
+    int64 storage = 1;
   }
 }
 

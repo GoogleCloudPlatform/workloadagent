@@ -30,7 +30,7 @@ OCP_PASSWORD=$(cat /etc/secrets/ocp-password)
 # Non sensitive variables with reasonable defaults
 LOG_LEVEL="${LOG_LEVEL:-INFO}"
 COLLECTION_FREQUENCY="${COLLECTION_FREQUENCY:-60s}"
-DATA_WAREHOUSE_ENDPOINT="${DATA_WAREHOUSE_ENDPOINT:-'https://workloadmanager-datawarehouse.googleapis.com/'}"
+DATA_WAREHOUSE_ENDPOINT="${DATA_WAREHOUSE_ENDPOINT:-https://workloadmanager-datawarehouse.googleapis.com/}"
 
 
 echo "Checking for either kubernetes service account token or environment variables"

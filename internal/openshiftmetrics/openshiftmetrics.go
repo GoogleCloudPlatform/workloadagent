@@ -35,8 +35,12 @@ import (
 	dwpb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/datawarehouse"
 )
 
-// WLMNamespace is the namespace that the WLM agent is installed in.
-const WLMNamespace = "workloadmanager"
+const (
+	// WLMNamespace is the namespace that the WLM agent is installed in.
+	WLMNamespace = "workloadmanager"
+	// Gibibyte is the number of bytes in a GiB.
+	Gibibyte = 1024 * 1024 * 1024
+)
 
 // OpenShiftMetrics contains variables and methods to collect metrics for OpenShift running on the current host.
 type OpenShiftMetrics struct {
@@ -453,13 +457,13 @@ func (o *OpenShiftMetrics) collectPersistentVolumeClaims(ctx context.Context, na
 
 			if pvc.Spec.Resources.Requests != nil {
 				pvcProto.Spec.Resources.Requests = &ompb.PersistentVolumeClaim_Requests{
-					Storage: pvc.Spec.Resources.Requests.Storage().String(),
+					Storage: pvc.Spec.Resources.Requests.Storage().Value() / Gibibyte,
 				}
 			}
 
 			if pvc.Status.Capacity != nil {
 				pvcProto.Status.Capacity = &ompb.PersistentVolumeClaim_Capacity{
-					Storage: pvc.Status.Capacity.Storage().String(),
+					Storage: pvc.Status.Capacity.Storage().Value() / Gibibyte,
 				}
 			}
 			pvcList = append(pvcList, pvcProto)
