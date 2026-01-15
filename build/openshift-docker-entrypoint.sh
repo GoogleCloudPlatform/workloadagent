@@ -52,7 +52,7 @@ CONFIG_FILE_PATH=/etc/google-cloud-workload-agent/configuration.json
 # TODO: handle merging with default_openshift_configuration.json
 # Generate the configuration.json file used by the workloadagent
 # https://www.baeldung.com/linux/jq-json-nesting-variables
-jq -nc \
+/jq -nc \
   --arg log_level "$LOG_LEVEL" \
   --arg data_warehouse_endpoint "$DATA_WAREHOUSE_ENDPOINT" \
   --arg collection_frequency "$COLLECTION_FREQUENCY" \
