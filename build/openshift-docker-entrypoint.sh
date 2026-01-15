@@ -29,7 +29,7 @@ OCP_PASSWORD=$(cat /etc/secrets/ocp-password)
 
 # Non sensitive variables with reasonable defaults
 LOG_LEVEL="${LOG_LEVEL:-INFO}"
-COLLECTION_FREQUENCY="${COLLECTION_FREQUENCY:-60s}"
+COLLECTION_FREQUENCY="${COLLECTION_FREQUENCY:-1800s}"
 DATA_WAREHOUSE_ENDPOINT="${DATA_WAREHOUSE_ENDPOINT:-https://workloadmanager-datawarehouse.googleapis.com/}"
 
 
@@ -74,11 +74,11 @@ jq -nc \
         username: $ocp_username,
         password: $ocp_password,
         host: $ocp_host,
-      }
+      },
+      collection_frequency: $collection_frequency
     },
     common_discovery: {
-      enabled: false,
-      collection_frequency: $collection_frequency
+      enabled: false
     },
     sqlserver_configuration: {
       enabled: false

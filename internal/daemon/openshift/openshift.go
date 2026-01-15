@@ -33,8 +33,8 @@ import (
 )
 
 const (
-	wlmCollectionFrequency = 30 * time.Minute
-	payloadVersion         = "v0.0.1-pre"
+	defaultCollectionFrequency = 30 * time.Minute
+	payloadVersion             = "v0.0.1-pre"
 )
 
 // Service implements the interfaces for OpenShift workload agent service.
@@ -65,7 +65,7 @@ func (s *Service) Start(ctx context.Context, a any) {
 		RoutineArg:          runMetricCollectionArgs{s},
 		ErrorCode:           usagemetrics.OpenShiftMetricCollectionFailure,
 		UsageLogger:         *usagemetrics.UsageLogger,
-		ExpectedMinDuration: wlmCollectionFrequency,
+		ExpectedMinDuration: s.Config.GetOpenshiftConfiguration().GetCollectionFrequency().AsDuration(),
 	}
 	metricCollectionRoutine.StartRoutine(mcCtx)
 	select {
@@ -83,7 +83,14 @@ func runMetricCollection(ctx context.Context, a any) {
 		log.CtxLogger(ctx).Errorf("failed to parse metric collection args", "args", a)
 		return
 	}
-	ticker := time.NewTicker(wlmCollectionFrequency)
+	duration := args.s.Config.GetOpenshiftConfiguration().GetCollectionFrequency().AsDuration()
+	if duration.Seconds() == 0 {
+		log.CtxLogger(ctx).Debug("Using default collection frequency")
+		duration = defaultCollectionFrequency
+		return
+	}
+	log.CtxLogger(ctx).Debugw("Using collection frequency", "seconds", duration.Seconds())
+	ticker := time.NewTicker(duration)
 	defer ticker.Stop()
 
 	for {
