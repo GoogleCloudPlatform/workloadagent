@@ -51,55 +51,85 @@ func TestStopDatabase(t *testing.T) {
 		wantErrorCode codepb.Code
 	}{
 		{
-			name:          "input parameters validation failure",
+			name:          "InputParametersValidationFailure",
 			params:        map[string]string{},
 			wantErrorCode: codepb.Code_INVALID_ARGUMENT,
 		},
 		{
-			name: "shutdown immediate success",
+			name: "ShutdownImmediateSuccess",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
 				"oracle_user": "oracle",
 			},
 			sqlQueries: map[string]*commandlineexecutor.Result{
-				"SHUTDOWN IMMEDIATE": &commandlineexecutor.Result{StdOut: shutdownSuccess},
+				"SELECT database_role FROM v$database;": &commandlineexecutor.Result{StdOut: "PRIMARY"},
+				"SHUTDOWN IMMEDIATE":                    &commandlineexecutor.Result{StdOut: shutdownSuccess},
 			},
 			wantErrorCode: codepb.Code_OK,
 		},
 		{
-			name: "shutdown immediate fail",
+			name: "ShutdownImmediateStandby",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
 				"oracle_user": "oracle",
 			},
 			sqlQueries: map[string]*commandlineexecutor.Result{
-				"SHUTDOWN IMMEDIATE": &commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("shutdown failed")},
+				"SELECT database_role FROM v$database;":                                       &commandlineexecutor.Result{StdOut: "PHYSICAL STANDBY"},
+				"ALTER DATABASE RECOVER MANAGED STANDBY DATABASE CANCEL;\nSHUTDOWN IMMEDIATE": &commandlineexecutor.Result{StdOut: shutdownSuccess},
+			},
+			wantErrorCode: codepb.Code_OK,
+		},
+		{
+			name: "ShutdownImmediateRoleCheckFail",
+			params: map[string]string{
+				"oracle_sid":  "orcl",
+				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
+				"oracle_user": "oracle",
+			},
+			sqlQueries: map[string]*commandlineexecutor.Result{
+				"SELECT database_role FROM v$database;": &commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("role check failed")},
+				"SHUTDOWN IMMEDIATE":                    &commandlineexecutor.Result{StdOut: shutdownSuccess},
+			},
+			wantErrorCode: codepb.Code_OK,
+		},
+		{
+			name: "ShutdownImmediateFail",
+			params: map[string]string{
+				"oracle_sid":  "orcl",
+				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
+				"oracle_user": "oracle",
+			},
+			sqlQueries: map[string]*commandlineexecutor.Result{
+				"SELECT database_role FROM v$database;": &commandlineexecutor.Result{StdOut: "PRIMARY"},
+				"SHUTDOWN IMMEDIATE":                    &commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("shutdown failed")},
 			},
 			wantErrorCode: codepb.Code_FAILED_PRECONDITION,
 		},
 		{
-			name: "shutdown immediate already down",
+			name: "ShutdownImmediateAlreadyDown",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
 				"oracle_user": "oracle",
 			},
 			sqlQueries: map[string]*commandlineexecutor.Result{
-				"SHUTDOWN IMMEDIATE": &commandlineexecutor.Result{StdOut: alreadyDown},
+				"SELECT database_role FROM v$database;": &commandlineexecutor.Result{StdOut: "PRIMARY"},
+				"SHUTDOWN IMMEDIATE":                    &commandlineexecutor.Result{StdOut: alreadyDown},
 			},
 			wantErrorCode: codepb.Code_OK,
 		},
 		{
-			name: "shutdown immediate unexpected output",
+			name: "ShutdownImmediateUnexpectedOutput",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
 				"oracle_user": "oracle",
 			},
 			sqlQueries: map[string]*commandlineexecutor.Result{
-				"SHUTDOWN IMMEDIATE": &commandlineexecutor.Result{StdOut: "Some unexpected output"},
+				"SELECT database_role FROM v$database;": &commandlineexecutor.Result{StdOut: "PRIMARY"},
+				"SHUTDOWN IMMEDIATE":                    &commandlineexecutor.Result{StdOut: "Some unexpected output"},
 			},
 			wantErrorCode: codepb.Code_FAILED_PRECONDITION,
 		},
@@ -140,12 +170,12 @@ func TestStartDatabase(t *testing.T) {
 		wantErrorCode codepb.Code
 	}{
 		{
-			name:          "input parameters validation failure",
+			name:          "InputParametersValidationFailure",
 			params:        map[string]string{},
 			wantErrorCode: codepb.Code_INVALID_ARGUMENT,
 		},
 		{
-			name: "db already open",
+			name: "DBAlreadyOpen",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
@@ -158,7 +188,7 @@ func TestStartDatabase(t *testing.T) {
 			wantErrorCode: codepb.Code_OK,
 		},
 		{
-			name: "db already mounted, open succeeds",
+			name: "DBAlreadyMountedOpenSucceeds",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
@@ -172,7 +202,7 @@ func TestStartDatabase(t *testing.T) {
 			wantErrorCode: codepb.Code_OK,
 		},
 		{
-			name: "db already mounted, open fails",
+			name: "DBAlreadyMountedOpenFails",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
@@ -186,7 +216,7 @@ func TestStartDatabase(t *testing.T) {
 			wantErrorCode: codepb.Code_FAILED_PRECONDITION,
 		},
 		{
-			name: "startup success",
+			name: "StartupSuccess",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
@@ -198,7 +228,7 @@ func TestStartDatabase(t *testing.T) {
 			wantErrorCode: codepb.Code_OK,
 		},
 		{
-			name: "restricted startup success",
+			name: "RestrictedStartupSuccess",
 			params: map[string]string{
 				"oracle_sid":   "orcl",
 				"oracle_home":  "/u01/app/oracle/product/19.3.0/dbhome_1",
@@ -211,7 +241,7 @@ func TestStartDatabase(t *testing.T) {
 			wantErrorCode: codepb.Code_OK,
 		},
 		{
-			name: "startup fail",
+			name: "StartupFail",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
@@ -223,7 +253,7 @@ func TestStartDatabase(t *testing.T) {
 			wantErrorCode: codepb.Code_FAILED_PRECONDITION,
 		},
 		{
-			name: "startup unexpected output",
+			name: "StartupUnexpectedOutput",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
@@ -235,7 +265,7 @@ func TestStartDatabase(t *testing.T) {
 			wantErrorCode: codepb.Code_FAILED_PRECONDITION,
 		},
 		{
-			name: "startup already running status check fail",
+			name: "StartupAlreadyRunningStatusCheckFail",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",

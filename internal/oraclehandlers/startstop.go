@@ -54,7 +54,6 @@ func StopDatabase(ctx context.Context, command *gpb.Command, cloudProperties *me
 	logger = logger.With("oracle_sid", params["oracle_sid"], "oracle_home", params["oracle_home"], "oracle_user", params["oracle_user"])
 	logger.Infow("oracle_stop_database handler called")
 
-	// TODO: Handle Data Guard standby databases.
 	stdout, stderr, err := stopDatabase(ctx, logger, params)
 	if err != nil {
 		logger.Warnw("stopDatabase failed", "stdout", stdout, "stderr", stderr, "error", err)
@@ -65,8 +64,18 @@ func StopDatabase(ctx context.Context, command *gpb.Command, cloudProperties *me
 
 // stopDatabase contains the core logic for stopping the database.
 func stopDatabase(ctx context.Context, logger *zap.SugaredLogger, params map[string]string) (stdout, stderr string, err error) {
-	// TODO: Handle Data Guard standby databases.
-	stdout, stderr, err = runSQL(ctx, params, "SHUTDOWN IMMEDIATE", 120)
+	shutdownCmd := "SHUTDOWN IMMEDIATE"
+
+	// Check for Standby Role.
+	// We do this check to attempt canceling managed recovery if it's running.
+	if roleOut, _, err := runSQL(ctx, params, "SELECT database_role FROM v$database;", 120); err != nil {
+		logger.Infow("Could not determine database role (it might not be mounted/open), proceeding with standard shutdown", "error", err)
+	} else if strings.Contains(roleOut, "PHYSICAL STANDBY") {
+		logger.Infow("Database is a Physical Standby. Attempting to cancel managed recovery before shutdown", "role", roleOut)
+		shutdownCmd = "ALTER DATABASE RECOVER MANAGED STANDBY DATABASE CANCEL;\nSHUTDOWN IMMEDIATE"
+	}
+
+	stdout, stderr, err = runSQL(ctx, params, shutdownCmd, 120)
 	if err != nil {
 		return stdout, stderr, fmt.Errorf("shutdown command failed: %w", err)
 	}
