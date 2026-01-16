@@ -175,7 +175,13 @@ func (s *Service) waitForWorkload(ctx context.Context) bool {
 	if s.Config.GetOracleConfiguration().Enabled == nil {
 		log.CtxLogger(ctx).Info("Oracle service enabled field is not set, will check for workload presence to determine if service should be enabled.")
 		// If the workload is present, proceed with starting the service even if it is not enabled.
-		for !s.isProcessPresent {
+		for {
+			s.processesMutex.Lock()
+			present := s.isProcessPresent
+			s.processesMutex.Unlock()
+			if present {
+				break
+			}
 			select {
 			case <-ctx.Done():
 				return false
@@ -379,16 +385,18 @@ func (s *Service) checkServiceCommunication(ctx context.Context) {
 		switch msg.Origin {
 		case servicecommunication.Discovery:
 			log.CtxLogger(ctx).Debugw("Oracle workload agent service received a discovery message")
-			s.processesMutex.Lock()
-			s.processes = msg.DiscoveryResult.Processes
-			s.processesMutex.Unlock()
+			found := false
 			for _, p := range msg.DiscoveryResult.Processes {
 				name, err := p.Name()
 				if err == nil && servicecommunication.HasAnyPrefix(name, oraProcessPrefixes) {
-					s.isProcessPresent = true
+					found = true
 					break
 				}
 			}
+			s.processesMutex.Lock()
+			s.processes = msg.DiscoveryResult.Processes
+			s.isProcessPresent = found
+			s.processesMutex.Unlock()
 		case servicecommunication.DWActivation:
 			log.CtxLogger(ctx).Debugw("Oracle workload agent service received a DW activation message")
 		default:

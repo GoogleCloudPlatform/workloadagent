@@ -458,7 +458,9 @@ func TestWaitForWorkload(t *testing.T) {
 			if tc.setProcessPresent {
 				go func() {
 					time.Sleep(50 * time.Millisecond)
+					s.processesMutex.Lock()
 					s.isProcessPresent = true
+					s.processesMutex.Unlock()
 				}()
 			}
 
