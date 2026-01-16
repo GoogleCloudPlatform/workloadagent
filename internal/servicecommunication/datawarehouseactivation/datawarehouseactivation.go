@@ -76,7 +76,7 @@ func (s Service) checkActivation(ctx context.Context) bool {
 }
 
 func (s Service) dwActivationLoop(ctx context.Context, currentStatus activationStatus) (servicecommunication.DataWarehouseActivationResult, bool) {
-	log.CtxLogger(ctx).Infow("dwActivationLoop started.", "Current status", currentStatus)
+	log.CtxLogger(ctx).Debugw("dwActivationLoop started.", "Current status", currentStatus)
 	dwActivationStatus := s.checkActivation(ctx)
 	status := notActivated
 	if dwActivationStatus {
