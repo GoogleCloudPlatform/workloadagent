@@ -68,14 +68,15 @@ func stopDatabase(ctx context.Context, logger *zap.SugaredLogger, params map[str
 
 	// Check for Standby Role.
 	// We do this check to attempt canceling managed recovery if it's running.
-	if roleOut, _, err := runSQL(ctx, params, "SELECT database_role FROM v$database;", 120); err != nil {
+	if roleOut, _, err := runSQL(ctx, params, "SELECT database_role FROM v$database;", 120, true); err != nil {
 		logger.Infow("Could not determine database role (it might not be mounted/open), proceeding with standard shutdown", "error", err)
 	} else if strings.Contains(roleOut, "PHYSICAL STANDBY") {
 		logger.Infow("Database is a Physical Standby. Attempting to cancel managed recovery before shutdown", "role", roleOut)
 		shutdownCmd = "ALTER DATABASE RECOVER MANAGED STANDBY DATABASE CANCEL;\nSHUTDOWN IMMEDIATE"
 	}
 
-	stdout, stderr, err = runSQL(ctx, params, shutdownCmd, 120)
+	// failOnSqlError is set to false because we want to handle ORA-01034 (already down) gracefully.
+	stdout, stderr, err = runSQL(ctx, params, shutdownCmd, 120, false)
 	if err != nil {
 		return stdout, stderr, fmt.Errorf("shutdown command failed: %w", err)
 	}
@@ -124,7 +125,8 @@ func startDatabase(ctx context.Context, logger *zap.SugaredLogger, params map[st
 
 	// TODO: Handle ORA-16005: database requires recovery.
 	// See https://docs.oracle.com/en/error-help/db/ora-16005/?r=19c for more details.
-	stdout, stderr, err = runSQL(ctx, params, startupCmd, 120)
+	// failOnSqlError is set to false because we want to handle ORA-01081 (already running) gracefully.
+	stdout, stderr, err = runSQL(ctx, params, startupCmd, 120, false)
 	if err != nil {
 		return stdout, stderr, fmt.Errorf("startup command failed: %w", err)
 	}
@@ -136,7 +138,7 @@ func startDatabase(ctx context.Context, logger *zap.SugaredLogger, params map[st
 
 	if strings.Contains(stdout, alreadyRunning) {
 		logger.Infow("Database is already running, checking status (MOUNTED or OPEN)")
-		statusStdOut, statusStdErr, statusErr := runSQL(ctx, params, "SELECT status FROM v$instance;", 120)
+		statusStdOut, statusStdErr, statusErr := runSQL(ctx, params, "SELECT status FROM v$instance;", 120, true)
 		if statusErr != nil {
 			return statusStdOut, statusStdErr, fmt.Errorf("failed to get instance status: %w", statusErr)
 		}
@@ -147,7 +149,7 @@ func startDatabase(ctx context.Context, logger *zap.SugaredLogger, params map[st
 		}
 
 		logger.Infow("Database is not OPEN, attempting to open", "current_status", statusStdOut)
-		alterStdOut, alterStdErr, alterErr := runSQL(ctx, params, "WHENEVER SQLERROR EXIT FAILURE\nALTER DATABASE OPEN", 120)
+		alterStdOut, alterStdErr, alterErr := runSQL(ctx, params, "ALTER DATABASE OPEN;", 120, true)
 
 		if alterErr != nil {
 			return alterStdOut, alterStdErr, fmt.Errorf("alter database open failed: %w", alterErr)

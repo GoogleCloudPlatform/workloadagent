@@ -42,20 +42,28 @@ var (
 	sqlSettings = "SET PAGESIZE 0 LINESIZE 32000 LONG 50000 FEEDBACK OFF ECHO OFF TERMOUT ON HEADING OFF VERIFY OFF"
 )
 
+var executeCommand = commandlineexecutor.ExecuteCommand
+
 // runSQL executes the given SQL query and returns the result.
-var runSQL = func(ctx context.Context, params map[string]string, query string, timeout int) (string, string, error) {
+var runSQL = func(ctx context.Context, params map[string]string, query string, timeout int, failOnSQLError bool) (string, string, error) {
 	oracleSID := params["oracle_sid"]
 	oracleHome := params["oracle_home"]
 	oracleUser := params["oracle_user"]
+
+	settings := sqlSettings
+	if failOnSQLError {
+		settings = fmt.Sprintf("%s\n%s", "WHENEVER SQLERROR EXIT FAILURE", sqlSettings)
+	}
+
 	// oracleUser is the OS user that the oracle software is installed as.
 	// We execute sqlplus as this user to allow for OS authentication ("/ as sysdba").
-	result := commandlineexecutor.ExecuteCommand(ctx, commandlineexecutor.Params{
+	result := executeCommand(ctx, commandlineexecutor.Params{
 		Executable: filepath.Join(oracleHome, "bin", "sqlplus"),
 		Args:       sqlPlusArgs,
 		// LD_LIBRARY_PATH is needed for older Oracle versions that do not set rpath.
 		Env:     []string{"ORACLE_SID=" + oracleSID, "ORACLE_HOME=" + oracleHome, "LD_LIBRARY_PATH=" + filepath.Join(oracleHome, "lib")},
 		User:    oracleUser,
-		Stdin:   fmt.Sprintf("%s\n%s", sqlSettings, query),
+		Stdin:   fmt.Sprintf("%s\n%s", settings, query),
 		Timeout: timeout,
 	})
 

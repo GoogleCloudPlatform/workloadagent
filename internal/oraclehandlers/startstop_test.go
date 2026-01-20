@@ -30,8 +30,8 @@ import (
 	gpb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/guestactions"
 )
 
-func createMockRunSQL(queries map[string]*commandlineexecutor.Result) func(context.Context, map[string]string, string, int) (string, string, error) {
-	return func(ctx context.Context, params map[string]string, query string, timeout int) (string, string, error) {
+func createMockRunSQL(queries map[string]*commandlineexecutor.Result) func(context.Context, map[string]string, string, int, bool) (string, string, error) {
+	return func(ctx context.Context, params map[string]string, query string, timeout int, failOnSQLError bool) (string, string, error) {
 		result, ok := queries[query]
 		if !ok {
 			return "", "", fmt.Errorf("unexpected query: %s", query)
@@ -197,7 +197,7 @@ func TestStartDatabase(t *testing.T) {
 			sqlQueries: map[string]*commandlineexecutor.Result{
 				"STARTUP":                        &commandlineexecutor.Result{StdOut: alreadyRunning},
 				"SELECT status FROM v$instance;": &commandlineexecutor.Result{StdOut: "MOUNTED"},
-				"WHENEVER SQLERROR EXIT FAILURE\nALTER DATABASE OPEN": &commandlineexecutor.Result{StdOut: "something"},
+				"ALTER DATABASE OPEN;":           &commandlineexecutor.Result{StdOut: "something"},
 			},
 			wantErrorCode: codepb.Code_OK,
 		},
@@ -211,7 +211,7 @@ func TestStartDatabase(t *testing.T) {
 			sqlQueries: map[string]*commandlineexecutor.Result{
 				"STARTUP":                        &commandlineexecutor.Result{StdOut: alreadyRunning},
 				"SELECT status FROM v$instance;": &commandlineexecutor.Result{StdOut: "MOUNTED"},
-				"WHENEVER SQLERROR EXIT FAILURE\nALTER DATABASE OPEN": &commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("open failed")},
+				"ALTER DATABASE OPEN;":           &commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("open failed")},
 			},
 			wantErrorCode: codepb.Code_FAILED_PRECONDITION,
 		},

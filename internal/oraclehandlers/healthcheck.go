@@ -53,7 +53,7 @@ func HealthCheck(ctx context.Context, command *gpb.Command, cloudProperties *met
 }
 
 func healthCheck(ctx context.Context, logger *zap.SugaredLogger, params map[string]string) (stdout, stderr string, err error) {
-	stdout, stderr, err = runSQL(ctx, params, "SELECT 1 FROM dual;", healthCheckTimeoutSeconds)
+	stdout, stderr, err = runSQL(ctx, params, "SELECT 1 FROM dual;", healthCheckTimeoutSeconds, true)
 	if err != nil {
 		return stdout, stderr, fmt.Errorf("health check failed: %w", err)
 	}
