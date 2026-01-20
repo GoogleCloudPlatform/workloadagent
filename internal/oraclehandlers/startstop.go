@@ -40,6 +40,9 @@ const (
 	// This message indicates that the database is already running (either OPEN or MOUNTED).
 	// ORA-01081: cannot start already-running ORACLE - shut it down first
 	alreadyRunning = "ORA-01081"
+	// This message indicates that media recovery is already active.
+	// ORA-01153: an incompatible media recovery is active
+	recoveryActive = "ORA-01153"
 )
 
 // StopDatabase implements the oracle_stop_database guest action.
@@ -103,10 +106,6 @@ func StartDatabase(ctx context.Context, command *gpb.Command, cloudProperties *m
 	logger = logger.With("oracle_sid", params["oracle_sid"], "oracle_home", params["oracle_home"], "oracle_user", params["oracle_user"])
 	logger.Infow("oracle_start_database handler called")
 
-	// TODO: Handle Data Guard standby databases.
-	// Cases to consider:
-	// 1. Active Data Guard: Open read-only.
-	// 2. Manual standby (no broker): Initiate managed recovery.
 	stdout, stderr, err := startDatabase(ctx, logger, params)
 	if err != nil {
 		logger.Warnw("startDatabase failed", "stdout", stdout, "stderr", stderr, "error", err)
@@ -123,40 +122,94 @@ func startDatabase(ctx context.Context, logger *zap.SugaredLogger, params map[st
 	}
 	logger.Infow("Attempting database startup", "startup_cmd", startupCmd)
 
-	// TODO: Handle ORA-16005: database requires recovery.
-	// See https://docs.oracle.com/en/error-help/db/ora-16005/?r=19c for more details.
 	// failOnSqlError is set to false because we want to handle ORA-01081 (already running) gracefully.
 	stdout, stderr, err = runSQL(ctx, params, startupCmd, 120, false)
 	if err != nil {
 		return stdout, stderr, fmt.Errorf("startup command failed: %w", err)
 	}
 
-	if strings.Contains(stdout, startupSuccess) {
-		logger.Infow("Database started and opened successfully")
-		return stdout, stderr, nil
+	isStarted := strings.Contains(stdout, startupSuccess) ||
+		strings.Contains(stdout, "Database mounted.") ||
+		strings.Contains(stdout, alreadyRunning)
+
+	if !isStarted {
+		return stdout, stderr, fmt.Errorf("startup command returned unexpected output: %s", stdout)
 	}
 
-	if strings.Contains(stdout, alreadyRunning) {
-		logger.Infow("Database is already running, checking status (MOUNTED or OPEN)")
-		statusStdOut, statusStdErr, statusErr := runSQL(ctx, params, "SELECT status FROM v$instance;", 120, true)
-		if statusErr != nil {
-			return statusStdOut, statusStdErr, fmt.Errorf("failed to get instance status: %w", statusErr)
-		}
+	logger.Infow("Database is running or mounted, checking status and role to determine next steps", "startup_output", stdout)
 
-		if statusStdOut == "OPEN" {
-			logger.Infow("Database is already OPEN")
-			return statusStdOut, statusStdErr, nil
-		}
+	statusStdOut, statusStdErr, statusErr := runSQL(ctx, params, "SELECT status FROM v$instance;", 120, true)
+	if statusErr != nil {
+		return statusStdOut, statusStdErr, fmt.Errorf("failed to get instance status: %w", statusErr)
+	}
+	currentStatus := strings.TrimSpace(statusStdOut)
 
-		logger.Infow("Database is not OPEN, attempting to open", "current_status", statusStdOut)
+	roleStdOut, roleStdErr, roleErr := runSQL(ctx, params, "SELECT database_role FROM v$database;", 120, true)
+	if roleErr != nil {
+		return roleStdOut, roleStdErr, fmt.Errorf("failed to get database role: %w", roleErr)
+	}
+	currentRole := strings.TrimSpace(roleStdOut)
+
+	logger.Infow("Database state determined", "status", currentStatus, "role", currentRole)
+
+	switch currentRole {
+	case "PRIMARY":
+		return handlePrimary(ctx, logger, params, currentStatus, stdout, stderr)
+	case "PHYSICAL STANDBY":
+		return handleStandby(ctx, logger, params, currentStatus, stdout, stderr)
+	default:
+		logger.Infow("Database started. No further automation applied", "role", currentRole, "status", currentStatus)
+		return stdout, stderr, nil
+	}
+}
+
+func handlePrimary(ctx context.Context, logger *zap.SugaredLogger, params map[string]string, status, stdout, stderr string) (string, string, error) {
+	switch status {
+	case "OPEN":
+		logger.Infow("Database is Primary and OPEN")
+		return stdout, stderr, nil
+	case "MOUNTED":
+		logger.Infow("Database is Primary and MOUNTED, attempting to OPEN")
 		alterStdOut, alterStdErr, alterErr := runSQL(ctx, params, "ALTER DATABASE OPEN;", 120, true)
-
 		if alterErr != nil {
 			return alterStdOut, alterStdErr, fmt.Errorf("alter database open failed: %w", alterErr)
 		}
 		logger.Infow("Database opened successfully")
 		return alterStdOut, alterStdErr, nil
+	default:
+		return stdout, stderr, fmt.Errorf("database is Primary but status is %s (expected OPEN or MOUNTED)", status)
+	}
+}
+
+func handleStandby(ctx context.Context, logger *zap.SugaredLogger, params map[string]string, status, stdout, stderr string) (string, string, error) {
+	if status == "OPEN" {
+		logger.Infow("Database is Physical Standby and OPEN (Active Data Guard). No manual recovery needed.")
+		return stdout, stderr, nil
+	}
+	brokerStdOut, _, err := runSQL(ctx, params, "SELECT value FROM v$parameter WHERE name = 'dg_broker_start';", 120, true)
+	if err != nil {
+		return stdout, stderr, fmt.Errorf("failed to check for Data Guard Broker: %w", err)
 	}
 
-	return stdout, stderr, fmt.Errorf("startup command returned unexpected output: %s", stdout)
+	if strings.EqualFold(strings.TrimSpace(brokerStdOut), "TRUE") {
+		logger.Infow("Database is Physical Standby and Data Guard Broker is enabled. No manual recovery needed, assuming broker will start recovery")
+		return stdout, stderr, nil
+	}
+
+	logger.Infow("Database is Physical Standby and Data Guard Broker is disabled or not detected. Initiating Managed Recovery")
+	recStdOut, recStdErr, recErr := runSQL(ctx, params, "ALTER DATABASE RECOVER MANAGED STANDBY DATABASE DISCONNECT FROM SESSION;", 120, false)
+	if recErr != nil {
+		return recStdOut, recStdErr, fmt.Errorf("failed to execute managed recovery command: %w", recErr)
+	}
+
+	if strings.Contains(recStdOut, recoveryActive) {
+		logger.Infow("Managed recovery is already active")
+		return recStdOut, recStdErr, nil
+	}
+	if strings.Contains(recStdOut, "ORA-") {
+		return recStdOut, recStdErr, fmt.Errorf("managed recovery failed with ORA error: %s", recStdOut)
+	}
+
+	logger.Infow("Managed Recovery started successfully")
+	return recStdOut, recStdErr, nil
 }
