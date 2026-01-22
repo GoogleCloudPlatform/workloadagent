@@ -51,12 +51,12 @@ func TestStopDatabase(t *testing.T) {
 		wantErrorCode codepb.Code
 	}{
 		{
-			name:          "InputParametersValidationFailure",
+			name:          "Stop_Validation_Fail",
 			params:        map[string]string{},
 			wantErrorCode: codepb.Code_INVALID_ARGUMENT,
 		},
 		{
-			name: "ShutdownImmediateSuccess",
+			name: "Stop_Primary_ShutdownImmediate_Success",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
@@ -69,7 +69,7 @@ func TestStopDatabase(t *testing.T) {
 			wantErrorCode: codepb.Code_OK,
 		},
 		{
-			name: "ShutdownImmediateStandby",
+			name: "Stop_Standby_ShutdownImmediate_Success",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
@@ -82,7 +82,7 @@ func TestStopDatabase(t *testing.T) {
 			wantErrorCode: codepb.Code_OK,
 		},
 		{
-			name: "ShutdownImmediateRoleCheckFail",
+			name: "Stop_RoleCheckFail_Proceeds_Success",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
@@ -95,7 +95,7 @@ func TestStopDatabase(t *testing.T) {
 			wantErrorCode: codepb.Code_OK,
 		},
 		{
-			name: "ShutdownImmediateFail",
+			name: "Stop_ShutdownImmediate_Fail",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
@@ -108,7 +108,7 @@ func TestStopDatabase(t *testing.T) {
 			wantErrorCode: codepb.Code_FAILED_PRECONDITION,
 		},
 		{
-			name: "ShutdownImmediateAlreadyDown",
+			name: "Stop_AlreadyDown_Success",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
@@ -121,7 +121,7 @@ func TestStopDatabase(t *testing.T) {
 			wantErrorCode: codepb.Code_OK,
 		},
 		{
-			name: "ShutdownImmediateUnexpectedOutput",
+			name: "Stop_UnexpectedOutput_Fail",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
@@ -170,112 +170,262 @@ func TestStartDatabase(t *testing.T) {
 		wantErrorCode codepb.Code
 	}{
 		{
-			name:          "InputParametersValidationFailure",
+			name:          "Start_Validation_Fail",
 			params:        map[string]string{},
 			wantErrorCode: codepb.Code_INVALID_ARGUMENT,
 		},
 		{
-			name: "DBAlreadyOpen",
+			name: "Start_Primary_AlreadyOpen_Success",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
 				"oracle_user": "oracle",
 			},
 			sqlQueries: map[string]*commandlineexecutor.Result{
-				"STARTUP":                        &commandlineexecutor.Result{StdOut: alreadyRunning},
-				"SELECT status FROM v$instance;": &commandlineexecutor.Result{StdOut: "OPEN"},
+				"STARTUP MOUNT":                         &commandlineexecutor.Result{StdOut: alreadyRunning},
+				"SELECT database_role FROM v$database;": &commandlineexecutor.Result{StdOut: "PRIMARY"},
+				"SELECT open_mode FROM v$database;":     &commandlineexecutor.Result{StdOut: "READ WRITE"},
 			},
 			wantErrorCode: codepb.Code_OK,
 		},
 		{
-			name: "DBAlreadyMountedOpenSucceeds",
+			name: "Start_Primary_AlreadyMounted_Open_Success",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
 				"oracle_user": "oracle",
 			},
 			sqlQueries: map[string]*commandlineexecutor.Result{
-				"STARTUP":                        &commandlineexecutor.Result{StdOut: alreadyRunning},
-				"SELECT status FROM v$instance;": &commandlineexecutor.Result{StdOut: "MOUNTED"},
-				"ALTER DATABASE OPEN;":           &commandlineexecutor.Result{StdOut: "something"},
+				"STARTUP MOUNT":                         &commandlineexecutor.Result{StdOut: alreadyRunning},
+				"SELECT database_role FROM v$database;": &commandlineexecutor.Result{StdOut: "PRIMARY"},
+				"SELECT open_mode FROM v$database;":     &commandlineexecutor.Result{StdOut: "MOUNTED"},
+				"ALTER DATABASE OPEN;":                  &commandlineexecutor.Result{StdOut: "Database opened."},
 			},
 			wantErrorCode: codepb.Code_OK,
 		},
 		{
-			name: "DBAlreadyMountedOpenFails",
+			name: "Start_Primary_AlreadyMounted_Open_Fail",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
 				"oracle_user": "oracle",
 			},
 			sqlQueries: map[string]*commandlineexecutor.Result{
-				"STARTUP":                        &commandlineexecutor.Result{StdOut: alreadyRunning},
-				"SELECT status FROM v$instance;": &commandlineexecutor.Result{StdOut: "MOUNTED"},
-				"ALTER DATABASE OPEN;":           &commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("open failed")},
+				"STARTUP MOUNT":                         &commandlineexecutor.Result{StdOut: alreadyRunning},
+				"SELECT database_role FROM v$database;": &commandlineexecutor.Result{StdOut: "PRIMARY"},
+				"SELECT open_mode FROM v$database;":     &commandlineexecutor.Result{StdOut: "MOUNTED"},
+				"ALTER DATABASE OPEN;":                  &commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("open failed")},
 			},
 			wantErrorCode: codepb.Code_FAILED_PRECONDITION,
 		},
 		{
-			name: "StartupSuccess",
+			name: "Start_Primary_MountAndOpen_Success",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
 				"oracle_user": "oracle",
 			},
 			sqlQueries: map[string]*commandlineexecutor.Result{
-				"STARTUP": &commandlineexecutor.Result{StdOut: startupSuccess},
+				"STARTUP MOUNT":                         &commandlineexecutor.Result{StdOut: startupSuccess},
+				"SELECT database_role FROM v$database;": &commandlineexecutor.Result{StdOut: "PRIMARY"},
+				"SELECT open_mode FROM v$database;":     &commandlineexecutor.Result{StdOut: "MOUNTED"},
+				"ALTER DATABASE OPEN;":                  &commandlineexecutor.Result{StdOut: "Database opened."},
 			},
 			wantErrorCode: codepb.Code_OK,
 		},
 		{
-			name: "RestrictedStartupSuccess",
+			name: "Start_Primary_MountAndOpenRestricted_Success",
 			params: map[string]string{
-				"oracle_sid":   "orcl",
-				"oracle_home":  "/u01/app/oracle/product/19.3.0/dbhome_1",
-				"oracle_user":  "oracle",
-				"startup_mode": "restricted",
+				"oracle_sid":  "orcl",
+				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
+				"oracle_user": "oracle",
+				"restrict":    "true",
 			},
 			sqlQueries: map[string]*commandlineexecutor.Result{
-				"STARTUP RESTRICT": &commandlineexecutor.Result{StdOut: startupSuccess},
+				"STARTUP MOUNT RESTRICT":                &commandlineexecutor.Result{StdOut: startupSuccess},
+				"SELECT database_role FROM v$database;": &commandlineexecutor.Result{StdOut: "PRIMARY"},
+				"SELECT open_mode FROM v$database;":     &commandlineexecutor.Result{StdOut: "MOUNTED"},
+				"ALTER DATABASE OPEN;":                  &commandlineexecutor.Result{StdOut: "Database opened."},
 			},
 			wantErrorCode: codepb.Code_OK,
 		},
 		{
-			name: "StartupFail",
+			name: "Start_Command_Failure",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
 				"oracle_user": "oracle",
 			},
 			sqlQueries: map[string]*commandlineexecutor.Result{
-				"STARTUP": &commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("startup failed")},
+				"STARTUP MOUNT": &commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("startup failed")},
 			},
 			wantErrorCode: codepb.Code_FAILED_PRECONDITION,
 		},
 		{
-			name: "StartupUnexpectedOutput",
+			name: "Start_OracleError_Failure",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
 				"oracle_user": "oracle",
 			},
 			sqlQueries: map[string]*commandlineexecutor.Result{
-				"STARTUP": &commandlineexecutor.Result{StdOut: "Some unexpected output"},
+				"STARTUP MOUNT": &commandlineexecutor.Result{StdOut: "ORA-01234: some failure"},
 			},
 			wantErrorCode: codepb.Code_FAILED_PRECONDITION,
 		},
 		{
-			name: "StartupAlreadyRunningStatusCheckFail",
+			name: "Start_AlreadyRunning_StatusCheck_Fail",
 			params: map[string]string{
 				"oracle_sid":  "orcl",
 				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
 				"oracle_user": "oracle",
 			},
 			sqlQueries: map[string]*commandlineexecutor.Result{
-				"STARTUP":                        &commandlineexecutor.Result{StdOut: alreadyRunning},
-				"SELECT status FROM v$instance;": &commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("status check failed")},
+				"STARTUP MOUNT":                         &commandlineexecutor.Result{StdOut: alreadyRunning},
+				"SELECT database_role FROM v$database;": &commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("status check failed")},
 			},
 			wantErrorCode: codepb.Code_FAILED_PRECONDITION,
+		},
+		{
+			name: "Start_Standby_Standard_Mount_Success",
+			params: map[string]string{
+				"oracle_sid":  "orcl",
+				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
+				"oracle_user": "oracle",
+			},
+			sqlQueries: map[string]*commandlineexecutor.Result{
+				"STARTUP MOUNT":                         &commandlineexecutor.Result{StdOut: startupSuccess},
+				"SELECT database_role FROM v$database;": &commandlineexecutor.Result{StdOut: "PHYSICAL STANDBY"},
+				"SELECT open_mode FROM v$database;":     &commandlineexecutor.Result{StdOut: "MOUNTED"},
+				"ALTER DATABASE RECOVER MANAGED STANDBY DATABASE DISCONNECT FROM SESSION USING CURRENT LOGFILE;": &commandlineexecutor.Result{StdOut: ""},
+			},
+			wantErrorCode: codepb.Code_OK,
+		},
+		{
+			name: "Start_Standby_ADG_MountAndOpenReadOnly_Success",
+			params: map[string]string{
+				"oracle_sid":           "orcl",
+				"oracle_home":          "/u01/app/oracle/product/19.3.0/dbhome_1",
+				"oracle_user":          "oracle",
+				"open_standby_for_adg": "true",
+			},
+			sqlQueries: map[string]*commandlineexecutor.Result{
+				"STARTUP MOUNT":                         &commandlineexecutor.Result{StdOut: startupSuccess},
+				"SELECT database_role FROM v$database;": &commandlineexecutor.Result{StdOut: "PHYSICAL STANDBY"},
+				"SELECT open_mode FROM v$database;":     &commandlineexecutor.Result{StdOut: "MOUNTED"},
+				"ALTER DATABASE OPEN READ ONLY;":        &commandlineexecutor.Result{StdOut: "Database opened"},
+				"ALTER DATABASE RECOVER MANAGED STANDBY DATABASE DISCONNECT FROM SESSION USING CURRENT LOGFILE;": &commandlineexecutor.Result{StdOut: ""},
+			},
+			wantErrorCode: codepb.Code_OK,
+		},
+		{
+			name: "Start_Standby_ADG_AlreadyReadOnly_Success",
+			params: map[string]string{
+				"oracle_sid":           "orcl",
+				"oracle_home":          "/u01/app/oracle/product/19.3.0/dbhome_1",
+				"oracle_user":          "oracle",
+				"open_standby_for_adg": "true",
+			},
+			sqlQueries: map[string]*commandlineexecutor.Result{
+				"STARTUP MOUNT":                         &commandlineexecutor.Result{StdOut: startupSuccess},
+				"SELECT database_role FROM v$database;": &commandlineexecutor.Result{StdOut: "PHYSICAL STANDBY"},
+				"SELECT open_mode FROM v$database;":     &commandlineexecutor.Result{StdOut: "READ ONLY"},
+				"ALTER DATABASE RECOVER MANAGED STANDBY DATABASE DISCONNECT FROM SESSION USING CURRENT LOGFILE;": &commandlineexecutor.Result{StdOut: ""},
+			},
+			wantErrorCode: codepb.Code_OK,
+		},
+		{
+			name: "Start_Standby_Standard_AlreadyReadOnly_Success",
+			params: map[string]string{
+				"oracle_sid":  "orcl",
+				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
+				"oracle_user": "oracle",
+			},
+			sqlQueries: map[string]*commandlineexecutor.Result{
+				"STARTUP MOUNT":                         &commandlineexecutor.Result{StdOut: startupSuccess},
+				"SELECT database_role FROM v$database;": &commandlineexecutor.Result{StdOut: "PHYSICAL STANDBY"},
+				"SELECT open_mode FROM v$database;":     &commandlineexecutor.Result{StdOut: "READ ONLY"},
+				"ALTER DATABASE RECOVER MANAGED STANDBY DATABASE DISCONNECT FROM SESSION USING CURRENT LOGFILE;": &commandlineexecutor.Result{StdOut: ""},
+			},
+			wantErrorCode: codepb.Code_OK,
+		},
+		{
+			name: "Start_Standby_Standard_AlreadyReadOnlyWithApply_RecoveryRunning_Success",
+			params: map[string]string{
+				"oracle_sid":  "orcl",
+				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
+				"oracle_user": "oracle",
+			},
+			sqlQueries: map[string]*commandlineexecutor.Result{
+				"STARTUP MOUNT":                         &commandlineexecutor.Result{StdOut: startupSuccess},
+				"SELECT database_role FROM v$database;": &commandlineexecutor.Result{StdOut: "PHYSICAL STANDBY"},
+				"SELECT open_mode FROM v$database;":     &commandlineexecutor.Result{StdOut: "READ ONLY WITH APPLY"},
+				"ALTER DATABASE RECOVER MANAGED STANDBY DATABASE DISCONNECT FROM SESSION USING CURRENT LOGFILE;": &commandlineexecutor.Result{StdOut: ""},
+			},
+			wantErrorCode: codepb.Code_OK,
+		},
+		{
+			name: "Start_Standby_ADG_True_ReadOnlyWithApply_Success",
+			params: map[string]string{
+				"oracle_sid":           "orcl",
+				"oracle_home":          "/u01/app/oracle/product/19.3.0/dbhome_1",
+				"oracle_user":          "oracle",
+				"open_standby_for_adg": "true",
+			},
+			sqlQueries: map[string]*commandlineexecutor.Result{
+				"STARTUP MOUNT":                         &commandlineexecutor.Result{StdOut: startupSuccess},
+				"SELECT database_role FROM v$database;": &commandlineexecutor.Result{StdOut: "PHYSICAL STANDBY"},
+				"SELECT open_mode FROM v$database;":     &commandlineexecutor.Result{StdOut: "READ ONLY WITH APPLY"},
+			},
+			wantErrorCode: codepb.Code_OK,
+		},
+		{
+			name: "Start_Standby_ADG_True_UnknownOpenMode_Fail",
+			params: map[string]string{
+				"oracle_sid":           "orcl",
+				"oracle_home":          "/u01/app/oracle/product/19.3.0/dbhome_1",
+				"oracle_user":          "oracle",
+				"open_standby_for_adg": "true",
+			},
+			sqlQueries: map[string]*commandlineexecutor.Result{
+				"STARTUP MOUNT":                         &commandlineexecutor.Result{StdOut: startupSuccess},
+				"SELECT database_role FROM v$database;": &commandlineexecutor.Result{StdOut: "PHYSICAL STANDBY"},
+				"SELECT open_mode FROM v$database;":     &commandlineexecutor.Result{StdOut: "UNKNOWN MODE"},
+			},
+			wantErrorCode: codepb.Code_FAILED_PRECONDITION,
+		},
+		{
+			name: "Start_Standby_ADG_InvalidFlag_DefaultsToStandard_Success",
+			params: map[string]string{
+				"oracle_sid":           "orcl",
+				"oracle_home":          "/u01/app/oracle/product/19.3.0/dbhome_1",
+				"oracle_user":          "oracle",
+				"open_standby_for_adg": "INVALID",
+			},
+			sqlQueries: map[string]*commandlineexecutor.Result{
+				"STARTUP MOUNT":                         &commandlineexecutor.Result{StdOut: startupSuccess},
+				"SELECT database_role FROM v$database;": &commandlineexecutor.Result{StdOut: "PHYSICAL STANDBY"},
+				"SELECT open_mode FROM v$database;":     &commandlineexecutor.Result{StdOut: "MOUNTED"},
+			},
+			wantErrorCode: codepb.Code_FAILED_PRECONDITION,
+		},
+		{
+			name: "Start_Standby_RecoveryAlreadyActive_Success",
+			params: map[string]string{
+				"oracle_sid":  "orcl",
+				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
+				"oracle_user": "oracle",
+			},
+			sqlQueries: map[string]*commandlineexecutor.Result{
+				"STARTUP MOUNT":                         &commandlineexecutor.Result{StdOut: startupSuccess},
+				"SELECT database_role FROM v$database;": &commandlineexecutor.Result{StdOut: "PHYSICAL STANDBY"},
+				"SELECT open_mode FROM v$database;":     &commandlineexecutor.Result{StdOut: "MOUNTED"},
+				"ALTER DATABASE RECOVER MANAGED STANDBY DATABASE DISCONNECT FROM SESSION USING CURRENT LOGFILE;": &commandlineexecutor.Result{
+					StdOut: "ORA-01153: an incompatible media recovery is active",
+					Error:  fmt.Errorf("ORA-01153: an incompatible media recovery is active"),
+				},
+			},
+			wantErrorCode: codepb.Code_OK,
 		},
 	}
 

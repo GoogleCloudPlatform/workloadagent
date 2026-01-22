@@ -18,6 +18,7 @@ package oraclehandlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -40,6 +41,12 @@ const (
 	// This message indicates that the database is already running (either OPEN or MOUNTED).
 	// ORA-01081: cannot start already-running ORACLE - shut it down first
 	alreadyRunning = "ORA-01081"
+	// This message indicates that media recovery is already active.
+	// ORA-01153: an incompatible media recovery is active
+	recoveryActive = "ORA-01153"
+
+	// This command is used to start managed recovery on a standby database.
+	recoverCmd = "ALTER DATABASE RECOVER MANAGED STANDBY DATABASE DISCONNECT FROM SESSION USING CURRENT LOGFILE;"
 )
 
 // StopDatabase implements the oracle_stop_database guest action.
@@ -66,8 +73,7 @@ func StopDatabase(ctx context.Context, command *gpb.Command, cloudProperties *me
 func stopDatabase(ctx context.Context, logger *zap.SugaredLogger, params map[string]string) (stdout, stderr string, err error) {
 	shutdownCmd := "SHUTDOWN IMMEDIATE"
 
-	// Check for Standby Role.
-	// We do this check to attempt canceling managed recovery if it's running.
+	// Check for Standby Role to attempt canceling managed recovery if it's running.
 	if roleOut, _, err := runSQL(ctx, params, "SELECT database_role FROM v$database;", 120, true); err != nil {
 		logger.Infow("Could not determine database role (it might not be mounted/open), proceeding with standard shutdown", "error", err)
 	} else if strings.Contains(roleOut, "PHYSICAL STANDBY") {
@@ -117,46 +123,104 @@ func StartDatabase(ctx context.Context, command *gpb.Command, cloudProperties *m
 
 // startDatabase contains the core logic for starting the database.
 func startDatabase(ctx context.Context, logger *zap.SugaredLogger, params map[string]string) (stdout, stderr string, err error) {
-	startupCmd := "STARTUP"
-	if params["startup_mode"] == "restricted" {
+	startupCmd := "STARTUP MOUNT"
+	if val, ok := params["restrict"]; ok && strings.EqualFold(val, "true") {
 		startupCmd += " RESTRICT"
 	}
-	logger.Infow("Attempting database startup", "startup_cmd", startupCmd)
+	logger.Debugw("Attempting database startup", "startup_cmd", startupCmd)
 
-	// TODO: Handle ORA-16005: database requires recovery.
-	// See https://docs.oracle.com/en/error-help/db/ora-16005/?r=19c for more details.
 	// failOnSqlError is set to false because we want to handle ORA-01081 (already running) gracefully.
-	stdout, stderr, err = runSQL(ctx, params, startupCmd, 120, false)
+	startupStdOut, startupStderr, startupErr := runSQL(ctx, params, startupCmd, 120, false)
+	if startupErr != nil {
+		return startupStdOut, startupStderr, fmt.Errorf("startup command failed: %w", startupErr)
+	}
+	if strings.Contains(startupStdOut, "ORA-") && !strings.Contains(startupStdOut, alreadyRunning) {
+		return startupStdOut, startupStderr, fmt.Errorf("startup failed with unexpected Oracle error: %s", startupStdOut)
+	}
+
+	// At this point, database should be at least MOUNTED, or OPEN.
+	// Check the database role and open_mode to decide next steps.
+	roleStdOut, roleStderr, roleErr := runSQL(ctx, params, "SELECT database_role FROM v$database;", 60, true)
+	if roleErr != nil {
+		return roleStdOut, roleStderr, fmt.Errorf("failed to detect database role: %w", roleErr)
+	}
+	currentRole := strings.TrimSpace(roleStdOut)
+	openModeStdOut, openModeStderr, openModeErr := runSQL(ctx, params, "SELECT open_mode FROM v$database;", 60, true)
+	if openModeErr != nil {
+		return openModeStdOut, openModeStderr, fmt.Errorf("failed to detect open mode: %w", openModeErr)
+	}
+	currentOpenMode := strings.TrimSpace(openModeStdOut)
+
+	switch strings.ToUpper(currentRole) {
+	case "PRIMARY":
+		logger.Infow("Handling primary database", "role", currentRole, "open_mode", currentOpenMode)
+		return handlePrimary(ctx, logger, params, currentOpenMode)
+	case "PHYSICAL STANDBY":
+		logger.Infow("Handling physical standby database", "role", currentRole, "open_mode", currentOpenMode)
+		return handleStandby(ctx, logger, params, currentOpenMode)
+	default:
+		logger.Warnw("Unsupported database role", "role", currentRole, "open_mode", currentOpenMode)
+		return startupStdOut, startupStderr, fmt.Errorf("unsupported database role: %s", currentRole)
+	}
+}
+
+// handlePrimary handles startup logic for a primary database.
+func handlePrimary(ctx context.Context, logger *zap.SugaredLogger, params map[string]string, openMode string) (stdout, stderr string, err error) {
+	if openMode == "MOUNTED" {
+		logger.Infow("Primary database is mounted; attempting to open it")
+		return runSQL(ctx, params, "ALTER DATABASE OPEN;", 120, true)
+	}
+	logger.Infow("Primary database has been started successfully", "open_mode", openMode)
+	return "Primary database has been started successfully", "", nil
+}
+
+// handleStandby handles startup logic for a standby database.
+// For Active Data Guard, we must open the database READ ONLY before starting recovery to avoid ORA-10456.
+// For Standard Standby, we skip opening and start recovery while the database remains MOUNTED.
+func handleStandby(ctx context.Context, logger *zap.SugaredLogger, params map[string]string, openMode string) (stdout, stderr string, err error) {
+	// If open_standby_for_adg is true, we treat it as an Active Data Guard request.
+	// Default to false if the parameter is not set.
+	openADG := false
+	if val, ok := params["open_standby_for_adg"]; ok {
+		openADG = strings.EqualFold(val, "true")
+	}
+
+	if openADG {
+		switch strings.ToUpper(strings.TrimSpace(openMode)) {
+		case "MOUNTED":
+			logger.Infow("Opening standby database in READ ONLY mode for Active Data Guard", "open_mode", openMode, "open_standby_for_adg", openADG)
+			if stdout, stderr, err := runSQL(ctx, params, "ALTER DATABASE OPEN READ ONLY;", 120, true); err != nil {
+				return stdout, stderr, fmt.Errorf("failed to open standby database in READ ONLY mode: %w", err)
+			}
+		case "READ ONLY":
+			logger.Infow("Standby database is already open in READ ONLY mode, proceeding to start recovery", "open_mode", openMode, "open_standby_for_adg", openADG)
+		case "READ ONLY WITH APPLY":
+			// This is a special case where the database is already open READ ONLY and the Managed Recovery Process is active.
+			// This can happen if the database was opened READ ONLY with APPLY before the agent took over.
+			// In this case, we do not need to start recovery.
+			msg := "The database is already open in Active Data Guard mode, and the Managed Recovery Process is active, no action is required"
+			logger.Infow(msg, "open_mode", openMode, "open_standby_for_adg", openADG)
+			return msg, "", nil // Already in the desired state.
+		default:
+			msg := "Standby database is not in READ ONLY mode, cannot start recovery"
+			logger.Infow(msg, "open_mode", openMode, "open_standby_for_adg", openADG)
+			return "", "", errors.New(msg)
+		}
+	}
+
+	logger.Infow("Starting managed recovery for standby database", "open_mode", openMode, "open_standby_for_adg", openADG)
+	return startRecovery(ctx, logger, params)
+}
+
+func startRecovery(ctx context.Context, logger *zap.SugaredLogger, params map[string]string) (string, string, error) {
+	stdout, stderr, err := runSQL(ctx, params, recoverCmd, 120, true)
 	if err != nil {
-		return stdout, stderr, fmt.Errorf("startup command failed: %w", err)
-	}
-
-	if strings.Contains(stdout, startupSuccess) {
-		logger.Infow("Database started and opened successfully")
-		return stdout, stderr, nil
-	}
-
-	if strings.Contains(stdout, alreadyRunning) {
-		logger.Infow("Database is already running, checking status (MOUNTED or OPEN)")
-		statusStdOut, statusStdErr, statusErr := runSQL(ctx, params, "SELECT status FROM v$instance;", 120, true)
-		if statusErr != nil {
-			return statusStdOut, statusStdErr, fmt.Errorf("failed to get instance status: %w", statusErr)
+		if strings.Contains(stdout, recoveryActive) {
+			logger.Infow("Recovery is already active, no action is required", "stdout", stdout, "stderr", stderr)
+			return stdout, stderr, nil
 		}
-
-		if statusStdOut == "OPEN" {
-			logger.Infow("Database is already OPEN")
-			return statusStdOut, statusStdErr, nil
-		}
-
-		logger.Infow("Database is not OPEN, attempting to open", "current_status", statusStdOut)
-		alterStdOut, alterStdErr, alterErr := runSQL(ctx, params, "ALTER DATABASE OPEN;", 120, true)
-
-		if alterErr != nil {
-			return alterStdOut, alterStdErr, fmt.Errorf("alter database open failed: %w", alterErr)
-		}
-		logger.Infow("Database opened successfully")
-		return alterStdOut, alterStdErr, nil
+		return stdout, stderr, fmt.Errorf("failed to start recovery on standby: %w", err)
 	}
-
-	return stdout, stderr, fmt.Errorf("startup command returned unexpected output: %s", stdout)
+	logger.Infow("Managed recovery started successfully")
+	return stdout, stderr, nil
 }
