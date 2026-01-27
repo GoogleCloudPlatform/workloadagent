@@ -69,6 +69,7 @@ type gceInterface interface {
 type dbInterface interface {
 	Info(context.Context, ...string) *redis.StringCmd
 	ConfigGet(context.Context, string) *redis.MapStringStringCmd
+	Ping(context.Context) *redis.StatusCmd
 	String() string
 }
 
@@ -76,6 +77,7 @@ type dbInterface interface {
 type RedisMetrics struct {
 	Config      *configpb.Configuration
 	db          dbInterface
+	newClient   func(opt *redis.Options) dbInterface
 	execute     commandlineexecutor.Execute
 	WLMClient   workloadmanager.WLMWriter
 	OSData      osinfo.Data
@@ -89,6 +91,9 @@ func New(ctx context.Context, config *configpb.Configuration, wlmClient workload
 		execute:   commandlineexecutor.ExecuteCommand,
 		WLMClient: wlmClient,
 		OSData:    osData,
+		newClient: func(opt *redis.Options) dbInterface {
+			return redis.NewClient(opt)
+		},
 	}
 }
 
@@ -122,10 +127,14 @@ func (r *RedisMetrics) InitDB(ctx context.Context, gceService gceInterface) erro
 	if port == 0 {
 		port = defaultPort
 	}
-	r.db = redis.NewClient(&redis.Options{
+	r.db = r.newClient(&redis.Options{
 		Addr:     fmt.Sprintf("localhost:%d", port),
 		Password: pw.SecretValue(),
 	})
+	err = r.db.Ping(ctx).Err()
+	if err != nil {
+		return fmt.Errorf("failed to ping Redis database: %v", err)
+	}
 	return nil
 }
 

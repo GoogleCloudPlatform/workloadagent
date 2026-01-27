@@ -67,6 +67,10 @@ func (t *testDB) ConfigGet(ctx context.Context, key string) *redis.MapStringStri
 	return nil
 }
 
+func (t *testDB) Ping(ctx context.Context) *redis.StatusCmd {
+	return redis.NewStatusCmd(ctx, "PONG")
+}
+
 func (t *testDB) String() string {
 	return fmt.Sprintf("Redis<%s db:%d>", t.addr, t.db)
 }
@@ -651,6 +655,11 @@ func TestInitDB(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			tc.r.newClient = func(opt *redis.Options) dbInterface {
+				return &testDB{
+					addr: opt.Addr,
+				}
+			}
 			err := tc.r.InitDB(ctx, tc.gceService)
 			gotErr := err != nil
 			if gotErr != tc.wantErr {
