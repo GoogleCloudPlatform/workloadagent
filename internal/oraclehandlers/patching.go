@@ -18,9 +18,12 @@ package oraclehandlers
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/metadataserver"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
+
+	codepb "google.golang.org/genproto/googleapis/rpc/code"
 	gpb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/guestactions"
 )
 
@@ -46,15 +49,26 @@ func RunDatapatch(ctx context.Context, command *gpb.Command, cloudProperties *me
 	}
 }
 
-// DisableRestrictedMode implements the oracle_disable_restricted_mode guest action.
-func DisableRestrictedMode(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
-	log.CtxLogger(ctx).Info("oracle_disable_restricted_mode handler called")
-	// TODO: Implement oracle_disable_restricted_mode handler.
-	return &gpb.CommandResult{
-		Command:  command,
-		ExitCode: 1,
-		Stdout:   "oracle_disable_restricted_mode not implemented.",
+// DisableRestrictedSession implements the oracle_disable_restricted_mode guest action.
+// It executes "ALTER SYSTEM DISABLE RESTRICTED SESSION" to allow normal users to log in.
+func DisableRestrictedSession(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
+	params := command.GetAgentCommand().GetParameters()
+	logger := log.CtxLogger(ctx)
+	if result := validateParams(ctx, logger, command, params); result != nil {
+		return result
 	}
+	logger = logger.With("oracle_sid", params["oracle_sid"], "oracle_home", params["oracle_home"], "oracle_user", params["oracle_user"])
+	logger.Infow("oracle_disable_restricted_mode handler called")
+
+	sql := "ALTER SYSTEM DISABLE RESTRICTED SESSION;"
+	stdout, stderr, err := runSQL(ctx, params, sql, 120, true)
+	if err != nil {
+		errMsg := fmt.Errorf("failed to disable restricted mode: %w", err)
+		logger.Warnw("failed to disable restricted session", "stdout", stdout, "stderr", stderr, "error", errMsg)
+		return commandResult(ctx, logger, command, stdout, stderr, codepb.Code_FAILED_PRECONDITION, errMsg.Error(), errMsg)
+	}
+	logger.Infow("Restricted session disabled successfully", "stdout", stdout)
+	return commandResult(ctx, logger, command, stdout, stderr, codepb.Code_OK, "Restricted session disabled successfully", nil)
 }
 
 // StartListener implements the oracle_start_listener guest action.

@@ -352,7 +352,7 @@ func TestGuestActionHandlers(t *testing.T) {
 	expectedHandlers := []string{
 		"oracle_data_guard_switchover",
 		"oracle_disable_autostart",
-		"oracle_disable_restricted_mode",
+		"oracle_disable_restricted_session",
 		"oracle_enable_autostart",
 		"oracle_health_check",
 		"oracle_run_datapatch",

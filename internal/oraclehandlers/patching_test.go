@@ -18,9 +18,16 @@ package oraclehandlers
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
+	"google.golang.org/protobuf/proto"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
+
+	anypb "google.golang.org/protobuf/types/known/anypb"
+	codepb "google.golang.org/genproto/googleapis/rpc/code"
+	spb "google.golang.org/genproto/googleapis/rpc/status"
 	gpb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/guestactions"
 )
 
@@ -58,20 +65,68 @@ func TestRunDatapatch_NotImplemented(t *testing.T) {
 	}
 }
 
-func TestDisableRestrictedMode_NotImplemented(t *testing.T) {
-	command := &gpb.Command{
-		CommandType: &gpb.Command_AgentCommand{
-			AgentCommand: &gpb.AgentCommand{
-				Command: "oracle_disable_restricted_mode",
+func TestDisableRestrictedSession(t *testing.T) {
+	tests := []struct {
+		name          string
+		params        map[string]string
+		sqlQueries    map[string]*commandlineexecutor.Result
+		wantErrorCode codepb.Code
+	}{
+		{
+			name:          "DisableRestrictedSession_Validation_Fail",
+			params:        map[string]string{},
+			wantErrorCode: codepb.Code_INVALID_ARGUMENT,
+		},
+		{
+			name: "DisableRestrictedSession_Success",
+			params: map[string]string{
+				"oracle_sid":  "orcl",
+				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
+				"oracle_user": "oracle",
 			},
+			sqlQueries: map[string]*commandlineexecutor.Result{
+				"ALTER SYSTEM DISABLE RESTRICTED SESSION;": &commandlineexecutor.Result{StdOut: "System altered."},
+			},
+			wantErrorCode: codepb.Code_OK,
+		},
+		{
+			name: "DisableRestrictedSession_Fail",
+			params: map[string]string{
+				"oracle_sid":  "orcl",
+				"oracle_home": "/u01/app/oracle/product/19.3.0/dbhome_1",
+				"oracle_user": "oracle",
+			},
+			sqlQueries: map[string]*commandlineexecutor.Result{
+				"ALTER SYSTEM DISABLE RESTRICTED SESSION;": &commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("alter failed")},
+			},
+			wantErrorCode: codepb.Code_FAILED_PRECONDITION,
 		},
 	}
-	result := DisableRestrictedMode(context.Background(), command, nil)
-	if result.GetExitCode() != 1 {
-		t.Errorf("DisableRestrictedMode() returned exit code %d, want 1", result.GetExitCode())
-	}
-	if !strings.Contains(result.GetStdout(), "not implemented") {
-		t.Errorf("DisableRestrictedMode() returned stdout %q, want 'not implemented'", result.GetStdout())
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			origRunSQL := runSQL
+			defer func() { runSQL = origRunSQL }()
+			runSQL = createMockRunSQL(tc.sqlQueries)
+
+			command := &gpb.Command{
+				CommandType: &gpb.Command_AgentCommand{
+					AgentCommand: &gpb.AgentCommand{
+						Command:    "oracle_disable_restricted_session",
+						Parameters: tc.params,
+					},
+				},
+			}
+			result := DisableRestrictedSession(context.Background(), command, nil)
+
+			s := &spb.Status{}
+			if err := anypb.UnmarshalTo(result.Payload, s, proto.UnmarshalOptions{}); err != nil {
+				t.Fatalf("Failed to unmarshal payload: %v", err)
+			}
+			if s.Code != int32(tc.wantErrorCode) {
+				t.Errorf("DisableRestrictedSession() with params %v returned error code %d, want %d", tc.params, s.Code, tc.wantErrorCode)
+			}
+		})
 	}
 }
 

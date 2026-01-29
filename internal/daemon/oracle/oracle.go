@@ -243,16 +243,16 @@ func (s *Service) startGuestActionsRoutine(ctx context.Context) {
 func guestActionHandlers() map[string]guestactions.GuestActionHandler {
 	return map[string]guestactions.GuestActionHandler{
 		// go/keep-sorted start
-		"oracle_data_guard_switchover":   oraclehandlers.DataGuardSwitchover,
-		"oracle_disable_autostart":       oraclehandlers.DisableAutostart,
-		"oracle_disable_restricted_mode": oraclehandlers.DisableRestrictedMode,
-		"oracle_enable_autostart":        oraclehandlers.EnableAutostart,
-		"oracle_health_check":            oraclehandlers.HealthCheck,
-		"oracle_run_datapatch":           oraclehandlers.RunDatapatch,
-		"oracle_run_discovery":           oraclehandlers.RunDiscovery,
-		"oracle_start_database":          oraclehandlers.StartDatabase,
-		"oracle_start_listener":          oraclehandlers.StartListener,
-		"oracle_stop_database":           oraclehandlers.StopDatabase,
+		"oracle_data_guard_switchover":      oraclehandlers.DataGuardSwitchover,
+		"oracle_disable_autostart":          oraclehandlers.DisableAutostart,
+		"oracle_disable_restricted_session": oraclehandlers.DisableRestrictedSession,
+		"oracle_enable_autostart":           oraclehandlers.EnableAutostart,
+		"oracle_health_check":               oraclehandlers.HealthCheck,
+		"oracle_run_datapatch":              oraclehandlers.RunDatapatch,
+		"oracle_run_discovery":              oraclehandlers.RunDiscovery,
+		"oracle_start_database":             oraclehandlers.StartDatabase,
+		"oracle_start_listener":             oraclehandlers.StartListener,
+		"oracle_stop_database":              oraclehandlers.StopDatabase,
 		// go/keep-sorted end
 	}
 }
