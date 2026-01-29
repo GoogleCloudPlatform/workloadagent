@@ -57,13 +57,13 @@ func commandResult(ctx context.Context, logger *zap.SugaredLogger, command *gpb.
 	return res
 }
 
-func validateParams(ctx context.Context, logger *zap.SugaredLogger, command *gpb.Command, params map[string]string) *gpb.CommandResult {
+func validateParams(ctx context.Context, logger *zap.SugaredLogger, command *gpb.Command, params map[string]string, requiredParams []string) *gpb.CommandResult {
 	if params == nil {
 		errMsg := "Agent command parameters are missing"
 		logger.Warnw(errMsg)
 		return commandResult(ctx, logger, command, errMsg, "", codepb.Code_INVALID_ARGUMENT, errMsg, errors.New(errMsg))
 	}
-	for _, requiredParam := range []string{"oracle_sid", "oracle_home", "oracle_user"} {
+	for _, requiredParam := range requiredParams {
 		if val, ok := params[requiredParam]; !ok || val == "" {
 			errMsg := fmt.Sprintf("Parameter %s is missing", requiredParam)
 			logger.Warnw(errMsg)

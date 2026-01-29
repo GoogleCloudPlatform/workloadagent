@@ -176,7 +176,7 @@ func TestValidateParams(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := validateParams(context.Background(), zap.NewNop().Sugar(), nil, tc.params)
+			got := validateParams(context.Background(), zap.NewNop().Sugar(), nil, tc.params, []string{"oracle_sid", "oracle_home", "oracle_user"})
 
 			if tc.wantErrorCode == codepb.Code_OK {
 				if got != nil {
