@@ -37,6 +37,8 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apiextensions "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sjson "k8s.io/apimachinery/pkg/runtime/serializer/json"
 	k8sscheme "k8s.io/client-go/kubernetes/scheme"
@@ -140,6 +142,12 @@ func (f *fakeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 				ObjectMeta: metav1.ObjectMeta{Name: "test-csi", UID: "csi-uid", ResourceVersion: "6", CreationTimestamp: metav1.NewTime(f.now)},
 			}},
 		}
+	case "/apis/apiextensions.k8s.io/v1/customresourcedefinitions":
+		obj = &apiextensionsv1.CustomResourceDefinitionList{
+			Items: []apiextensionsv1.CustomResourceDefinition{{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-crd", UID: "crd-uid", ResourceVersion: "7", CreationTimestamp: metav1.NewTime(f.now)},
+			}},
+		}
 	default:
 		if strings.Contains(req.URL.Path, "/deployments") {
 			obj = &appsv1.DeploymentList{}
@@ -184,9 +192,15 @@ func TestCollectMetrics(t *testing.T) {
 		t.Fatalf("Failed to create openshift client: %v", err)
 	}
 
+	apiExtensionsClient, err := apiextensions.NewForConfig(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create apiextensions client: %v", err)
+	}
+
 	om := &OpenShiftMetrics{
-		K8sClient:       k8sClient,
-		OpenShiftClient: ocpClient,
+		K8sClient:           k8sClient,
+		OpenShiftClient:     ocpClient,
+		APIExtensionsClient: apiExtensionsClient,
 	}
 
 	payload, err := om.CollectMetrics(ctx, MetricVersioning{PayloadVersion: "1.0", AgentVersion: "2.0"})
@@ -310,5 +324,16 @@ func TestCollectMetrics(t *testing.T) {
 	}
 	if diff := cmp.Diff(wantCloudCredentialConfig, payload.GetCloudCredentialConfig(), cmpOpts...); diff != "" {
 		t.Errorf("CollectMetrics() cloud credential config diff (-want +got):\n%s", diff)
+	}
+
+	wantCrds := &ompb.CustomResourceDefinitionList{
+		Items: []*ompb.CustomResourceDefinition{
+			{
+				Metadata: &ompb.ResourceMetadata{Name: "test-crd"},
+			},
+		},
+	}
+	if diff := cmp.Diff(wantCrds, payload.GetCustomResourceDefinitions().GetCustomResourceDefinitions(), cmpOpts...); diff != "" {
+		t.Errorf("CollectMetrics() custom resource definitions diff (-want +got):\n%s", diff)
 	}
 }

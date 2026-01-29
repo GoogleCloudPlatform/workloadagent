@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 
+	apiextensions "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -47,6 +48,8 @@ type OpenShiftMetrics struct {
 	WLMClient       workloadmanager.WLMWriter
 	K8sClient       *kubernetes.Clientset
 	OpenShiftClient *openshift.Client
+	// APIExtensionsClient is the client for the API extensions group.
+	APIExtensionsClient *apiextensions.Clientset
 }
 
 // MetricVersioning contains the versioning information for the metric agent and payload.
@@ -84,6 +87,12 @@ func (o *OpenShiftMetrics) Init(ctx context.Context) error {
 	}
 	o.OpenShiftClient = openshiftClient
 
+	apiExtensionsClient, err := apiextensions.NewForConfig(config)
+	if err != nil {
+		return err
+	}
+	o.APIExtensionsClient = apiExtensionsClient
+
 	return nil
 }
 
@@ -93,8 +102,8 @@ func (o *OpenShiftMetrics) Init(ctx context.Context) error {
 func (o *OpenShiftMetrics) CollectMetrics(ctx context.Context, versionData MetricVersioning) (*ompb.OpenshiftMetricsPayload, error) {
 	// This is the base payload that will be sent to the WLM API.
 	payload := &ompb.OpenshiftMetricsPayload{
-		Version:      versionData.PayloadVersion,
-		AgentVersion: versionData.AgentVersion,
+		Version:       versionData.PayloadVersion,
+		AgentVersion:  versionData.AgentVersion,
 		ScanTimestamp: tspb.Now(),
 	}
 	logger := log.CtxLogger(ctx)
@@ -134,6 +143,10 @@ func (o *OpenShiftMetrics) CollectMetrics(ctx context.Context, versionData Metri
 
 	if err := o.collectCloudCredentialConfig(ctx, payload); err != nil {
 		logger.Warnw("Failed to collect cloud credential config data", "error", err)
+	}
+
+	if err := o.collectCustomResourceDefinitions(ctx, payload); err != nil {
+		logger.Warnw("Failed to collect custom resource definitions data", "error", err)
 	}
 
 	logger.Debugw("Metric payload after collection", "payload", payload)
@@ -647,5 +660,31 @@ func (o *OpenShiftMetrics) collectCloudCredentialConfig(ctx context.Context, pay
 			CredentialsMode: cloudCredentialConfig.Spec.CredentialsMode,
 		},
 	}
+	return nil
+}
+
+// collectCustomResourceDefinitions collects the custom resource definitions from the cluster.
+func (o *OpenShiftMetrics) collectCustomResourceDefinitions(ctx context.Context, payload *ompb.OpenshiftMetricsPayload) error {
+	customResourceDefinitions, err := o.APIExtensionsClient.ApiextensionsV1().CustomResourceDefinitions().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
+
+	var customResourceDefinitionList []*ompb.CustomResourceDefinition
+	for _, customResourceDefinition := range customResourceDefinitions.Items {
+		customResourceDefinitionList = append(customResourceDefinitionList, &ompb.CustomResourceDefinition{
+			Metadata: &ompb.ResourceMetadata{
+				Name: customResourceDefinition.Name,
+			},
+		})
+	}
+
+	payload.CustomResourceDefinitions = &ompb.ResourceListContainer{
+		Kind:           customResourceDefinitions.Kind,
+		ApiVersion:     customResourceDefinitions.APIVersion,
+		Metadata:       &ompb.ResourceListContainer_Metadata{ResourceVersion: customResourceDefinitions.ResourceVersion},
+		ContainerItems: &ompb.ResourceListContainer_CustomResourceDefinitions{CustomResourceDefinitions: &ompb.CustomResourceDefinitionList{Items: customResourceDefinitionList}},
+	}
+
 	return nil
 }
