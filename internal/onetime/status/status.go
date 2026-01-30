@@ -19,6 +19,7 @@ package status
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"os"
 	"runtime"
@@ -27,13 +28,17 @@ import (
 
 	"cloud.google.com/go/artifactregistry/apiv1"
 	"github.com/spf13/cobra"
+	"google.golang.org/api/googleapi"
+	"google.golang.org/api/serviceusage/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
-	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/iam"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/permissions"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/statushelper"
 
+	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	spb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/status"
 )
 
@@ -41,6 +46,13 @@ const (
 	agentPackageName = "google-cloud-workload-agent"
 	requiredScope    = "https://www.googleapis.com/auth/cloud-platform"
 )
+
+//go:embed iam-permissions.yaml
+var iamPermissionsYAML []byte
+
+var serviceUsageNewService = func(ctx context.Context) (*serviceusage.Service, error) {
+	return serviceusage.NewService(ctx)
+}
 
 // NewCommand creates a new status command.
 func NewCommand(cloudProps *cpb.CloudProperties) *cobra.Command {
@@ -59,7 +71,13 @@ func NewCommand(cloudProps *cpb.CloudProperties) *cobra.Command {
 			if c, ok := arClient.(*statushelper.ArtifactRegistryClient); ok {
 				defer c.Client.Close()
 			}
-			status := agentStatus(ctx, arClient, commandlineexecutor.ExecuteCommand, cloudProps, config, os.ReadFile)
+
+			iamClient, err := iam.NewIAMClient(ctx)
+			if err != nil {
+				return err
+			}
+
+			status := agentStatus(ctx, arClient, iamClient, commandlineexecutor.ExecuteCommand, cloudProps, config, os.ReadFile)
 			statushelper.PrintStatus(ctx, status, compact)
 			return nil
 		},
@@ -81,7 +99,7 @@ func newARClient(ctx context.Context) (statushelper.ARClientInterface, error) {
 
 // agentStatus returns the agent version, enabled/running, config path, and the
 // configuration as parsed by the agent.
-func agentStatus(ctx context.Context, arClient statushelper.ARClientInterface, exec commandlineexecutor.Execute, cloudProps *cpb.CloudProperties, config string, readFile func(string) ([]byte, error)) *spb.AgentStatus {
+func agentStatus(ctx context.Context, arClient statushelper.ARClientInterface, iamClient permissions.IAMService, exec commandlineexecutor.Execute, cloudProps *cpb.CloudProperties, config string, readFile func(string) ([]byte, error)) *spb.AgentStatus {
 	agentStatus := &spb.AgentStatus{
 		AgentName:        agentPackageName,
 		InstalledVersion: fmt.Sprintf("%s-%s", configuration.AgentVersion, configuration.AgentBuildChange),
@@ -132,25 +150,175 @@ func agentStatus(ctx context.Context, arClient statushelper.ARClientInterface, e
 		}
 	}
 	agentStatus.ConfigurationFilePath = path
-	content, err := readFile(path)
-	if err != nil {
-		agentStatus.ConfigurationValid = spb.State_FAILURE_STATE
-		agentStatus.ConfigurationErrorMessage = err.Error()
-	} else {
+	func() {
+		content, err := readFile(path)
+		if err != nil {
+			agentStatus.ConfigurationValid = spb.State_FAILURE_STATE
+			agentStatus.ConfigurationErrorMessage = err.Error()
+			return
+		}
 		configProto := &cpb.Configuration{}
+		agentStatus.ConfigurationValid = spb.State_SUCCESS_STATE
 		if err := protojson.Unmarshal(content, configProto); err != nil {
 			agentStatus.ConfigurationValid = spb.State_FAILURE_STATE
 			agentStatus.ConfigurationErrorMessage = err.Error()
-		} else {
-			agentStatus.ConfigurationValid = spb.State_SUCCESS_STATE
 		}
+	}()
+
+	// Check IAM permissions for configured services
+	iamServices := map[string]string{
+		"SECRET_MANAGER": "Secret Manager",
 	}
+	agentStatus.Services = append(agentStatus.Services, checkIAMPermissions(ctx, iamClient, cloudProps, iamServices, iamPermissionsYAML)...)
+
+	// Check if configured APIs are enabled
+	apis := map[string]string{
+		"workloadmanager.googleapis.com": "Workload Manager API",
+	}
+	agentStatus.Services = append(agentStatus.Services, checkAPIEnablement(ctx, cloudProps, apis)...)
 
 	agentStatus.KernelVersion, err = statushelper.KernelVersion(ctx, runtime.GOOS, exec)
 	if err != nil && runtime.GOOS == "linux" {
 		log.CtxLogger(ctx).Errorw("Could not fetch kernel version", "error", err)
 	}
 	return agentStatus
+}
+
+// checkIAMPermissions checks the IAM permissions for the given services.
+func checkIAMPermissions(ctx context.Context, iamClient permissions.IAMService, cloudProps *cpb.CloudProperties, services map[string]string, permissionsYAML []byte) []*spb.ServiceStatus {
+	var statuses []*spb.ServiceStatus
+	if cloudProps == nil {
+		for _, displayName := range services {
+			statuses = append(statuses, &spb.ServiceStatus{
+				Name:            displayName,
+				State:           spb.State_FAILURE_STATE,
+				ErrorMessage:    "Cloud properties not available",
+				FullyFunctional: spb.State_FAILURE_STATE,
+			})
+		}
+		return statuses
+	}
+
+	checker, parseErr := permissions.NewPermissionsChecker(permissionsYAML)
+	if parseErr != nil {
+		log.CtxLogger(ctx).Errorw("Failed to parse IAM permissions", "error", parseErr)
+		for _, displayName := range services {
+			statuses = append(statuses, &spb.ServiceStatus{
+				Name:            displayName,
+				State:           spb.State_FAILURE_STATE,
+				ErrorMessage:    fmt.Sprintf("IAM permission configuration error: %v", parseErr),
+				FullyFunctional: spb.State_FAILURE_STATE,
+			})
+		}
+		return statuses
+	}
+
+	for serviceName, displayName := range services {
+		status := &spb.ServiceStatus{
+			Name: displayName,
+		}
+		resource := &permissions.ResourceDetails{
+			ProjectID: cloudProps.GetProjectId(),
+		}
+		grantedPermissions, err := checker.FetchServicePermissionsStatus(ctx, iamClient, serviceName, resource)
+		if err != nil {
+			log.CtxLogger(ctx).Warnw("Failed to check IAM permissions", "service", serviceName, "error", err)
+			status.State = spb.State_FAILURE_STATE
+			status.ErrorMessage = err.Error()
+			status.FullyFunctional = spb.State_FAILURE_STATE
+		} else {
+			log.CtxLogger(ctx).Infow("IAM Permissions", "service", serviceName, "permissions", grantedPermissions)
+			status.State = spb.State_SUCCESS_STATE
+			status.FullyFunctional = spb.State_SUCCESS_STATE
+			for permission, granted := range grantedPermissions {
+				state := spb.State_FAILURE_STATE
+				if granted {
+					state = spb.State_SUCCESS_STATE
+				}
+				status.IamPermissions = append(status.IamPermissions, &spb.IAMPermission{
+					Name:    permission,
+					Granted: state,
+				})
+			}
+			// Sort permissions for deterministic output (map iteration is random)
+			slices.SortFunc(status.IamPermissions, func(a, b *spb.IAMPermission) int {
+				return strings.Compare(a.Name, b.Name)
+			})
+		}
+		statuses = append(statuses, status)
+	}
+	// Sort statuses by name for deterministic output
+	slices.SortFunc(statuses, func(a, b *spb.ServiceStatus) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	return statuses
+}
+
+// checkAPIEnablement checks if the required APIs are enabled.
+func checkAPIEnablement(ctx context.Context, cloudProps *cpb.CloudProperties, apis map[string]string) []*spb.ServiceStatus {
+	var statuses []*spb.ServiceStatus
+	if cloudProps == nil {
+		for _, name := range apis {
+			statuses = append(statuses, &spb.ServiceStatus{
+				Name:            name,
+				State:           spb.State_FAILURE_STATE,
+				ErrorMessage:    "Cloud properties not available",
+				FullyFunctional: spb.State_FAILURE_STATE,
+			})
+		}
+		return statuses
+	}
+	usageService, err := serviceUsageNewService(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Errorw("Failed to create Service Usage client", "error", err)
+		for _, name := range apis {
+			statuses = append(statuses, &spb.ServiceStatus{
+				Name:            name,
+				State:           spb.State_FAILURE_STATE,
+				ErrorMessage:    fmt.Sprintf("Failed to create Service Usage client: %v", err),
+				FullyFunctional: spb.State_FAILURE_STATE,
+			})
+		}
+		return statuses
+	}
+
+	for serviceName, displayName := range apis {
+		status := &spb.ServiceStatus{
+			Name: displayName,
+		}
+		// Construct the resource name for the service.
+		name := fmt.Sprintf("projects/%s/services/%s", cloudProps.GetProjectId(), serviceName)
+
+		// Get the service details.
+		svc, err := usageService.Services.Get(name).Context(ctx).Do()
+		if err != nil {
+			// Handle potential errors, such as permission issues or the service not existing.
+			if gErr, ok := err.(*googleapi.Error); ok && gErr.Code == 403 {
+				err = fmt.Errorf("permission denied or service not found for %s: %v", serviceName, err)
+			} else {
+				err = fmt.Errorf("failed to get service %s: %v", serviceName, err)
+			}
+			log.CtxLogger(ctx).Warnw("Failed to check API status", "service", serviceName, "error", err)
+			status.State = spb.State_FAILURE_STATE
+			status.ErrorMessage = err.Error()
+			status.FullyFunctional = spb.State_FAILURE_STATE
+		} else {
+			if svc.State == "ENABLED" {
+				status.State = spb.State_SUCCESS_STATE
+				status.FullyFunctional = spb.State_SUCCESS_STATE
+			} else {
+				status.State = spb.State_FAILURE_STATE
+				status.ErrorMessage = "API is not enabled"
+				status.FullyFunctional = spb.State_FAILURE_STATE
+			}
+		}
+		statuses = append(statuses, status)
+	}
+	// Sort statuses by name for deterministic output
+	slices.SortFunc(statuses, func(a, b *spb.ServiceStatus) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	return statuses
 }
 
 // getRepositoryLocation returns the repository location based on the cloud properties.
