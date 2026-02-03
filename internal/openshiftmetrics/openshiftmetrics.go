@@ -149,6 +149,10 @@ func (o *OpenShiftMetrics) CollectMetrics(ctx context.Context, versionData Metri
 		logger.Warnw("Failed to collect custom resource definitions data", "error", err)
 	}
 
+	if err := o.collectNodes(ctx, payload); err != nil {
+		logger.Warnw("Failed to collect nodes data", "error", err)
+	}
+
 	logger.Debugw("Metric payload after collection", "payload", payload)
 
 	return payload, nil
@@ -684,6 +688,38 @@ func (o *OpenShiftMetrics) collectCustomResourceDefinitions(ctx context.Context,
 		ApiVersion:     customResourceDefinitions.APIVersion,
 		Metadata:       &ompb.ResourceListContainer_Metadata{ResourceVersion: customResourceDefinitions.ResourceVersion},
 		ContainerItems: &ompb.ResourceListContainer_CustomResourceDefinitions{CustomResourceDefinitions: &ompb.CustomResourceDefinitionList{Items: customResourceDefinitionList}},
+	}
+
+	return nil
+}
+
+// collectNodes collects the nodes from the cluster.
+func (o *OpenShiftMetrics) collectNodes(ctx context.Context, payload *ompb.OpenshiftMetricsPayload) error {
+	nodes, err := o.K8sClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
+
+	var nodeList []*ompb.Node
+	for _, node := range nodes.Items {
+		nodeList = append(nodeList, &ompb.Node{
+			Metadata: &ompb.ResourceMetadata{
+				Name:              node.Name,
+				Uid:               string(node.UID),
+				ResourceVersion:   node.ResourceVersion,
+				Generation:        node.Generation,
+				CreationTimestamp: tspb.New(node.CreationTimestamp.Time),
+				Labels:            node.Labels,
+				Annotations:       node.Annotations,
+			},
+		})
+	}
+
+	payload.Nodes = &ompb.ResourceListContainer{
+		Kind:           nodes.Kind,
+		ApiVersion:     nodes.APIVersion,
+		Metadata:       &ompb.ResourceListContainer_Metadata{ResourceVersion: nodes.ResourceVersion},
+		ContainerItems: &ompb.ResourceListContainer_Nodes{Nodes: &ompb.NodeList{Items: nodeList}},
 	}
 
 	return nil

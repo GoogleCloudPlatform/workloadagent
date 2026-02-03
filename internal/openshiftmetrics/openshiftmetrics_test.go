@@ -148,6 +148,12 @@ func (f *fakeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 				ObjectMeta: metav1.ObjectMeta{Name: "test-crd", UID: "crd-uid", ResourceVersion: "7", CreationTimestamp: metav1.NewTime(f.now)},
 			}},
 		}
+	case "/api/v1/nodes":
+		obj = &corev1.NodeList{
+			Items: []corev1.Node{{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-node", UID: "node-uid", ResourceVersion: "8", CreationTimestamp: metav1.NewTime(f.now)},
+			}},
+		}
 	default:
 		if strings.Contains(req.URL.Path, "/deployments") {
 			obj = &appsv1.DeploymentList{}
@@ -335,5 +341,16 @@ func TestCollectMetrics(t *testing.T) {
 	}
 	if diff := cmp.Diff(wantCrds, payload.GetCustomResourceDefinitions().GetCustomResourceDefinitions(), cmpOpts...); diff != "" {
 		t.Errorf("CollectMetrics() custom resource definitions diff (-want +got):\n%s", diff)
+	}
+
+	wantNodes := &ompb.NodeList{
+		Items: []*ompb.Node{
+			{
+				Metadata: &ompb.ResourceMetadata{Name: "test-node", Uid: "node-uid", ResourceVersion: "8", CreationTimestamp: nowProto},
+			},
+		},
+	}
+	if diff := cmp.Diff(wantNodes, payload.GetNodes().GetNodes(), cmpOpts...); diff != "" {
+		t.Errorf("CollectMetrics() nodes diff (-want +got):\n%s", diff)
 	}
 }
