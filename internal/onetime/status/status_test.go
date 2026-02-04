@@ -34,6 +34,7 @@ import (
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/api/serviceusage/v1"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
@@ -171,6 +172,16 @@ func TestNewARClient(t *testing.T) {
 }
 
 func TestAgentStatus(t *testing.T) {
+	oldNewGCEClient := newGCEClient
+	newGCEClient = func(ctx context.Context) (gceInterface, error) {
+		return &fakeGCEClient{
+			getSecret: func(ctx context.Context, projectID, secretName string) (string, error) {
+				return "password", nil
+			},
+		}, nil
+	}
+	t.Cleanup(func() { newGCEClient = oldNewGCEClient })
+
 	tests := []struct {
 		name       string
 		exec       commandlineexecutor.Execute
@@ -759,6 +770,11 @@ func TestAgentStatus(t *testing.T) {
 						ErrorMessage:    "Failed to create Service Usage client: credentials: could not find default credentials. See https://cloud.google.com/docs/authentication/external/set-up-adc for more information",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
+					{
+						Name:         "redis",
+						State:        spb.State_ERROR_STATE,
+						ErrorMessage: "could not read OS info: open /etc/os-release: no such file or directory",
+					},
 				},
 			},
 		},
@@ -832,6 +848,105 @@ func TestAgentStatus(t *testing.T) {
 						ErrorMessage:    "Failed to create Service Usage client: credentials: could not find default credentials. See https://cloud.google.com/docs/authentication/external/set-up-adc for more information",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
+					{
+						Name:         "redis",
+						State:        spb.State_ERROR_STATE,
+						ErrorMessage: "could not read OS info: open /etc/os-release: no such file or directory",
+					},
+				},
+			},
+		},
+		{
+			name: "DatabaseConnectivityEnabled",
+			exec: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				if strings.Contains(params.ArgsToSplit, "is-enabled") {
+					return commandlineexecutor.Result{StdOut: "enabled", ExitCode: 0}
+				}
+				if strings.Contains(params.ArgsToSplit, "is-active") {
+					return commandlineexecutor.Result{StdOut: "active", ExitCode: 0}
+				}
+				if params.Executable == "uname" {
+					return commandlineexecutor.Result{StdOut: "5.10.0", ExitCode: 0}
+				}
+				return commandlineexecutor.Result{}
+			},
+			arClient: newFakeARClient(
+				[]*arpb.Package{{Name: "projects/workload-agent-products/locations/us/repositories/google-cloud-workload-agent-x86-64/packages/google-cloud-workload-agent"}},
+				[]*arpb.Version{{Name: "1.2.3"}},
+				nil,
+			),
+			iamClient: &fakeIAMService{},
+			readFile: func(string) ([]byte, error) {
+				// Config with MySQL, Oracle and SQL Server enabled
+				config := `{
+					"mysql_configuration": {
+						"enabled": true
+					},
+					"oracle_configuration": {
+						"enabled": true,
+						"oracle_metrics": {
+							"connection_parameters": [{
+								"host": "localhost",
+								"port": 1521,
+								"service_name": "ORCL",
+								"username": "sys",
+								"secret": {"secret_name": "pw"}
+							}]
+						}
+					},
+					"sqlserver_configuration": {
+						"enabled": true
+					}
+				}`
+				return []byte(config), nil
+			},
+			cloudProps: &cpb.CloudProperties{
+				ProjectId:  "test-project",
+				Zone:       "test-zone",
+				InstanceId: "test-instance",
+				Scopes:     []string{requiredScope},
+			},
+			want: &spb.AgentStatus{
+				AgentName:                       agentPackageName,
+				InstalledVersion:                fmt.Sprintf("%s-%s", configuration.AgentVersion, configuration.AgentBuildChange),
+				AvailableVersion:                "1.2.3",
+				SystemdServiceEnabled:           spb.State_SUCCESS_STATE,
+				SystemdServiceRunning:           spb.State_SUCCESS_STATE,
+				CloudApiAccessFullScopesGranted: spb.State_SUCCESS_STATE,
+				ConfigurationFilePath:           "/etc/google-cloud-workload-agent/configuration.json",
+				ConfigurationValid:              spb.State_SUCCESS_STATE,
+				InstanceUri:                     "projects/test-project/zones/test-zone/instances/test-instance",
+				KernelVersion:                   &spb.KernelVersion{RawString: "5.10.0"},
+				Services: []*spb.ServiceStatus{
+					{
+						Name:            "Secret Manager",
+						State:           spb.State_SUCCESS_STATE,
+						FullyFunctional: spb.State_SUCCESS_STATE,
+						IamPermissions: []*spb.IAMPermission{
+							{Name: "secretmanager.versions.access", Granted: spb.State_FAILURE_STATE},
+						},
+					},
+					{
+						Name:            "Workload Manager API",
+						State:           spb.State_FAILURE_STATE,
+						ErrorMessage:    "Failed to create Service Usage client: credentials: could not find default credentials. See https://cloud.google.com/docs/authentication/external/set-up-adc for more information",
+						FullyFunctional: spb.State_FAILURE_STATE,
+					},
+					{
+						Name:         "mysql",
+						State:        spb.State_ERROR_STATE,
+						ErrorMessage: "failed to ping MySQL connection: dial tcp 127.0.0.1:3306: connect: connection refused",
+					},
+					{
+						Name:         "oracle",
+						State:        spb.State_ERROR_STATE,
+						ErrorMessage: "failed to ping database for service ORCL: dial tcp [::1]:1521: connect: connection refused",
+					},
+					{
+						Name:         "sqlserver",
+						State:        spb.State_ERROR_STATE,
+						ErrorMessage: "no credential configurations for SQL Server",
+					},
 				},
 			},
 		},
@@ -855,6 +970,73 @@ func TestAgentStatus(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAgentStatus_GCEClientError(t *testing.T) {
+	oldNewGCEClient := newGCEClient
+	newGCEClient = func(ctx context.Context) (gceInterface, error) {
+		return nil, errors.New("gce client creation failed")
+	}
+	t.Cleanup(func() { newGCEClient = oldNewGCEClient })
+
+	ctx := context.Background()
+	arClient := newFakeARClient(nil, nil, nil)
+	iamClient := &fakeIAMService{}
+	exec := func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+		return commandlineexecutor.Result{}
+	}
+	cloudProps := &cpb.CloudProperties{
+		ProjectId: "test-project",
+		Zone:      "test-zone",
+	}
+	readFile := func(string) ([]byte, error) {
+		return []byte(`{}`), nil
+	}
+
+	status := agentStatus(ctx, arClient, iamClient, exec, cloudProps, "", readFile)
+
+	found := false
+	for _, s := range status.Services {
+		if s.Name == "GCE Connectivity" {
+			found = true
+			if s.State != spb.State_FAILURE_STATE {
+				t.Errorf("GCE Connectivity state = %v, want %v", s.State, spb.State_FAILURE_STATE)
+			}
+			expectedMsg := "Could not create GCE client: gce client creation failed"
+			if s.ErrorMessage != expectedMsg {
+				t.Errorf("GCE Connectivity error message = %q, want %q", s.ErrorMessage, expectedMsg)
+			}
+		}
+	}
+	if !found {
+		t.Error("GCE Connectivity service status not found")
+	}
+}
+
+func TestCheckAndSetStatus(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		s := checkAndSetStatus("test-service", func() error {
+			return nil
+		})
+		if s.State != spb.State_SUCCESS_STATE {
+			t.Errorf("checkAndSetStatus success case failed: got state %v, want SUCCESS", s.State)
+		}
+		if s.FullyFunctional != spb.State_SUCCESS_STATE {
+			t.Errorf("checkAndSetStatus success case failed: got functional %v, want SUCCESS", s.FullyFunctional)
+		}
+	})
+
+	t.Run("Failure", func(t *testing.T) {
+		s := checkAndSetStatus("test-service", func() error {
+			return errors.New("test error")
+		})
+		if s.State != spb.State_ERROR_STATE {
+			t.Errorf("checkAndSetStatus failure case failed: got state %v, want ERROR", s.State)
+		}
+		if s.ErrorMessage != "test error" {
+			t.Errorf("checkAndSetStatus failure case failed: got error message %q, want 'test error'", s.ErrorMessage)
+		}
+	})
 }
 
 func TestCheckIAMPermissions(t *testing.T) {
@@ -1069,6 +1251,356 @@ func TestCheckAPIEnablement(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+type fakeGCEClient struct {
+	getSecret func(ctx context.Context, projectID, secretName string) (string, error)
+}
+
+func (f *fakeGCEClient) GetSecret(ctx context.Context, projectID, secretName string) (string, error) {
+	if f.getSecret != nil {
+		return f.getSecret(ctx, projectID, secretName)
+	}
+	return "", errors.New("GetSecret not implemented")
+}
+
+func (f *fakeGCEClient) GetInstanceAuthToken(ctx context.Context, instanceURI string) (string, error) {
+	return "token", nil
+}
+
+func TestCheckDatabaseConnectivity(t *testing.T) {
+	tests := []struct {
+		name       string
+		config     *cpb.Configuration
+		gce        gceInterface
+		wantStatus []*spb.ServiceStatus
+	}{
+		{
+			name: "MySQLFailure",
+			config: &cpb.Configuration{
+				MysqlConfiguration: &cpb.MySQLConfiguration{
+					Enabled: proto.Bool(true),
+				},
+			},
+			gce: &fakeGCEClient{
+				getSecret: func(ctx context.Context, projectID, secretName string) (string, error) {
+					return "mysql-password", nil
+				},
+			},
+			wantStatus: []*spb.ServiceStatus{
+				{
+					Name:         "mysql",
+					State:        spb.State_ERROR_STATE,
+					ErrorMessage: "failed to ping MySQL connection: dial tcp 127.0.0.1:3306: connect: connection refused",
+				},
+			},
+		},
+		{
+			name: "PostgresFailure",
+			config: &cpb.Configuration{
+				PostgresConfiguration: &cpb.PostgresConfiguration{
+					Enabled: proto.Bool(true),
+				},
+			},
+			gce: &fakeGCEClient{
+				getSecret: func(ctx context.Context, projectID, secretName string) (string, error) {
+					return "postgres-password", nil
+				},
+			},
+			wantStatus: []*spb.ServiceStatus{
+				{
+					Name:         "postgres",
+					State:        spb.State_ERROR_STATE,
+					ErrorMessage: "failed to ping Postgres connection: dial tcp [::1]:5432: connect: connection refused",
+				},
+			},
+		},
+		{
+			name: "MongoDbFailure",
+			config: &cpb.Configuration{
+				MongoDbConfiguration: &cpb.MongoDBConfiguration{
+					Enabled: proto.Bool(true),
+				},
+			},
+			gce: &fakeGCEClient{
+				getSecret: func(ctx context.Context, projectID, secretName string) (string, error) {
+					return "mongodb-password", nil
+				},
+			},
+			wantStatus: []*spb.ServiceStatus{
+				{
+					Name:         "mongodb",
+					State:        spb.State_ERROR_STATE,
+					ErrorMessage: "failed to connect to MongoDB: error validating uri: username required if URI contains user info",
+				},
+			},
+		},
+		{
+			name: "RedisFailure",
+			config: &cpb.Configuration{
+				RedisConfiguration: &cpb.RedisConfiguration{
+					Enabled: proto.Bool(true),
+				},
+			},
+			gce: &fakeGCEClient{
+				getSecret: func(ctx context.Context, projectID, secretName string) (string, error) {
+					return "redis-password", nil
+				},
+			},
+			wantStatus: []*spb.ServiceStatus{
+				{
+					Name:         "redis",
+					State:        spb.State_ERROR_STATE,
+					ErrorMessage: "could not read OS info: open /etc/os-release: no such file or directory",
+				},
+			},
+		},
+		{
+			name: "OracleConnectionFailure",
+			config: &cpb.Configuration{
+				OracleConfiguration: &cpb.OracleConfiguration{
+					Enabled: proto.Bool(true),
+					OracleMetrics: &cpb.OracleMetrics{
+						ConnectionParameters: []*cpb.ConnectionParameters{
+							{
+								Host:        "127.0.0.1",
+								Port:        1521,
+								ServiceName: "ORCL",
+								Username:    "sys",
+								Secret:      &cpb.SecretRef{SecretName: "pw"},
+							},
+						},
+					},
+				},
+			},
+			gce: &fakeGCEClient{
+				getSecret: func(ctx context.Context, projectID, secretName string) (string, error) {
+					return "oracle-password", nil
+				},
+			},
+			wantStatus: []*spb.ServiceStatus{
+				{
+					Name:         "oracle",
+					State:        spb.State_ERROR_STATE,
+					ErrorMessage: "failed to ping database for service ORCL: dial tcp 127.0.0.1:1521: connect: connection refused",
+				},
+			},
+		},
+		{
+			name: "SQLServerFailure",
+			config: &cpb.Configuration{
+				SqlserverConfiguration: &cpb.SQLServerConfiguration{
+					Enabled:                  proto.Bool(true),
+					CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{{}},
+				},
+			},
+			gce: &fakeGCEClient{
+				getSecret: func(ctx context.Context, projectID, secretName string) (string, error) {
+					return "sqlserver-password", nil
+				},
+			},
+			wantStatus: []*spb.ServiceStatus{
+				{
+					Name:         "sqlserver",
+					State:        spb.State_ERROR_STATE,
+					ErrorMessage: "no connections configured for SQL Server",
+				},
+			},
+		},
+		{
+			name: "AllEnabled",
+			config: &cpb.Configuration{
+				MysqlConfiguration: &cpb.MySQLConfiguration{
+					Enabled: proto.Bool(true),
+				},
+				PostgresConfiguration: &cpb.PostgresConfiguration{
+					Enabled: proto.Bool(true),
+				},
+				MongoDbConfiguration: &cpb.MongoDBConfiguration{
+					Enabled: proto.Bool(true),
+				},
+				RedisConfiguration: &cpb.RedisConfiguration{
+					Enabled: proto.Bool(true),
+				},
+				OracleConfiguration: &cpb.OracleConfiguration{
+					Enabled: proto.Bool(true),
+					OracleMetrics: &cpb.OracleMetrics{
+						ConnectionParameters: []*cpb.ConnectionParameters{
+							{
+								Host:        "127.0.0.1",
+								Port:        1521,
+								ServiceName: "ORCL",
+								Username:    "sys",
+								Secret:      &cpb.SecretRef{SecretName: "pw"},
+							},
+						},
+					},
+				},
+				SqlserverConfiguration: &cpb.SQLServerConfiguration{
+					Enabled:                  proto.Bool(true),
+					CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{{}},
+				},
+			},
+			gce: &fakeGCEClient{
+				getSecret: func(ctx context.Context, projectID, secretName string) (string, error) {
+					return "password", nil
+				},
+			},
+			wantStatus: []*spb.ServiceStatus{
+				{
+					Name:         "mysql",
+					State:        spb.State_ERROR_STATE,
+					ErrorMessage: "failed to ping MySQL connection: dial tcp 127.0.0.1:3306: connect: connection refused",
+				},
+				{
+					Name:         "postgres",
+					State:        spb.State_ERROR_STATE,
+					ErrorMessage: "failed to ping Postgres connection: dial tcp [::1]:5432: connect: connection refused",
+				},
+				{
+					Name:         "mongodb",
+					State:        spb.State_ERROR_STATE,
+					ErrorMessage: "failed to connect to MongoDB: error validating uri: username required if URI contains user info",
+				},
+				{
+					Name:         "redis",
+					State:        spb.State_ERROR_STATE,
+					ErrorMessage: "could not read OS info: open /etc/os-release: no such file or directory",
+				},
+				{
+					Name:         "oracle",
+					State:        spb.State_ERROR_STATE,
+					ErrorMessage: "failed to ping database for service ORCL: dial tcp 127.0.0.1:1521: connect: connection refused",
+				},
+				{
+					Name:         "sqlserver",
+					State:        spb.State_ERROR_STATE,
+					ErrorMessage: "no connections configured for SQL Server",
+				},
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			agentStatus := &spb.AgentStatus{}
+			checkDatabaseConnectivity(ctx, tc.config, tc.gce, agentStatus, &cpb.CloudProperties{ProjectId: "test-project"})
+			if diff := cmp.Diff(tc.wantStatus, agentStatus.Services, protocmp.Transform()); diff != "" {
+				t.Errorf("checkDatabaseConnectivity(%v) returned unexpected diff (-want +got):\n%s", tc.config, diff)
+			}
+		})
+	}
+}
+
+func TestAgentStatus_ValidConfig(t *testing.T) {
+	ctx := context.Background()
+	arClient := newFakeARClient(nil, nil, nil)
+	iamClient := &fakeIAMService{}
+	exec := func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+		return commandlineexecutor.Result{}
+	}
+	cloudProps := &cpb.CloudProperties{
+		ProjectId: "test-project",
+		Zone:      "test-zone",
+	}
+	readFile := func(string) ([]byte, error) {
+		return []byte(`{"mysql_configuration": {"enabled": true}}`), nil
+	}
+
+	status := agentStatus(ctx, arClient, iamClient, exec, cloudProps, "", readFile)
+
+	if status.ConfigurationValid != spb.State_SUCCESS_STATE {
+		t.Errorf("ConfigurationValid = %v, want %v", status.ConfigurationValid, spb.State_SUCCESS_STATE)
+	}
+	if status.ConfigurationErrorMessage != "" {
+		t.Errorf("ConfigurationErrorMessage = %q, want empty", status.ConfigurationErrorMessage)
+	}
+}
+
+func TestAgentStatus_ConfigurationValidity(t *testing.T) {
+	ctx := context.Background()
+	arClient := newFakeARClient(nil, nil, nil)
+	iamClient := &fakeIAMService{}
+	exec := func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+		return commandlineexecutor.Result{}
+	}
+	cloudProps := &cpb.CloudProperties{
+		ProjectId: "test-project",
+		Zone:      "test-zone",
+	}
+
+	tests := []struct {
+		name     string
+		readFile func(string) ([]byte, error)
+		want     spb.State
+		errMsg   string
+	}{
+		{
+			name: "InvalidConfig",
+			readFile: func(string) ([]byte, error) {
+				return []byte(`{invalid-json}`), nil
+			},
+			want:   spb.State_FAILURE_STATE,
+			errMsg: "proto: syntax error",
+		},
+		{
+			name: "ReadFileError",
+			readFile: func(string) ([]byte, error) {
+				return nil, errors.New("read error")
+			},
+			want:   spb.State_FAILURE_STATE,
+			errMsg: "read error",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			status := agentStatus(ctx, arClient, iamClient, exec, cloudProps, "", tc.readFile)
+			status.ConfigurationErrorMessage = strings.ReplaceAll(status.ConfigurationErrorMessage, "\u00a0", " ")
+			if status.ConfigurationValid != tc.want {
+				t.Errorf("ConfigurationValid = %v, want %v", status.ConfigurationValid, tc.want)
+			}
+			if tc.errMsg != "" && !strings.Contains(status.ConfigurationErrorMessage, tc.errMsg) {
+				t.Errorf("ConfigurationErrorMessage = %q, want containing %q", status.ConfigurationErrorMessage, tc.errMsg)
+			}
+		})
+	}
+}
+
+func TestCheckAPIEnablement_PermissionDenied(t *testing.T) {
+	ctx := context.Background()
+	apis := map[string]string{"workloadmanager.googleapis.com": "Workload Manager API"}
+	cloudProps := &cpb.CloudProperties{ProjectId: "test-project"}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{
+			"error": {
+				"code": 403,
+				"message": "permission denied",
+				"status": "PERMISSION_DENIED"
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	oldServiceUsageNewService := serviceUsageNewService
+	serviceUsageNewService = func(ctx context.Context) (*serviceusage.Service, error) {
+		return serviceusage.NewService(ctx, option.WithHTTPClient(server.Client()), option.WithEndpoint(server.URL))
+	}
+	t.Cleanup(func() { serviceUsageNewService = oldServiceUsageNewService })
+
+	got := checkAPIEnablement(ctx, cloudProps, apis)
+	if len(got) != 1 {
+		t.Fatalf("checkAPIEnablement returned %d statuses, want 1", len(got))
+	}
+	if got[0].State != spb.State_FAILURE_STATE {
+		t.Errorf("State = %v, want %v", got[0].State, spb.State_FAILURE_STATE)
+	}
+	if !strings.Contains(got[0].ErrorMessage, "permission denied or service not found") {
+		t.Errorf("ErrorMessage = %q, want containing 'permission denied or service not found'", got[0].ErrorMessage)
 	}
 }
 

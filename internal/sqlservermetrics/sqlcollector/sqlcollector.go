@@ -20,12 +20,86 @@ package sqlcollector
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics/sqlserverutils"
+	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 )
+
+// GCEInterface provides an interface for GCE client operations.
+type GCEInterface interface {
+	GetSecret(ctx context.Context, projectID, secretName string) (string, error)
+}
+
+var newCollectorFunc = NewV1
+
+// PingSQLServer performs a connectivity check for all configured SQL Server instances.
+func PingSQLServer(ctx context.Context, cfg *cpb.SQLServerConfiguration, gceService GCEInterface, cloudProps *cpb.CloudProperties) error {
+	credConfigs := cfg.GetCredentialConfigurations()
+	if len(credConfigs) == 0 {
+		return fmt.Errorf("no credential configurations for SQL Server")
+	}
+	hasConnections := false
+	for _, credConfig := range credConfigs {
+		conParams := credConfig.GetConnectionParameters()
+		if len(conParams) == 0 {
+			continue
+		}
+		hasConnections = true
+		for _, conn := range conParams {
+			password := ""
+			if conn.GetSecret() != nil {
+				secret := conn.GetSecret()
+				projectID := secret.GetProjectId()
+				if projectID == "" && cloudProps != nil {
+					projectID = cloudProps.GetProjectId()
+				}
+				p, err := gceService.GetSecret(ctx, projectID, secret.GetSecretName())
+				if err != nil {
+					return fmt.Errorf("failed to get SQL Server password secret: %v", err)
+				}
+				password = strings.TrimSuffix(p, "\n")
+			}
+
+			connString := BuildConnectionString(conn, password)
+			collector, err := newCollectorFunc("sqlserver", connString, false)
+			if err != nil {
+				return fmt.Errorf("failed to create SQL Server collector for host %s: %v", conn.GetHost(), err)
+			}
+
+			ctxPing, cancel := context.WithTimeout(ctx, 10*time.Second)
+			err = collector.dbConn.PingContext(ctxPing)
+			cancel()
+			collector.Close()
+			if err != nil {
+				return fmt.Errorf("failed to ping SQL Server host %s: %v", conn.GetHost(), err)
+			}
+		}
+	}
+	if !hasConnections {
+		return fmt.Errorf("no connections configured for SQL Server")
+	}
+	return nil
+}
+
+// BuildConnectionString creates a SQL Server connection string.
+func BuildConnectionString(conn *cpb.ConnectionParameters, password string) string {
+	query := url.Values{}
+	query.Add("database", conn.GetServiceName())
+	query.Add("encrypt", "false")
+
+	connURL := &url.URL{
+		Scheme:   "sqlserver",
+		User:     url.UserPassword(conn.GetUsername(), password),
+		Host:     fmt.Sprintf("%s:%d", conn.GetHost(), conn.GetPort()),
+		RawQuery: query.Encode(),
+	}
+	return connURL.String()
+}
 
 // SQLCollector is the interface of Collector
 // which declares all funcs that needs to be implemented.

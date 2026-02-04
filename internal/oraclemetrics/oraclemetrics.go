@@ -145,24 +145,32 @@ type (
 func openConnections(ctx context.Context, conParams []connectionParameters) map[string]*sql.DB {
 	connections := make(map[string]*sql.DB)
 	for _, params := range conParams {
-		urlOptions := map[string]string{
-			"dba privilege": "sysdg", // sysdg system privilege is required to connect to a closed standby.
-		}
-		connStr := go_ora.BuildUrl(params.Host, params.Port, params.ServiceName, params.Username, params.Password.SecretValue(), urlOptions)
-		conn, err := sql.Open("oracle", connStr)
+		conn, err := createConnection(ctx, params)
 		if err != nil {
 			log.CtxLogger(ctx).Errorw("Failed to open database connection", "error", err, "connection_parameters", params)
 			usagemetrics.Error(usagemetrics.OracleConnectionFailure)
 			continue
 		}
-		if err := conn.PingContext(ctx); err != nil {
-			log.CtxLogger(ctx).Errorw("Failed to ping the database", "error", err, "connection_parameters", params)
-			usagemetrics.Error(usagemetrics.OraclePingFailure)
-			continue
-		}
 		connections[params.ServiceName] = conn
 	}
 	return connections
+}
+
+// createConnection creates a connection to the database.
+var createConnection = func(ctx context.Context, params connectionParameters) (*sql.DB, error) {
+	urlOptions := map[string]string{
+		"dba privilege": "sysdg", // sysdg system privilege is required to connect to a closed standby.
+	}
+	connStr := go_ora.BuildUrl(params.Host, params.Port, params.ServiceName, params.Username, params.Password.SecretValue(), urlOptions)
+	conn, err := sql.Open("oracle", connStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database connection for service %s: %w", params.ServiceName, err)
+	}
+	if err := conn.PingContext(ctx); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to ping database for service %s: %w", params.ServiceName, err)
+	}
+	return conn, nil
 }
 
 // New initializes and returns the MetricCollector struct.
@@ -196,6 +204,22 @@ func New(ctx context.Context, config *configpb.Configuration) (*MetricCollector,
 		failCount:         make(map[string]int),
 		skipMsgLogged:     make(map[string]bool),
 	}, nil
+}
+
+// PingTest checks connection to all configured databases.
+func (c *MetricCollector) PingTest(ctx context.Context) error {
+	conParams, err := readConnectionParameters(ctx, c.GCEService, c.Config)
+	if err != nil {
+		return fmt.Errorf("fetching secret data from Secret Manager: %w", err)
+	}
+	for _, params := range conParams {
+		conn, err := createConnection(ctx, params)
+		if err != nil {
+			return err
+		}
+		conn.Close()
+	}
+	return nil
 }
 
 // createHealthMetrics creates health metrics for all the databases.
