@@ -17,10 +17,27 @@ limitations under the License.
 package sqlcollector
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/DATA-DOG/go-sqlmock"
+	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
+
+type fakeGCEClient struct {
+	getSecret func(ctx context.Context, projectID, secretName string) (string, error)
+}
+
+func (f *fakeGCEClient) GetSecret(ctx context.Context, projectID, secretName string) (string, error) {
+	if f.getSecret != nil {
+		return f.getSecret(ctx, projectID, secretName)
+	}
+	return "", errors.New("GetSecret not implemented")
+}
 
 func TestFields(t *testing.T) {
 	testcases := []struct {
@@ -222,6 +239,251 @@ func TestFields(t *testing.T) {
 		if diff := cmp.Diff(got, tc.want); diff != "" {
 			t.Errorf("Fields() for rule %s returned wrong result (-got +want):\n%s", SQLMetrics[idx].Name, diff)
 		}
+	}
+}
+
+func TestPingSQLServer(t *testing.T) {
+	oldNewCollectorFunc := newCollectorFunc
+	t.Cleanup(func() { newCollectorFunc = oldNewCollectorFunc })
+
+	tests := []struct {
+		name       string
+		cfg        *cpb.SQLServerConfiguration
+		gce        *fakeGCEClient
+		cloudProps *cpb.CloudProperties
+		wantErr    bool
+		wantErrMsg string
+		wantConn   string
+	}{
+		{
+			name: "Success",
+			cfg: &cpb.SQLServerConfiguration{
+				CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{
+					{
+						ConnectionParameters: []*cpb.ConnectionParameters{
+							{
+								Host: "localhost",
+								Port: 1433,
+								Secret: &cpb.SecretRef{
+									SecretName: "test-secret",
+								},
+							},
+						},
+					},
+				},
+			},
+			gce: &fakeGCEClient{
+				getSecret: func(ctx context.Context, projectID, secretName string) (string, error) {
+					return "password", nil
+				},
+			},
+			cloudProps: &cpb.CloudProperties{
+				ProjectId: "test-project",
+			},
+			wantConn: "sqlserver://:password@localhost:1433?database=&encrypt=false",
+			wantErr:  false,
+		},
+		{
+			name: "SuccessWithNewlinePassword",
+			cfg: &cpb.SQLServerConfiguration{
+				CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{
+					{
+						ConnectionParameters: []*cpb.ConnectionParameters{
+							{
+								Host: "localhost",
+								Port: 1433,
+								Secret: &cpb.SecretRef{
+									SecretName: "test-secret",
+								},
+							},
+						},
+					},
+				},
+			},
+			gce: &fakeGCEClient{
+				getSecret: func(ctx context.Context, projectID, secretName string) (string, error) {
+					return "password\n", nil
+				},
+			},
+			cloudProps: &cpb.CloudProperties{
+				ProjectId: "test-project",
+			},
+			wantConn: "sqlserver://:password@localhost:1433?database=&encrypt=false",
+			wantErr:  false,
+		},
+		{
+			name: "ConnectionFailure",
+			cfg: &cpb.SQLServerConfiguration{
+				CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{
+					{
+						ConnectionParameters: []*cpb.ConnectionParameters{
+							{
+								Host: "localhost",
+								Port: 1433,
+								Secret: &cpb.SecretRef{
+									SecretName: "test-secret",
+								},
+							},
+						},
+					},
+				},
+			},
+			gce: &fakeGCEClient{
+				getSecret: func(ctx context.Context, projectID, secretName string) (string, error) {
+					return "password", nil
+				},
+			},
+			cloudProps: &cpb.CloudProperties{
+				ProjectId: "test-project",
+			},
+			wantErr:    true,
+			wantErrMsg: "failed to ping SQL Server",
+		},
+		{
+			name: "getSecretError",
+			cfg: &cpb.SQLServerConfiguration{
+				CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{
+					{
+						ConnectionParameters: []*cpb.ConnectionParameters{
+							{
+								Host: "localhost",
+								Port: 1433,
+								Secret: &cpb.SecretRef{
+									SecretName: "test-secret",
+								},
+							},
+						},
+					},
+				},
+			},
+			gce: &fakeGCEClient{
+				getSecret: func(ctx context.Context, projectID, secretName string) (string, error) {
+					return "", errors.New("getSecret error")
+				},
+			},
+			cloudProps: &cpb.CloudProperties{
+				ProjectId: "test-project",
+			},
+			wantErr:    true,
+			wantErrMsg: "failed to get SQL Server password secret",
+		},
+		{
+			name:       "noCredentialConfigurations",
+			cfg:        &cpb.SQLServerConfiguration{},
+			gce:        &fakeGCEClient{},
+			cloudProps: &cpb.CloudProperties{},
+			wantErr:    true,
+			wantErrMsg: "no credential configurations",
+		},
+		{
+			name: "noConnectionParameters",
+			cfg: &cpb.SQLServerConfiguration{
+				CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{
+					{},
+				},
+			},
+			gce:        &fakeGCEClient{},
+			cloudProps: &cpb.CloudProperties{},
+			wantErr:    true,
+			wantErrMsg: "no connections configured",
+		},
+		{
+			name: "fallbackProjectID",
+			cfg: &cpb.SQLServerConfiguration{
+				CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{
+					{
+						ConnectionParameters: []*cpb.ConnectionParameters{
+							{
+								Host: "localhost",
+								Port: 1433,
+								Secret: &cpb.SecretRef{
+									SecretName: "test-secret",
+									// ProjectId is empty
+								},
+							},
+						},
+					},
+				},
+			},
+			gce: &fakeGCEClient{
+				getSecret: func(ctx context.Context, projectID, secretName string) (string, error) {
+					if projectID != "fallback-project" {
+						return "", fmt.Errorf("unexpected projectID: %s", projectID)
+					}
+					return "password", nil
+				},
+			},
+			cloudProps: &cpb.CloudProperties{
+				ProjectId: "fallback-project",
+			},
+			wantErr:    true,
+			wantErrMsg: "failed to ping SQL Server",
+		},
+		{
+			name: "ExplicitProjectID",
+			cfg: &cpb.SQLServerConfiguration{
+				CredentialConfigurations: []*cpb.SQLServerConfiguration_CredentialConfiguration{
+					{
+						ConnectionParameters: []*cpb.ConnectionParameters{
+							{
+								Host: "localhost",
+								Port: 1433,
+								Secret: &cpb.SecretRef{
+									SecretName: "test-secret",
+									ProjectId:  "secret-project",
+								},
+							},
+						},
+					},
+				},
+			},
+			gce: &fakeGCEClient{
+				getSecret: func(ctx context.Context, projectID, secretName string) (string, error) {
+					if projectID != "secret-project" {
+						return "", fmt.Errorf("unexpected projectID: %s", projectID)
+					}
+					return "password", nil
+				},
+			},
+			cloudProps: &cpb.CloudProperties{
+				ProjectId: "cloud-project",
+			},
+			wantErr:    true,
+			wantErrMsg: "failed to ping SQL Server",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.name == "Success" || tc.name == "SuccessWithNewlinePassword" {
+				db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+				if err != nil {
+					t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
+				}
+				defer db.Close()
+				mock.ExpectPing()
+
+				newCollectorFunc = func(driver string, connString string, encrypt bool) (*V1, error) {
+					if tc.wantConn != "" && connString != tc.wantConn {
+						t.Errorf("newCollectorFunc got connString %q, want %q", connString, tc.wantConn)
+					}
+					return &V1{dbConn: db}, nil
+				}
+			} else {
+				newCollectorFunc = oldNewCollectorFunc
+			}
+
+			ctx := context.Background()
+			err := PingSQLServer(ctx, tc.cfg, tc.gce, tc.cloudProps)
+			if gotErr := err != nil; gotErr != tc.wantErr {
+				t.Errorf("PingSQLServer() returned error: %v, want error: %v", err, tc.wantErr)
+			}
+			if tc.wantErr && tc.wantErrMsg != "" && err != nil {
+				if !strings.Contains(err.Error(), tc.wantErrMsg) {
+					t.Errorf("PingSQLServer() error = %v, want error containing %q", err, tc.wantErrMsg)
+				}
+			}
+		})
 	}
 }
 

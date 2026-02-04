@@ -1188,6 +1188,81 @@ func TestDatabaseHealth(t *testing.T) {
 	}
 }
 
+func TestPingTest(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  *configpb.Configuration
+		gce     gceInterface
+		wantErr bool
+	}{
+		{
+			name: "Success",
+			config: &configpb.Configuration{
+				OracleConfiguration: &configpb.OracleConfiguration{
+					Enabled: proto.Bool(true),
+					OracleMetrics: &configpb.OracleMetrics{
+						ConnectionParameters: []*configpb.ConnectionParameters{
+							{
+								Host:        "localhost",
+								Port:        1521,
+								ServiceName: "ORCL",
+								Username:    "sys",
+								Secret: &configpb.SecretRef{
+									SecretName: "test-secret",
+								},
+							},
+						},
+					},
+				},
+			},
+			gce: &gcefake.TestGCE{
+				GetSecretResp: []string{"password"},
+				GetSecretErr:  []error{nil},
+			},
+			wantErr: true,
+		},
+		{
+			name: "getSecretError",
+			config: &configpb.Configuration{
+				OracleConfiguration: &configpb.OracleConfiguration{
+					Enabled: proto.Bool(true),
+					OracleMetrics: &configpb.OracleMetrics{
+						ConnectionParameters: []*configpb.ConnectionParameters{
+							{
+								Host:        "localhost",
+								Port:        1521,
+								ServiceName: "ORCL",
+								Username:    "sys",
+								Secret: &configpb.SecretRef{
+									SecretName: "test-secret",
+								},
+							},
+						},
+					},
+				},
+			},
+			gce: &gcefake.TestGCE{
+				GetSecretResp: []string{""},
+				GetSecretErr:  []error{errors.New("getSecret error")},
+			},
+			wantErr: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			c := MetricCollector{
+				Config:     tc.config,
+				GCEService: tc.gce,
+			}
+			err := c.PingTest(ctx)
+			if gotErr := err != nil; gotErr != tc.wantErr {
+				t.Errorf("PingTest() returned error: %v, want error: %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestSendHealthMetricsToCloudMonitoring(t *testing.T) {
 	healthyDB, err := setupSQLiteDB(t)
 	if err != nil {

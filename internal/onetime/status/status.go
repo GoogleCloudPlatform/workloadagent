@@ -21,10 +21,12 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/artifactregistry/apiv1"
 	"github.com/spf13/cobra"
@@ -32,9 +34,17 @@ import (
 	"google.golang.org/api/serviceusage/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/mongodbmetrics"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/mysqlmetrics"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/oraclemetrics"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/postgresmetrics"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/redismetrics"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics/sqlcollector"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/iam"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/osinfo"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/permissions"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/statushelper"
 
@@ -52,6 +62,10 @@ var iamPermissionsYAML []byte
 
 var serviceUsageNewService = func(ctx context.Context) (*serviceusage.Service, error) {
 	return serviceusage.NewService(ctx)
+}
+
+var newGCEClient = func(ctx context.Context) (gceInterface, error) {
+	return gce.NewGCEClient(ctx)
 }
 
 // NewCommand creates a new status command.
@@ -150,20 +164,19 @@ func agentStatus(ctx context.Context, arClient statushelper.ARClientInterface, i
 		}
 	}
 	agentStatus.ConfigurationFilePath = path
-	func() {
+	configProto := &cpb.Configuration{}
+	validate := func() error {
 		content, err := readFile(path)
 		if err != nil {
-			agentStatus.ConfigurationValid = spb.State_FAILURE_STATE
-			agentStatus.ConfigurationErrorMessage = err.Error()
-			return
+			return err
 		}
-		configProto := &cpb.Configuration{}
-		agentStatus.ConfigurationValid = spb.State_SUCCESS_STATE
-		if err := protojson.Unmarshal(content, configProto); err != nil {
-			agentStatus.ConfigurationValid = spb.State_FAILURE_STATE
-			agentStatus.ConfigurationErrorMessage = err.Error()
-		}
-	}()
+		return protojson.Unmarshal(content, configProto)
+	}
+	agentStatus.ConfigurationValid = spb.State_SUCCESS_STATE
+	if err := validate(); err != nil {
+		agentStatus.ConfigurationValid = spb.State_FAILURE_STATE
+		agentStatus.ConfigurationErrorMessage = err.Error()
+	}
 
 	// Check IAM permissions for configured services
 	iamServices := map[string]string{
@@ -176,6 +189,21 @@ func agentStatus(ctx context.Context, arClient statushelper.ARClientInterface, i
 		"workloadmanager.googleapis.com": "Workload Manager API",
 	}
 	agentStatus.Services = append(agentStatus.Services, checkAPIEnablement(ctx, cloudProps, apis)...)
+
+	// Check database connectivity if the configuration is valid
+	if agentStatus.GetConfigurationValid() == spb.State_SUCCESS_STATE {
+		gceService, err := newGCEClient(ctx)
+		if err != nil {
+			log.CtxLogger(ctx).Errorw("Could not create GCE client, skipping database connectivity checks.", "error", err)
+			agentStatus.Services = append(agentStatus.Services, &spb.ServiceStatus{
+				Name:         "GCE Connectivity",
+				State:        spb.State_FAILURE_STATE,
+				ErrorMessage: fmt.Sprintf("Could not create GCE client: %v", err),
+			})
+		} else {
+			checkDatabaseConnectivity(ctx, configProto, gceService, agentStatus, cloudProps)
+		}
+	}
 
 	agentStatus.KernelVersion, err = statushelper.KernelVersion(ctx, runtime.GOOS, exec)
 	if err != nil && runtime.GOOS == "linux" {
@@ -227,7 +255,7 @@ func checkIAMPermissions(ctx context.Context, iamClient permissions.IAMService, 
 			status.ErrorMessage = err.Error()
 			status.FullyFunctional = spb.State_FAILURE_STATE
 		} else {
-			log.CtxLogger(ctx).Infow("IAM Permissions", "service", serviceName, "permissions", grantedPermissions)
+			log.CtxLogger(ctx).Debugw("IAM Permissions", "service", serviceName, "permissions", grantedPermissions)
 			status.State = spb.State_SUCCESS_STATE
 			status.FullyFunctional = spb.State_SUCCESS_STATE
 			for permission, granted := range grantedPermissions {
@@ -319,6 +347,79 @@ func checkAPIEnablement(ctx context.Context, cloudProps *cpb.CloudProperties, ap
 		return strings.Compare(a.Name, b.Name)
 	})
 	return statuses
+}
+
+type gceInterface interface {
+	GetSecret(ctx context.Context, projectID, secretName string) (string, error)
+}
+
+func checkAndSetStatus(name string, checkFn func() error) *spb.ServiceStatus {
+	s := &spb.ServiceStatus{Name: name}
+	if err := checkFn(); err != nil {
+		s.State = spb.State_ERROR_STATE
+		s.ErrorMessage = err.Error()
+	} else {
+		s.State = spb.State_SUCCESS_STATE
+		s.FullyFunctional = spb.State_SUCCESS_STATE
+	}
+	return s
+}
+
+func checkDatabaseConnectivity(ctx context.Context, cfg *cpb.Configuration, gceService gceInterface, status *spb.AgentStatus, cloudProps *cpb.CloudProperties) {
+	// Database Connectivity Checks for MySQL
+	if cfg.GetMysqlConfiguration().GetEnabled() {
+		status.Services = append(status.Services, checkAndSetStatus("mysql", func() error {
+			metrics := mysqlmetrics.New(ctx, cfg, nil, nil)
+			return metrics.InitDB(ctx, gceService)
+		}))
+	}
+
+	// Database Connectivity Checks for PostgreSQL
+	if cfg.GetPostgresConfiguration().GetEnabled() {
+		status.Services = append(status.Services, checkAndSetStatus("postgres", func() error {
+			metrics := postgresmetrics.New(ctx, cfg, nil, nil)
+			return metrics.InitDB(ctx, gceService)
+		}))
+	}
+
+	// Database Connectivity Checks for MongoDB
+	if cfg.GetMongoDbConfiguration().GetEnabled() {
+		status.Services = append(status.Services, checkAndSetStatus("mongodb", func() error {
+			metrics := mongodbmetrics.New(ctx, cfg, nil, nil, mongodbmetrics.DefaultRunCommand)
+			return metrics.InitDB(ctx, gceService, 10*time.Second)
+		}))
+	}
+
+	// Database Connectivity Checks for Redis
+	if cfg.GetRedisConfiguration().GetEnabled() {
+		status.Services = append(status.Services, checkAndSetStatus("redis", func() error {
+			osOpenFile := func(f string) (io.ReadCloser, error) { return os.Open(f) }
+			osData, err := osinfo.ReadData(ctx, osOpenFile, runtime.GOOS, osinfo.OSReleaseFilePath)
+			if err != nil {
+				return fmt.Errorf("could not read OS info: %w", err)
+			}
+			metrics := redismetrics.New(ctx, cfg, nil, osData)
+			return metrics.InitDB(ctx, gceService)
+		}))
+	}
+
+	// Database Connectivity Checks for Oracle
+	if cfg.GetOracleConfiguration().GetEnabled() {
+		status.Services = append(status.Services, checkAndSetStatus("oracle", func() error {
+			metrics := oraclemetrics.MetricCollector{
+				Config:     cfg,
+				GCEService: gceService,
+			}
+			return metrics.PingTest(ctx)
+		}))
+	}
+
+	// Database Connectivity Checks for SQL Server
+	if cfg.GetSqlserverConfiguration().GetEnabled() {
+		status.Services = append(status.Services, checkAndSetStatus("sqlserver", func() error {
+			return sqlcollector.PingSQLServer(ctx, cfg.GetSqlserverConfiguration(), gceService, cloudProps)
+		}))
+	}
 }
 
 // getRepositoryLocation returns the repository location based on the cloud properties.
