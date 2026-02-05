@@ -22,7 +22,7 @@ TasksAccounting=yes
 MemoryLimit=1G
 MemoryMax=1G
 ProtectSystem=full
-ReadWritePaths=/var/log /tmp
+ReadWritePaths=/var/log /tmp -/etc/rc.d
 # Do not use ProtectClock, when that is enabled then the agent cannot see LVM mounts
 ProtectKernelModules=true
 RestrictRealtime=true

@@ -55,7 +55,7 @@ const (
 func StopDatabase(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
 	params := command.GetAgentCommand().GetParameters()
 	logger := log.CtxLogger(ctx)
-	if result := validateParams(ctx, logger, command, params); result != nil {
+	if result := validateParams(ctx, logger, command, params, []string{"oracle_sid", "oracle_home", "oracle_user"}); result != nil {
 		return result
 	}
 	logger = logger.With("oracle_sid", params["oracle_sid"], "oracle_home", params["oracle_home"], "oracle_user", params["oracle_user"])
@@ -103,7 +103,7 @@ func stopDatabase(ctx context.Context, logger *zap.SugaredLogger, params map[str
 func StartDatabase(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
 	params := command.GetAgentCommand().GetParameters()
 	logger := log.CtxLogger(ctx)
-	if result := validateParams(ctx, logger, command, params); result != nil {
+	if result := validateParams(ctx, logger, command, params, []string{"oracle_sid", "oracle_home", "oracle_user"}); result != nil {
 		return result
 	}
 	logger = logger.With("oracle_sid", params["oracle_sid"], "oracle_home", params["oracle_home"], "oracle_user", params["oracle_user"])
