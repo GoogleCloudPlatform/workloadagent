@@ -171,6 +171,12 @@ func TestNewARClient(t *testing.T) {
 }
 
 func TestAgentStatus(t *testing.T) {
+	oldServiceUsageNewService := serviceUsageNewService
+	defer func() { serviceUsageNewService = oldServiceUsageNewService }()
+	serviceUsageNewService = func(ctx context.Context) (*serviceusage.Service, error) {
+		return nil, errors.New("credentials: could not find default credentials. See https://cloud.google.com/docs/authentication/external/set-up-adc for more information")
+	}
+
 	tests := []struct {
 		name       string
 		exec       commandlineexecutor.Execute
