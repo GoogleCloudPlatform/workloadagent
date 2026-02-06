@@ -44,6 +44,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/osinfo"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/parametermanager"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/recovery"
 
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
@@ -58,6 +59,9 @@ type Daemon struct {
 	cloudProps     *cpb.CloudProperties
 	osData         osinfo.Data
 	services       []Service
+	pmClient       *parametermanager.Client
+	pmVersion      string
+	pmPollInterval time.Duration
 }
 
 type (
@@ -76,6 +80,13 @@ var (
 		file, err := os.Open(path)
 		var f io.ReadCloser = file
 		return f, err
+	}
+	fetchParameter = parametermanager.FetchParameter
+	sleep          = time.Sleep
+	newShutdownCh  = func() <-chan os.Signal {
+		shutdownch := make(chan os.Signal, 1)
+		signal.Notify(shutdownch, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
+		return shutdownch
 	}
 )
 
@@ -123,6 +134,13 @@ func (d *Daemon) Execute(ctx context.Context) error {
 
 	// Run the config poller and daemon handler that will start any services.
 	ctx, d.cancel = context.WithCancel(ctx)
+	pmClient, err := parametermanager.NewClient(ctx)
+	if err != nil {
+		log.Logger.Errorw("Failed to create Parameter Manager client, continuing with local configuration", "error", err)
+	} else {
+		d.pmClient = pmClient
+	}
+	d.pmPollInterval = 5 * time.Minute
 	d.startConfigPollerRoutine(ctx)
 	return d.startdaemonHandler(ctx, false)
 }
@@ -133,7 +151,7 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, restarting bool) error 
 
 	// Load the agent configuration from the config file.
 	var err error
-	d.config, err = configuration.Load(d.configFilePath, os.ReadFile, d.cloudProps)
+	d.config, d.pmVersion, err = configuration.Load(d.configFilePath, os.ReadFile, d.cloudProps, d.pmClient)
 	if err != nil {
 		log.Logger.Errorw("Invalid configuration file, please fix the configuration file and restart the service.", "error", err, "configFile", d.configFilePath)
 		usagemetrics.Misconfigured()
@@ -353,21 +371,25 @@ func (d *Daemon) startConfigPollerRoutine(ctx context.Context) {
 // pollConfigFile checks the last modified time of the agent config file.
 // If the file has been modified, the daemon is restarted to pick up the new config.
 func (d *Daemon) pollConfigFile() {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
+	// fileTicker polls for changes in the local configuration file every 30 seconds.
+	fileTicker := time.NewTicker(30 * time.Second)
+	defer fileTicker.Stop()
+	// pmTicker polls for changes in the Parameter Manager configuration every 5 minutes.
+	pmTicker := time.NewTicker(d.pmPollInterval)
+	defer pmTicker.Stop()
+
 	prev, err := d.lastModifiedTime()
 	if err != nil {
 		log.Logger.Errorw("Failed to get last modified time for config file", "error", err)
 		return
 	}
-	shutdownch := make(chan os.Signal, 1)
-	signal.Notify(shutdownch, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
+	shutdownch := newShutdownCh()
 	for {
 		select {
 		case <-shutdownch:
 			log.Logger.Info("Shutdown signal observed, exiting the config poller")
 			return
-		case <-ticker.C:
+		case <-fileTicker.C:
 			log.Logger.Debug("Polling config file")
 			res, err := d.lastModifiedTime()
 			if err != nil {
@@ -379,8 +401,28 @@ func (d *Daemon) pollConfigFile() {
 				log.Logger.Infow("Detected config file change", "configFile", d.configFilePath)
 				d.restart()
 			}
+		case <-pmTicker.C:
+			if d.checkForPMUpdate(context.Background()) {
+				d.restart()
+			}
 		}
 	}
+}
+
+func (d *Daemon) checkForPMUpdate(ctx context.Context) bool {
+	if d.config == nil || d.config.GetParameterManagerConfig() == nil {
+		return false
+	}
+	resource, err := fetchParameter(ctx, d.pmClient, d.config.GetParameterManagerConfig().GetProject(), d.config.GetParameterManagerConfig().GetLocation(), d.config.GetParameterManagerConfig().GetParameterName(), "")
+	if err != nil {
+		log.Logger.Errorw("Failed to fetch parameter from Parameter Manager", "error", err)
+		return false
+	}
+	if resource.Version != d.pmVersion {
+		log.Logger.Infow("Parameter Manager config changed, restarting daemon", "oldVersion", d.pmVersion, "newVersion", resource.Version)
+		return true
+	}
+	return false
 }
 
 func (d *Daemon) lastModifiedTime() (time.Time, error) {

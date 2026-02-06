@@ -44,6 +44,14 @@ message Configuration {
   PostgresConfiguration postgres_configuration = 12;
   OpenShiftConfiguration openshift_configuration = 13;
   MongoDBConfiguration mongo_db_configuration = 14;
+  ParameterManagerConfig parameter_manager_config = 15;
+}
+
+message ParameterManagerConfig {
+  string project = 1;
+  string location = 2;
+  string parameter_name = 3;
+  string parameter_version = 4;
 }
 
 message CloudProperties {

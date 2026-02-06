@@ -17,6 +17,7 @@ limitations under the License.
 package configuration
 
 import (
+	"context"
 	"errors"
 	"os"
 	"testing"
@@ -27,6 +28,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
 	"go.uber.org/zap/zapcore"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/parametermanager"
 
 	dpb "google.golang.org/protobuf/types/known/durationpb"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
@@ -104,6 +106,8 @@ func TestConfigFromFile(t *testing.T) {
 }
 
 func TestLoad(t *testing.T) {
+	origFetchParameter := fetchParameter
+	defer func() { fetchParameter = origFetchParameter }()
 	defaultOracleQueriesContent = testDefaultOracleQueriesContent
 	defaultCfg, err := defaultConfig(defaultCloudProps)
 	if err != nil {
@@ -111,11 +115,13 @@ func TestLoad(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
-		path     string
-		readFunc ReadConfigFile
-		want     *cpb.Configuration
-		wantErr  bool
+		name       string
+		path       string
+		readFunc   ReadConfigFile
+		want       *cpb.Configuration
+		wantErr    bool
+		pmResource *parametermanager.Resource
+		pmErr      error
 	}{
 		{
 			name: "FileReadError",
@@ -584,11 +590,81 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "PMSuccess",
+			readFunc: func(p string) ([]byte, error) {
+				fileContent := `{"log_to_cloud": true, "parameter_manager_config": {"project":"p", "location":"l", "parameter_name":"n"}}`
+				return []byte(fileContent), nil
+			},
+			pmResource: &parametermanager.Resource{
+				Data: `{"log_to_cloud": false}`,
+			},
+			want: &cpb.Configuration{
+				CloudProperties:        defaultCloudProps,
+				DataWarehouseEndpoint:  "https://workloadmanager-datawarehouse.googleapis.com/",
+				AgentProperties:        &cpb.AgentProperties{Name: AgentName, Version: AgentVersion},
+				LogLevel:               cpb.Configuration_INFO,
+				LogToCloud:             proto.Bool(false),
+				CommonDiscovery:        defaultCfg.CommonDiscovery,
+				OracleConfiguration:    defaultCfg.OracleConfiguration,
+				SqlserverConfiguration: defaultCfg.SqlserverConfiguration,
+				ParameterManagerConfig: &cpb.ParameterManagerConfig{
+					Project: "p", Location: "l", ParameterName: "n",
+				},
+			},
+		},
+		{
+			name: "PMFetchError",
+			readFunc: func(p string) ([]byte, error) {
+				fileContent := `{"log_to_cloud": true, "parameter_manager_config": {"project":"p", "location":"l", "parameter_name":"n"}}`
+				return []byte(fileContent), nil
+			},
+			pmErr: errors.New("PM fetch error"),
+			want: &cpb.Configuration{
+				CloudProperties:        defaultCloudProps,
+				DataWarehouseEndpoint:  "https://workloadmanager-datawarehouse.googleapis.com/",
+				AgentProperties:        &cpb.AgentProperties{Name: AgentName, Version: AgentVersion},
+				LogLevel:               cpb.Configuration_INFO,
+				LogToCloud:             proto.Bool(true),
+				CommonDiscovery:        defaultCfg.CommonDiscovery,
+				OracleConfiguration:    defaultCfg.OracleConfiguration,
+				SqlserverConfiguration: defaultCfg.SqlserverConfiguration,
+				ParameterManagerConfig: &cpb.ParameterManagerConfig{
+					Project: "p", Location: "l", ParameterName: "n",
+				},
+			},
+		},
+		{
+			name: "PMInvalidJSON",
+			readFunc: func(p string) ([]byte, error) {
+				fileContent := `{"log_to_cloud": true, "parameter_manager_config": {"project":"p", "location":"l", "parameter_name":"n"}}`
+				return []byte(fileContent), nil
+			},
+			pmResource: &parametermanager.Resource{
+				Data: `{"log_to_cloud": false`,
+			},
+			want: &cpb.Configuration{
+				CloudProperties:        defaultCloudProps,
+				DataWarehouseEndpoint:  "https://workloadmanager-datawarehouse.googleapis.com/",
+				AgentProperties:        &cpb.AgentProperties{Name: AgentName, Version: AgentVersion},
+				LogLevel:               cpb.Configuration_INFO,
+				LogToCloud:             proto.Bool(true),
+				CommonDiscovery:        defaultCfg.CommonDiscovery,
+				OracleConfiguration:    defaultCfg.OracleConfiguration,
+				SqlserverConfiguration: defaultCfg.SqlserverConfiguration,
+				ParameterManagerConfig: &cpb.ParameterManagerConfig{
+					Project: "p", Location: "l", ParameterName: "n",
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := Load(test.path, test.readFunc, defaultCloudProps)
+			fetchParameter = func(ctx context.Context, client *parametermanager.Client, projectID, location, parameterName, version string) (*parametermanager.Resource, error) {
+				return test.pmResource, test.pmErr
+			}
+			got, _, err := Load(test.path, test.readFunc, defaultCloudProps, nil)
 			if (err != nil) != test.wantErr {
 				t.Fatalf("Read(%s) returned error: %v, want error: %v", test.path, err, test.wantErr)
 			}
@@ -1086,5 +1162,104 @@ func TestWriteConfigToFile(t *testing.T) {
 	}
 	if diff := cmp.Diff(config, got, protocmp.Transform()); diff != "" {
 		t.Errorf("WriteConfigToFile() returned unexpected diff (-want +got):\n%s", diff)
+	}
+}
+
+func TestMergePMConfig(t *testing.T) {
+	origFetchParameter := fetchParameter
+	defer func() { fetchParameter = origFetchParameter }()
+
+	tests := []struct {
+		name        string
+		startConfig *cpb.Configuration
+		pmResource  *parametermanager.Resource
+		pmErr       error
+		wantConfig  *cpb.Configuration
+		wantVersion string
+	}{
+		{
+			name: "NoPMConfig",
+			startConfig: &cpb.Configuration{
+				LogToCloud: proto.Bool(true),
+			},
+			wantConfig: &cpb.Configuration{
+				LogToCloud: proto.Bool(true),
+			},
+			wantVersion: "",
+		},
+		{
+			name: "PMConfigFoundAndMerged",
+			startConfig: &cpb.Configuration{
+				LogToCloud: proto.Bool(true),
+				ParameterManagerConfig: &cpb.ParameterManagerConfig{
+					Project: "p", Location: "l", ParameterName: "n",
+				},
+			},
+			pmResource: &parametermanager.Resource{
+				Data:    `{"log_to_cloud": false}`,
+				Version: "v1",
+			},
+			wantConfig: &cpb.Configuration{
+				LogToCloud: proto.Bool(false),
+				ParameterManagerConfig: &cpb.ParameterManagerConfig{
+					Project: "p", Location: "l", ParameterName: "n",
+				},
+			},
+			wantVersion: "v1",
+		},
+		{
+			name: "PMFetchError",
+			startConfig: &cpb.Configuration{
+				LogToCloud: proto.Bool(true),
+				ParameterManagerConfig: &cpb.ParameterManagerConfig{
+					Project: "p", Location: "l", ParameterName: "n",
+				},
+			},
+			pmErr: errors.New("fetch error"),
+			wantConfig: &cpb.Configuration{
+				LogToCloud: proto.Bool(true),
+				ParameterManagerConfig: &cpb.ParameterManagerConfig{
+					Project: "p", Location: "l", ParameterName: "n",
+				},
+			},
+			wantVersion: "",
+		},
+		{
+			name: "PMUnmarshalError",
+			startConfig: &cpb.Configuration{
+				LogToCloud: proto.Bool(true),
+				ParameterManagerConfig: &cpb.ParameterManagerConfig{
+					Project: "p", Location: "l", ParameterName: "n",
+				},
+			},
+			pmResource: &parametermanager.Resource{
+				Data:    `invalid json`,
+				Version: "v1",
+			},
+			wantConfig: &cpb.Configuration{
+				LogToCloud: proto.Bool(true),
+				ParameterManagerConfig: &cpb.ParameterManagerConfig{
+					Project: "p", Location: "l", ParameterName: "n",
+				},
+			},
+			wantVersion: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fetchParameter = func(ctx context.Context, client *parametermanager.Client, projectID, location, parameterName, version string) (*parametermanager.Resource, error) {
+				return tc.pmResource, tc.pmErr
+			}
+
+			gotConfig, gotVersion := mergePMConfig(context.Background(), nil, tc.startConfig)
+
+			if diff := cmp.Diff(tc.wantConfig, gotConfig, protocmp.Transform()); diff != "" {
+				t.Errorf("mergePMConfig() config mismatch (-want +got):\n%s", diff)
+			}
+			if gotVersion != tc.wantVersion {
+				t.Errorf("mergePMConfig() version = %v, want %v", gotVersion, tc.wantVersion)
+			}
+		})
 	}
 }

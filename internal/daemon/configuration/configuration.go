@@ -18,6 +18,7 @@ limitations under the License.
 package configuration
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -31,6 +32,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/parametermanager"
 
 	dpb "google.golang.org/protobuf/types/known/durationpb"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
@@ -76,6 +78,7 @@ var (
 		"errInvalidRetryFrequency":           errors.New("retry_frequency is invalid"),
 		"errInvalidMaxRetries":               errors.New("max_retries is invalid"),
 	}
+	fetchParameter = parametermanager.FetchParameter
 )
 
 const (
@@ -124,8 +127,10 @@ func ConfigFromFile(path string, read ReadConfigFile) (*cpb.Configuration, error
 		return nil, fmt.Errorf("configuration file is empty")
 	}
 	cfgFromFile := &cpb.Configuration{}
-	err = protojson.Unmarshal(content, cfgFromFile)
-	if err != nil {
+	unmarshalOptions := protojson.UnmarshalOptions{
+		DiscardUnknown: true,
+	}
+	if err = unmarshalOptions.Unmarshal(content, cfgFromFile); err != nil {
 		return nil, fmt.Errorf("parsing JSON content from %s configuration file: %w", path, err)
 	}
 	return cfgFromFile, nil
@@ -140,27 +145,29 @@ func ConfigPath() string {
 }
 
 // Load loads the configuration from a JSON file and applies defaults for missing fields.
-func Load(path string, read ReadConfigFile, cloudProps *cpb.CloudProperties) (*cpb.Configuration, error) {
+func Load(path string, read ReadConfigFile, cloudProps *cpb.CloudProperties, pmClient *parametermanager.Client) (*cpb.Configuration, string, error) {
 	if path == "" {
 		path = ConfigPath()
 	}
 
 	defaultCfg, err := defaultConfig(cloudProps)
 	if err != nil {
-		return nil, fmt.Errorf("generating default configuration: %w", err)
+		return nil, "", fmt.Errorf("generating default configuration: %w", err)
 	}
 
 	userCfg, err := ConfigFromFile(path, read)
 	if err != nil {
-		return nil, fmt.Errorf("gathering configuration from file: %w", err)
+		return nil, "", fmt.Errorf("gathering configuration from file: %w", err)
 	}
 
+	userCfg, pmVersion := mergePMConfig(context.Background(), pmClient, userCfg)
+
 	if err := validateOracleConfiguration(userCfg); err != nil {
-		return nil, fmt.Errorf("validating Oracle configuration: %w", err)
+		return nil, "", fmt.Errorf("validating Oracle configuration: %w", err)
 	}
 
 	if err := validateSQLServerConfiguration(userCfg); err != nil {
-		return nil, fmt.Errorf("validating SQL Server configuration: %w", err)
+		return nil, "", fmt.Errorf("validating SQL Server configuration: %w", err)
 	}
 
 	defaultOracleQueries := defaultCfg.GetOracleConfiguration().GetOracleMetrics().GetQueries()
@@ -170,7 +177,7 @@ func Load(path string, read ReadConfigFile, cloudProps *cpb.CloudProperties) (*c
 	proto.Merge(defaultCfg, userCfg)
 
 	defaultCfg.GetOracleConfiguration().GetOracleMetrics().Queries = mergedOracleQueries
-	return defaultCfg, nil
+	return defaultCfg, pmVersion, nil
 }
 
 func validateOracleConfiguration(config *cpb.Configuration) error {
@@ -381,4 +388,25 @@ func WriteConfigToFile(config *cpb.Configuration, path string, write WriteConfig
 		return err
 	}
 	return write(path, content, 0644)
+}
+
+func mergePMConfig(ctx context.Context, pmClient *parametermanager.Client, config *cpb.Configuration) (*cpb.Configuration, string) {
+	pmConfig := config.GetParameterManagerConfig()
+	if pmConfig == nil {
+		return config, ""
+	}
+	log.Logger.Info("Parameter manager config found, attempting to fetch remote config")
+	resource, err := fetchParameter(ctx, pmClient, pmConfig.GetProject(), pmConfig.GetLocation(), pmConfig.GetParameterName(), pmConfig.GetParameterVersion())
+	if err != nil {
+		log.Logger.Errorw("Failed to fetch configuration from Parameter Manager", "error", err)
+		return config, ""
+	}
+	remoteConfig := &cpb.Configuration{}
+	if err := protojson.Unmarshal([]byte(resource.Data), remoteConfig); err != nil {
+		log.Logger.Errorw("Failed to unmarshal Parameter Manager payload", "error", err)
+		return config, ""
+	}
+	proto.Merge(config, remoteConfig)
+	log.Logger.Info("Configuration successfully merged with Parameter Manager payload")
+	return config, resource.Version
 }
