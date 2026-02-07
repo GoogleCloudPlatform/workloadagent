@@ -259,13 +259,43 @@ func DisableRestrictedSession(ctx context.Context, command *gpb.Command, cloudPr
 
 // StartListener implements the oracle_start_listener guest action.
 func StartListener(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
-	log.CtxLogger(ctx).Info("oracle_start_listener handler called")
-	// TODO: Implement oracle_start_listener handler.
-	return &gpb.CommandResult{
-		Command:  command,
-		ExitCode: 1,
-		Stdout:   "oracle_start_listener not implemented.",
+	params := command.GetAgentCommand().GetParameters()
+	logger := log.CtxLogger(ctx)
+	if result := validateParams(ctx, logger, command, params, []string{"oracle_home", "oracle_user", "listener_name"}); result != nil {
+		return result
 	}
+	logger = logger.With("oracle_home", params["oracle_home"], "oracle_user", params["oracle_user"], "listener_name", params["listener_name"])
+	logger.Infow("oracle_start_listener handler called")
+
+	oracleHome := params["oracle_home"]
+	oracleUser := params["oracle_user"]
+	listenerName := params["listener_name"]
+	result := executeCommand(ctx, commandlineexecutor.Params{
+		Executable: filepath.Join(oracleHome, "bin", "lsnrctl"),
+		Args:       []string{"start", listenerName},
+		Env:        []string{"ORACLE_HOME=" + oracleHome, "LD_LIBRARY_PATH=" + filepath.Join(oracleHome, "lib")},
+		User:       oracleUser,
+		Timeout:    120,
+	})
+
+	stdout := strings.TrimSpace(result.StdOut)
+	stderr := result.StdErr
+
+	if result.Error != nil || result.ExitCode != 0 {
+		if strings.Contains(stdout, "TNS-01106") {
+			logger.Infow("Listener is already running", "stdout", stdout)
+			return commandResult(ctx, logger, command, stdout, stderr, codepb.Code_OK, "Listener is already running", nil)
+		}
+		if result.ExitCode != 0 {
+			err := fmt.Errorf("lsnrctl exited with code %d: %s", result.ExitCode, stderr)
+			logger.Warnw("Failed to start listener", "stdout", stdout, "stderr", stderr, "error", err)
+			return commandResult(ctx, logger, command, stdout, stderr, codepb.Code_FAILED_PRECONDITION, err.Error(), err)
+		}
+		logger.Warnw("Failed to start listener", "stdout", stdout, "stderr", stderr, "error", result.Error)
+		return commandResult(ctx, logger, command, stdout, stderr, codepb.Code_FAILED_PRECONDITION, result.Error.Error(), result.Error)
+	}
+	logger.Infow("Listener started successfully", "stdout", stdout)
+	return commandResult(ctx, logger, command, stdout, stderr, codepb.Code_OK, "Listener started successfully", nil)
 }
 
 func detectStartupMechanism(ctx context.Context, oracleHome, oracleUser, dbUniqueName string) (startupMechanism, error) {

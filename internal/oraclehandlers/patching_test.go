@@ -785,20 +785,101 @@ func TestDisableRestrictedSession(t *testing.T) {
 	}
 }
 
-func TestStartListener_NotImplemented(t *testing.T) {
-	command := &gpb.Command{
-		CommandType: &gpb.Command_AgentCommand{
-			AgentCommand: &gpb.AgentCommand{
-				Command: "oracle_start_listener",
+func TestStartListener(t *testing.T) {
+	tests := []struct {
+		name          string
+		params        map[string]string
+		mockResult    *commandlineexecutor.Result
+		wantErrorCode codepb.Code
+	}{
+		{
+			name:          "Validation_Fail",
+			params:        map[string]string{},
+			wantErrorCode: codepb.Code_INVALID_ARGUMENT,
+		},
+		{
+			name: "Success",
+			params: map[string]string{
+				"oracle_home":   "/u01/app/oracle/product/19.3.0/dbhome_1",
+				"oracle_user":   "oracle",
+				"listener_name": "LISTENER",
 			},
+			mockResult: &commandlineexecutor.Result{
+				StdOut: "The command completed successfully",
+			},
+			wantErrorCode: codepb.Code_OK,
+		},
+		{
+			name: "AlreadyRunning_TNS01106",
+			params: map[string]string{
+				"oracle_home":   "/u01/app/oracle/product/19.3.0/dbhome_1",
+				"oracle_user":   "oracle",
+				"listener_name": "LISTENER",
+			},
+			mockResult: &commandlineexecutor.Result{
+				ExitCode: 1,
+				StdOut:   "TNS-01106: Listener using listener name LISTENER has already been started",
+				Error:    fmt.Errorf("exit status 1"),
+			},
+			wantErrorCode: codepb.Code_OK,
+		},
+		{
+			name: "Failure",
+			params: map[string]string{
+				"oracle_home":   "/u01/app/oracle/product/19.3.0/dbhome_1",
+				"oracle_user":   "oracle",
+				"listener_name": "LISTENER",
+			},
+			mockResult: &commandlineexecutor.Result{
+				ExitCode: 1,
+				StdOut:   "Some error occurred",
+				Error:    fmt.Errorf("exit status 1"),
+			},
+			wantErrorCode: codepb.Code_FAILED_PRECONDITION,
+		},
+		{
+			name: "Failure_ExitCodeOnly",
+			params: map[string]string{
+				"oracle_home":   "/u01/app/oracle/product/19.3.0/dbhome_1",
+				"oracle_user":   "oracle",
+				"listener_name": "LISTENER",
+			},
+			mockResult: &commandlineexecutor.Result{
+				ExitCode: 1,
+			},
+			wantErrorCode: codepb.Code_FAILED_PRECONDITION,
 		},
 	}
-	result := StartListener(context.Background(), command, nil)
-	if result.GetExitCode() != 1 {
-		t.Errorf("StartListener() returned exit code %d, want 1", result.GetExitCode())
-	}
-	if !strings.Contains(result.GetStdout(), "not implemented") {
-		t.Errorf("StartListener() returned stdout %q, want 'not implemented'", result.GetStdout())
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			origExecuteCommand := executeCommand
+			defer func() { executeCommand = origExecuteCommand }()
+			executeCommand = func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				if tc.mockResult == nil {
+					return commandlineexecutor.Result{}
+				}
+				return *tc.mockResult
+			}
+
+			command := &gpb.Command{
+				CommandType: &gpb.Command_AgentCommand{
+					AgentCommand: &gpb.AgentCommand{
+						Command:    "oracle_start_listener",
+						Parameters: tc.params,
+					},
+				},
+			}
+			result := StartListener(context.Background(), command, nil)
+
+			s := &spb.Status{}
+			if err := anypb.UnmarshalTo(result.Payload, s, proto.UnmarshalOptions{}); err != nil {
+				t.Fatalf("Failed to unmarshal payload: %v", err)
+			}
+			if s.Code != int32(tc.wantErrorCode) {
+				t.Errorf("StartListener() with params %v returned error code %d, want %d", tc.params, s.Code, tc.wantErrorCode)
+			}
+		})
 	}
 }
 
