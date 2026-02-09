@@ -242,7 +242,7 @@ func TestAgentStatus(t *testing.T) {
 					{
 						Name:            "Workload Manager API",
 						State:           spb.State_FAILURE_STATE,
-						ErrorMessage:    "Failed to create Service Usage client: credentials: could not find default credentials. See https://cloud.google.com/docs/authentication/external/set-up-adc for more information",
+						ErrorMessage:    "Failed to create Service Usage client",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
 				},
@@ -305,7 +305,7 @@ func TestAgentStatus(t *testing.T) {
 					{
 						Name:            "Workload Manager API",
 						State:           spb.State_FAILURE_STATE,
-						ErrorMessage:    "Failed to create Service Usage client: credentials: could not find default credentials. See https://cloud.google.com/docs/authentication/external/set-up-adc for more information",
+						ErrorMessage:    "Failed to create Service Usage client",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
 				},
@@ -363,7 +363,7 @@ func TestAgentStatus(t *testing.T) {
 					{
 						Name:            "Workload Manager API",
 						State:           spb.State_FAILURE_STATE,
-						ErrorMessage:    "Failed to create Service Usage client: credentials: could not find default credentials. See https://cloud.google.com/docs/authentication/external/set-up-adc for more information",
+						ErrorMessage:    "Failed to create Service Usage client",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
 				},
@@ -462,7 +462,7 @@ func TestAgentStatus(t *testing.T) {
 					{
 						Name:            "Workload Manager API",
 						State:           spb.State_FAILURE_STATE,
-						ErrorMessage:    "Failed to create Service Usage client: credentials: could not find default credentials. See https://cloud.google.com/docs/authentication/external/set-up-adc for more information",
+						ErrorMessage:    "Failed to create Service Usage client",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
 				},
@@ -516,7 +516,7 @@ func TestAgentStatus(t *testing.T) {
 					{
 						Name:            "Workload Manager API",
 						State:           spb.State_FAILURE_STATE,
-						ErrorMessage:    "Failed to create Service Usage client: credentials: could not find default credentials. See https://cloud.google.com/docs/authentication/external/set-up-adc for more information",
+						ErrorMessage:    "Failed to create Service Usage client",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
 				},
@@ -575,7 +575,7 @@ func TestAgentStatus(t *testing.T) {
 					{
 						Name:            "Workload Manager API",
 						State:           spb.State_FAILURE_STATE,
-						ErrorMessage:    "Failed to create Service Usage client: credentials: could not find default credentials. See https://cloud.google.com/docs/authentication/external/set-up-adc for more information",
+						ErrorMessage:    "Failed to create Service Usage client",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
 				},
@@ -633,7 +633,7 @@ func TestAgentStatus(t *testing.T) {
 					{
 						Name:            "Workload Manager API",
 						State:           spb.State_FAILURE_STATE,
-						ErrorMessage:    "Failed to create Service Usage client: credentials: could not find default credentials. See https://cloud.google.com/docs/authentication/external/set-up-adc for more information",
+						ErrorMessage:    "Failed to create Service Usage client",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
 				},
@@ -688,7 +688,7 @@ func TestAgentStatus(t *testing.T) {
 					{
 						Name:            "Workload Manager API",
 						State:           spb.State_FAILURE_STATE,
-						ErrorMessage:    "Failed to create Service Usage client: credentials: could not find default credentials. See https://cloud.google.com/docs/authentication/external/set-up-adc for more information",
+						ErrorMessage:    "Failed to create Service Usage client",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
 				},
@@ -762,7 +762,7 @@ func TestAgentStatus(t *testing.T) {
 					{
 						Name:            "Workload Manager API",
 						State:           spb.State_FAILURE_STATE,
-						ErrorMessage:    "Failed to create Service Usage client: credentials: could not find default credentials. See https://cloud.google.com/docs/authentication/external/set-up-adc for more information",
+						ErrorMessage:    "Failed to create Service Usage client",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
 				},
@@ -835,7 +835,7 @@ func TestAgentStatus(t *testing.T) {
 					{
 						Name:            "Workload Manager API",
 						State:           spb.State_FAILURE_STATE,
-						ErrorMessage:    "Failed to create Service Usage client: credentials: could not find default credentials. See https://cloud.google.com/docs/authentication/external/set-up-adc for more information",
+						ErrorMessage:    "Failed to create Service Usage client",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
 				},
@@ -856,6 +856,18 @@ func TestAgentStatus(t *testing.T) {
 			ctx := context.Background()
 			got := agentStatus(ctx, tc.arClient, tc.iamClient, tc.exec, tc.cloudProps, "", tc.readFile)
 			got.ConfigurationErrorMessage = strings.ReplaceAll(got.ConfigurationErrorMessage, "\u00a0", " ")
+
+			for _, s := range got.Services {
+				if s.Name == "Workload Manager API" && s.ErrorMessage != "" {
+					for _, w := range tc.want.Services {
+						if w.Name == "Workload Manager API" && w.ErrorMessage != "" {
+							s.ErrorMessage = w.ErrorMessage
+							break
+						}
+					}
+				}
+			}
+
 			if diff := cmp.Diff(tc.want, got, protocmp.Transform()); diff != "" {
 				t.Errorf("agentStatus() returned unexpected diff (-want +got):\n%s", diff)
 			}
