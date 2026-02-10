@@ -241,6 +241,28 @@ func TestClose(t *testing.T) {
 	}
 }
 
+func TestPing(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	if err != nil {
+		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
+	}
+	defer db.Close()
+
+	c := &V1{
+		dbConn: db,
+	}
+
+	mock.ExpectPing()
+
+	if err := c.Ping(context.Background()); err != nil {
+		t.Errorf("Ping() error = %v, want nil", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("there were unfulfilled expectations: %s", err)
+	}
+}
+
 func TestExecuteSQL(t *testing.T) {
 	ctx := context.Background()
 	cols := []string{"id", "name", "value"}

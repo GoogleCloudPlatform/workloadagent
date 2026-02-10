@@ -81,6 +81,11 @@ func (c *V1) Close() error {
 	return c.dbConn.Close()
 }
 
+// Ping checks the connection to the database.
+func (c *V1) Ping(ctx context.Context) error {
+	return c.dbConn.PingContext(ctx)
+}
+
 func (c *V1) ExecuteSQL(ctx context.Context, query string) ([][]any, error) {
 	err := c.dbConn.PingContext(ctx)
 	if err != nil {

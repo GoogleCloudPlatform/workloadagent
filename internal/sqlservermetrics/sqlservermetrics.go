@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 
 	bo "github.com/cenkalti/backoff/v4"
 	retry "github.com/sethvargo/go-retry"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics/sqlcollector"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics/wlm"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce"
 
@@ -37,6 +39,51 @@ import (
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 )
+
+// GCEInterface defines the GCE services required by SQLServerMetrics.
+type GCEInterface interface {
+	GetSecret(ctx context.Context, projectID, secretName string) (string, error)
+}
+
+// PingDB checks connectivity to the SQL Server databases.
+func (s *SQLServerMetrics) PingDB(ctx context.Context, gceService GCEInterface, cloudProps *configpb.CloudProperties) error {
+	for _, credentialCfg := range s.Config.GetCredentialConfigurations() {
+		guestCfg := guestConfigFromCredential(credentialCfg)
+		for _, sqlCfg := range sqlConfigFromCredential(credentialCfg) {
+			if err := validateCredCfgSQL(s.Config.GetRemoteCollection(), runtime.GOOS == "windows", sqlCfg, guestCfg, cloudProps.GetInstanceId(), cloudProps.GetInstanceName()); err != nil {
+				return fmt.Errorf("%v for host: %s", err, sqlCfg.Host)
+			}
+			projectID := sqlCfg.ProjectID
+			if projectID == "" {
+				projectID = cloudProps.GetProjectId()
+			}
+			pswd, err := gceService.GetSecret(ctx, projectID, sqlCfg.SecretName)
+			if err != nil {
+				return fmt.Errorf("failed to get secret for host %s: %v", sqlCfg.Host, err)
+			}
+			conn := fmt.Sprintf("server=%s;user id=%s;password=%s;port=%d;", sqlCfg.Host, sqlCfg.Username, pswd, sqlCfg.PortNumber)
+			windows := false
+			if runtime.GOOS == "windows" {
+				windows = !guestCfg.LinuxRemote
+			}
+			err = func(ctx context.Context, conn string, windows bool) error {
+				c, err := sqlcollector.NewV1("sqlserver", conn, windows)
+				if err != nil {
+					return fmt.Errorf("failed to create collector for host %s: %v", sqlCfg.Host, err)
+				}
+				defer c.Close()
+				if err := c.Ping(ctx); err != nil {
+					return fmt.Errorf("failed to ping host %s: %v", sqlCfg.Host, err)
+				}
+				return nil
+			}(ctx, conn, windows)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
 
 // instanceProperties represents properties of instance.
 type instanceProperties struct {
