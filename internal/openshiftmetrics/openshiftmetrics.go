@@ -171,10 +171,12 @@ func (o *OpenShiftMetrics) SendMetricsToWLM(ctx context.Context, config *configp
 		UseProtoNames: true,
 	}
 	jsonPayload, err := marshalOpts.Marshal(payload)
-
 	if err != nil {
 		return err
 	}
+
+	logger.Debugw("Openshift metrics payload size", "size (bytes)", len(string(jsonPayload)))
+
 	validationDetails, err := jsonStringToStruct(string(jsonPayload))
 	if err != nil {
 		return err
