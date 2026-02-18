@@ -55,14 +55,24 @@ type Daemon struct {
 	cancel         context.CancelFunc
 	configFilePath string
 	lp             log.Parameters
-	config         *cpb.Configuration
-	cloudProps     *cpb.CloudProperties
+	Config         *cpb.Configuration
+	CloudProps     *cpb.CloudProperties
 	osData         osinfo.Data
 	services       []Service
 	pmClient       *parametermanager.Client
 	pmVersion      string
 	pmPollInterval time.Duration
+	ServiceFactory ServiceFactoryFunc
 }
+
+// ServiceSet groups services and their communication channels.
+type ServiceSet struct {
+	Services []Service
+	Channels map[string]chan<- *servicecommunication.Message
+}
+
+// ServiceFactoryFunc is a function that creates a ServiceSet.
+type ServiceFactoryFunc func(ctx context.Context, d *Daemon, wlmClient workloadmanager.WLMWriter, dbcenterClient databasecenter.Client) ServiceSet
 
 type (
 	// Service defines the common interface for workload services.
@@ -93,9 +103,40 @@ var (
 // NewDaemon creates a new Daemon.
 func NewDaemon(lp log.Parameters, cloudProps *cpb.CloudProperties) *Daemon {
 	return &Daemon{
-		lp:         lp,
-		cloudProps: cloudProps,
+		lp:             lp,
+		CloudProps:     cloudProps,
+		ServiceFactory: DefaultServiceFactory,
 	}
+}
+
+// DefaultServiceFactory is the default service factory for the agent.
+func DefaultServiceFactory(ctx context.Context, d *Daemon, wlmClient workloadmanager.WLMWriter, dbcenterClient databasecenter.Client) ServiceSet {
+	oracleCh := make(chan *servicecommunication.Message, 3)
+	mySQLCh := make(chan *servicecommunication.Message, 3)
+	redisCh := make(chan *servicecommunication.Message, 3)
+	sqlserverCh := make(chan *servicecommunication.Message, 3)
+	postgresCh := make(chan *servicecommunication.Message, 3)
+	openshiftCh := make(chan *servicecommunication.Message, 3)
+	mongoCh := make(chan *servicecommunication.Message, 3)
+	scChs := map[string]chan<- *servicecommunication.Message{
+		"mysql":     mySQLCh,
+		"oracle":    oracleCh,
+		"redis":     redisCh,
+		"sqlserver": sqlserverCh,
+		"postgres":  postgresCh,
+		"openshift": openshiftCh,
+		"mongodb":   mongoCh,
+	}
+	services := []Service{
+		&oracle.Service{Config: d.Config, CloudProps: d.CloudProps, CommonCh: oracleCh},
+		&mysql.Service{Config: d.Config, CloudProps: d.CloudProps, CommonCh: mySQLCh, WLMClient: wlmClient, DBcenterClient: dbcenterClient},
+		&redis.Service{Config: d.Config, CloudProps: d.CloudProps, CommonCh: redisCh, WLMClient: wlmClient, OSData: d.osData},
+		&sqlserver.Service{Config: d.Config, CloudProps: d.CloudProps, CommonCh: sqlserverCh, DBcenterClient: dbcenterClient},
+		&postgres.Service{Config: d.Config, CloudProps: d.CloudProps, CommonCh: postgresCh, WLMClient: wlmClient, DBcenterClient: dbcenterClient},
+		&openshift.Service{Config: d.Config, CloudProps: d.CloudProps, CommonCh: openshiftCh, WLMClient: wlmClient},
+		&mongodb.Service{Config: d.Config, CloudProps: d.CloudProps, CommonCh: mongoCh, WLMClient: wlmClient},
+	}
+	return ServiceSet{Services: services, Channels: scChs}
 }
 
 // NewDaemonSubCommand creates a new startdaemon subcommand.
@@ -147,11 +188,11 @@ func (d *Daemon) Execute(ctx context.Context) error {
 
 func (d *Daemon) startdaemonHandler(ctx context.Context, restarting bool) error {
 	// Cloud properties are exclusively set from the metadata server.
-	configureUsageMetricsForDaemon(d.cloudProps)
+	configureUsageMetricsForDaemon(d.CloudProps)
 
 	// Load the agent configuration from the config file.
 	var err error
-	d.config, d.pmVersion, err = configuration.Load(d.configFilePath, os.ReadFile, d.cloudProps, d.pmClient)
+	d.Config, d.pmVersion, err = configuration.Load(d.configFilePath, os.ReadFile, d.CloudProps, d.pmClient)
 	if err != nil {
 		log.Logger.Errorw("Invalid configuration file, please fix the configuration file and restart the service.", "error", err, "configFile", d.configFilePath)
 		usagemetrics.Misconfigured()
@@ -160,10 +201,10 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, restarting bool) error 
 	usagemetrics.Configured()
 
 	// Setup logging based on the agent configuration.
-	d.lp.LogToCloud = d.config.GetLogToCloud()
-	d.lp.Level = configuration.LogLevelToZapcore(d.config.GetLogLevel())
-	if d.config.GetCloudProperties().GetProjectId() != "" {
-		d.lp.CloudLoggingClient = log.CloudLoggingClient(ctx, d.config.GetCloudProperties().GetProjectId())
+	d.lp.LogToCloud = d.Config.GetLogToCloud()
+	d.lp.Level = configuration.LogLevelToZapcore(d.Config.GetLogLevel())
+	if d.Config.GetCloudProperties().GetProjectId() != "" {
+		d.lp.CloudLoggingClient = log.CloudLoggingClient(ctx, d.Config.GetCloudProperties().GetProjectId())
 	}
 	if d.lp.CloudLoggingClient != nil {
 		defer log.FlushCloudLog()
@@ -177,38 +218,38 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, restarting bool) error 
 		usagemetrics.Error(usagemetrics.StartDaemonFailure)
 		return err
 	}
-	vCPU, memorySize, err := gceClient.GetInstanceCPUAndMemorySize(ctx, d.cloudProps.GetProjectId(), d.cloudProps.GetZone(), d.cloudProps.GetInstanceName())
+	vCPU, memorySize, err := gceClient.GetInstanceCPUAndMemorySize(ctx, d.CloudProps.GetProjectId(), d.CloudProps.GetZone(), d.CloudProps.GetInstanceName())
 	if err != nil {
 		log.Logger.Errorw("getting vCPU and memory size from GCE", "error", err)
 		usagemetrics.Error(usagemetrics.StartDaemonFailure)
 		return err
 	}
-	d.cloudProps.VcpuCount = vCPU
-	d.cloudProps.MemorySizeMb = memorySize
+	d.CloudProps.VcpuCount = vCPU
+	d.CloudProps.MemorySizeMb = memorySize
 
 	log.Logger.Infow("Starting daemon mode", "agent_name", configuration.AgentName, "agent_version", configuration.AgentVersion)
 	log.Logger.Infow("Cloud Properties",
-		"projectid", d.cloudProps.GetProjectId(),
-		"projectnumber", d.cloudProps.GetNumericProjectId(),
-		"instanceid", d.cloudProps.GetInstanceId(),
-		"zone", d.cloudProps.GetZone(),
-		"region", d.cloudProps.GetRegion(),
-		"instancename", d.cloudProps.GetInstanceName(),
-		"machinetype", d.cloudProps.GetMachineType(),
-		"image", d.cloudProps.GetImage(),
-		"vCPU", d.cloudProps.GetVcpuCount(),
-		"memorysize", d.cloudProps.GetMemorySizeMb(),
-		"scopes", d.cloudProps.GetScopes(),
-		"defaultserviceaccountemail", d.cloudProps.GetServiceAccountEmail(),
+		"projectid", d.CloudProps.GetProjectId(),
+		"projectnumber", d.CloudProps.GetNumericProjectId(),
+		"instanceid", d.CloudProps.GetInstanceId(),
+		"zone", d.CloudProps.GetZone(),
+		"region", d.CloudProps.GetRegion(),
+		"instancename", d.CloudProps.GetInstanceName(),
+		"machinetype", d.CloudProps.GetMachineType(),
+		"image", d.CloudProps.GetImage(),
+		"vCPU", d.CloudProps.GetVcpuCount(),
+		"memorysize", d.CloudProps.GetMemorySizeMb(),
+		"scopes", d.CloudProps.GetScopes(),
+		"defaultserviceaccountemail", d.CloudProps.GetServiceAccountEmail(),
 	)
-	logDefaultCredentials(ctx, d.cloudProps)
+	logDefaultCredentials(ctx, d.CloudProps)
 	log.Logger.Infow("OS Data",
 		"name", d.osData.OSName,
 		"vendor", d.osData.OSVendor,
 		"version", d.osData.OSVersion,
 	)
 
-	wlmClient, err := workloadmanager.Client(ctx, d.config)
+	wlmClient, err := workloadmanager.Client(ctx, d.Config)
 	if err != nil {
 		log.Logger.Errorw("Error creating WLM Client", "error", err)
 		usagemetrics.Error(usagemetrics.WorkloadManagerConnectionError)
@@ -220,11 +261,11 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, restarting bool) error 
 	// Override mode will not start any other services.
 	if fileInfo, err := os.ReadFile(workloadmanager.MetricOverridePath); fileInfo != nil && err == nil {
 		log.Logger.Info("Metric override file found. Operating in override mode.")
-		metricCollectionService := workloadmanager.Service{Config: d.config, Client: wlmClient}
+		metricCollectionService := workloadmanager.Service{Config: d.Config, Client: wlmClient}
 		metricCollectionCtx := log.SetCtx(ctx, "context", "WorkloadManagerMetrics")
 		recoverableStart := &recovery.RecoverableRoutine{
 			Routine:             metricCollectionService.CollectAndSendMetricsToDataWarehouse,
-			RoutineArg:          d.config,
+			RoutineArg:          d.Config,
 			ErrorCode:           0,
 			ExpectedMinDuration: 20 * time.Second,
 			UsageLogger:         *usagemetrics.UsageLogger,
@@ -240,28 +281,17 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, restarting bool) error 
 		return nil
 	}
 
+	// Create a new databasecenter client.
+	dbcenterClient := databasecenter.NewClient(d.Config, nil)
+
 	log.Logger.Info("Starting common discovery")
-	oracleCh := make(chan *servicecommunication.Message, 3)
-	mySQLCh := make(chan *servicecommunication.Message, 3)
-	redisCh := make(chan *servicecommunication.Message, 3)
-	sqlserverCh := make(chan *servicecommunication.Message, 3)
-	postgresCh := make(chan *servicecommunication.Message, 3)
-	openshiftCh := make(chan *servicecommunication.Message, 3)
-	mongoCh := make(chan *servicecommunication.Message, 3)
-	scChs := map[string]chan<- *servicecommunication.Message{
-		"mysql":     mySQLCh,
-		"oracle":    oracleCh,
-		"redis":     redisCh,
-		"sqlserver": sqlserverCh,
-		"postgres":  postgresCh,
-		"openshift": openshiftCh,
-		"mongodb":   mongoCh,
-	}
+	serviceSet := d.ServiceFactory(ctx, d, wlmClient, dbcenterClient)
+	scChs := serviceSet.Channels
 	commondiscovery := discovery.Service{
 		ProcessLister: discovery.DefaultProcessLister{},
 		ReadFile:      os.ReadFile,
 		Hostname:      os.Hostname,
-		Config:        d.config,
+		Config:        d.Config,
 	}
 	recoverableStart := &recovery.RecoverableRoutine{
 		Routine:             commondiscovery.CommonDiscovery,
@@ -272,7 +302,7 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, restarting bool) error 
 	}
 	recoverableStart.StartRoutine(ctx)
 
-	dwActivation := datawarehouseactivation.Service{Config: d.config, Client: wlmClient}
+	dwActivation := datawarehouseactivation.Service{Config: d.Config, Client: wlmClient}
 	recoverableStart = &recovery.RecoverableRoutine{
 		Routine:             dwActivation.DataWarehouseActivationCheck,
 		RoutineArg:          scChs,
@@ -282,19 +312,8 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, restarting bool) error 
 	}
 	recoverableStart.StartRoutine(ctx)
 
-	// Create a new databasecenter client.
-	dbcenterClient := databasecenter.NewClient(d.config, nil)
-
 	// Add any additional services here.
-	d.services = []Service{
-		&oracle.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: oracleCh},
-		&mysql.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: mySQLCh, WLMClient: wlmClient, DBcenterClient: dbcenterClient},
-		&redis.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: redisCh, WLMClient: wlmClient, OSData: d.osData},
-		&sqlserver.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: sqlserverCh, DBcenterClient: dbcenterClient},
-		&postgres.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: postgresCh, WLMClient: wlmClient, DBcenterClient: dbcenterClient},
-		&openshift.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: openshiftCh, WLMClient: wlmClient},
-		&mongodb.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: mongoCh, WLMClient: wlmClient},
-	}
+	d.services = serviceSet.Services
 	for _, service := range d.services {
 		log.Logger.Infof("Starting %s", service.String())
 		recoverableStart := &recovery.RecoverableRoutine{
@@ -410,10 +429,10 @@ func (d *Daemon) pollConfigFile() {
 }
 
 func (d *Daemon) checkForPMUpdate(ctx context.Context) bool {
-	if d.config == nil || d.config.GetParameterManagerConfig() == nil {
+	if d.Config == nil || d.Config.GetParameterManagerConfig() == nil {
 		return false
 	}
-	resource, err := fetchParameter(ctx, d.pmClient, d.config.GetParameterManagerConfig().GetProject(), d.config.GetParameterManagerConfig().GetLocation(), d.config.GetParameterManagerConfig().GetParameterName(), "")
+	resource, err := fetchParameter(ctx, d.pmClient, d.Config.GetParameterManagerConfig().GetProject(), d.Config.GetParameterManagerConfig().GetLocation(), d.Config.GetParameterManagerConfig().GetParameterName(), "")
 	if err != nil {
 		log.Logger.Errorw("Failed to fetch parameter from Parameter Manager", "error", err)
 		return false
