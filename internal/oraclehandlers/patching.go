@@ -226,13 +226,71 @@ func enableAutostart(ctx context.Context, logger *zap.SugaredLogger, params map[
 
 // RunDatapatch implements the oracle_run_datapatch guest action.
 func RunDatapatch(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
-	log.CtxLogger(ctx).Info("oracle_run_datapatch handler called")
-	// TODO: Implement oracle_run_datapatch handler.
-	return &gpb.CommandResult{
-		Command:  command,
-		ExitCode: 1,
-		Stdout:   "oracle_run_datapatch not implemented.",
+	params := command.GetAgentCommand().GetParameters()
+	logger := log.CtxLogger(ctx)
+	if result := validateParams(ctx, logger, command, params, []string{"oracle_sid", "oracle_home", "oracle_user"}); result != nil {
+		return result
 	}
+
+	logger = logger.With("oracle_sid", params["oracle_sid"], "oracle_home", params["oracle_home"], "oracle_user", params["oracle_user"])
+	logger.Info("oracle_run_datapatch handler called")
+
+	if err := runDatapatch(ctx, logger, params); err != nil {
+		logger.Warnw("RunDatapatch failed", "error", err)
+		return commandResult(ctx, logger, command, "", "", codepb.Code_INTERNAL, err.Error(), err)
+	}
+
+	return commandResult(ctx, logger, command, "Datapatch execution completed successfully", "", codepb.Code_OK, "Datapatch execution completed successfully", nil)
+}
+
+func runDatapatch(ctx context.Context, logger *zap.SugaredLogger, params map[string]string) error {
+	// Open all PDBs.
+	// We ignore errors here because the database might not be a CDB, or PDBs might already be open.
+	pdbStdout, pdbStderr, pdbErr := runSQL(ctx, params, "ALTER PLUGGABLE DATABASE ALL OPEN;", 60, false)
+	if pdbErr != nil {
+		logger.Warnw("Attempted to open all PDBs", "stdout", pdbStdout, "stderr", pdbStderr, "error", pdbErr)
+	} else {
+		logger.Infow("Opened all PDBs", "stdout", pdbStdout)
+	}
+
+	// Run datapatch.
+	oracleHome := params["oracle_home"]
+	oracleUser := params["oracle_user"]
+	oracleSID := params["oracle_sid"]
+	datapatchPath := filepath.Join(oracleHome, "OPatch", "datapatch")
+
+	// datapatch can take a significant amount of time.
+	logger.Info("Executing datapatch...")
+	datapatchRes := executeCommand(ctx, commandlineexecutor.Params{
+		Executable: datapatchPath,
+		Args:       []string{"-verbose"},
+		User:       oracleUser,
+		Env:        []string{"ORACLE_HOME=" + oracleHome, "ORACLE_SID=" + oracleSID, "LD_LIBRARY_PATH=" + filepath.Join(oracleHome, "lib"), "PATH=" + filepath.Join(oracleHome, "bin") + ":/usr/bin:/bin"},
+		Timeout:    3600, // 1 hour timeout
+	})
+
+	logger.Infow("Datapatch execution result", "stdout", datapatchRes.StdOut, "stderr", datapatchRes.StdErr, "exit_code", datapatchRes.ExitCode)
+
+	if datapatchRes.ExitCode != 0 {
+		return fmt.Errorf("datapatch failed with exit code %d: %s", datapatchRes.ExitCode, datapatchRes.StdErr)
+	}
+
+	// Recompile invalid objects (utlrp.sql).
+	logger.Info("Executing utlrp.sql...")
+	utlrpStdout, utlrpStderr, utlrpErr := runSQL(ctx, params, "@?/rdbms/admin/utlrp", 3600, true)
+	if utlrpErr != nil {
+		return fmt.Errorf("utlrp execution failed: %w", utlrpErr)
+	}
+	logger.Infow("utlrp execution result", "stdout", utlrpStdout, "stderr", utlrpStderr)
+
+	// Log patch registry for debugging.
+	regStdout, regStderr, regErr := runSQL(ctx, params, "SELECT action_time, action, status, patch_id FROM dba_registry_sqlpatch ORDER BY action_time;", 60, false)
+	if regErr != nil {
+		logger.Warnw("Failed to query dba_registry_sqlpatch", "stdout", regStdout, "stderr", regStderr, "error", regErr)
+	}
+	logger.Infow("Patch registry status", "stdout", regStdout)
+
+	return nil
 }
 
 // DisableRestrictedSession implements the oracle_disable_restricted_mode guest action.
