@@ -287,12 +287,14 @@ message PodSpec {
 message Container {
   repeated Env env = 1;
   repeated EnvFrom env_from = 2;
+  repeated VolumeMount volume_mounts = 3;
 }
 
 // Derived from
 // https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#volume-v1-core
 message Volume {
   Secret secret = 1;
+  string name = 2;
   message Secret {
     string secret_name = 1;
   }
@@ -342,6 +344,13 @@ message Affinity {
       }
     }
   }
+}
+
+// Derived from
+// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#volumemount-v1-core
+message VolumeMount {
+  string name = 1;
+  string mount_path = 2;
 }
 
 // Reference:

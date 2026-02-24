@@ -276,6 +276,7 @@ func (o *OpenShiftMetrics) collectDeploymentData(ctx context.Context, namespaces
 			for _, container := range deployment.Spec.Template.Spec.Containers {
 				var env []*ompb.Env
 				var envFrom []*ompb.EnvFrom
+				var volumeMounts []*ompb.VolumeMount
 				for _, e := range container.Env {
 					var valueFrom *ompb.Env_ValueFrom
 					if e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil {
@@ -300,15 +301,23 @@ func (o *OpenShiftMetrics) collectDeploymentData(ctx context.Context, namespaces
 						SecretRef: secretRef,
 					})
 				}
+				for _, v := range container.VolumeMounts {
+					volumeMounts = append(volumeMounts, &ompb.VolumeMount{
+						Name:      v.Name,
+						MountPath: v.MountPath,
+					})
+				}
 				containers = append(containers, &ompb.Container{
 					Env:     env,
 					EnvFrom: envFrom,
+					VolumeMounts: volumeMounts,
 				})
 			}
 
 			for _, container := range deployment.Spec.Template.Spec.InitContainers {
 				var env []*ompb.Env
 				var envFrom []*ompb.EnvFrom
+				var volumeMounts []*ompb.VolumeMount
 				for _, e := range container.Env {
 					var valueFrom *ompb.Env_ValueFrom
 					if e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil {
@@ -333,9 +342,16 @@ func (o *OpenShiftMetrics) collectDeploymentData(ctx context.Context, namespaces
 						SecretRef: secretRef,
 					})
 				}
+				for _, v := range container.VolumeMounts {
+					volumeMounts = append(volumeMounts, &ompb.VolumeMount{
+						Name:      v.Name,
+						MountPath: v.MountPath,
+					})
+				}
 				initContainers = append(initContainers, &ompb.Container{
 					Env:     env,
 					EnvFrom: envFrom,
+					VolumeMounts: volumeMounts,
 				})
 			}
 
@@ -347,6 +363,7 @@ func (o *OpenShiftMetrics) collectDeploymentData(ctx context.Context, namespaces
 					}
 				}
 				volumes = append(volumes, &ompb.Volume{
+					Name:   volume.Name,
 					Secret: secret,
 				})
 			}

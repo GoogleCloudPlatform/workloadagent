@@ -94,7 +94,32 @@ func (f *fakeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 	case "/apis/apps/v1/namespaces/default/deployments":
 		obj = &appsv1.DeploymentList{
-			Items: []appsv1.Deployment{{ObjectMeta: metav1.ObjectMeta{Name: "test-dep", Namespace: "default", UID: "dep-uid", ResourceVersion: "2", CreationTimestamp: metav1.NewTime(f.now)}}},
+			Items: []appsv1.Deployment{{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-dep", Namespace: "default", UID: "dep-uid", ResourceVersion: "2", CreationTimestamp: metav1.NewTime(f.now)},
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{
+								VolumeMounts: []corev1.VolumeMount{{
+									Name:      "test-volume",
+									MountPath: "/var/lib/test",
+								}},
+							}},
+							InitContainers: []corev1.Container{{
+								VolumeMounts: []corev1.VolumeMount{{
+									Name:      "test-volume2",
+									MountPath: "/usr/lib/test2",
+								}},
+							}},
+							Volumes: []corev1.Volume{{
+								Name: "test-volume",
+							}, {
+								Name: "test-volume2",
+							}},
+						},
+					},
+				},
+			}},
 		}
 	/*
 		Commenting out this test case until version incompatibilities for k8s_io/api is fixed.
@@ -244,9 +269,26 @@ func TestCollectMetrics(t *testing.T) {
 							CreationTimestamp: tspb.New(time.Time{}),
 						},
 						Spec: &ompb.PodSpec{
+							Containers: []*ompb.Container{{
+								VolumeMounts: []*ompb.VolumeMount{{
+									Name:      "test-volume",
+									MountPath: "/var/lib/test",
+								}},
+							}},
+							InitContainers: []*ompb.Container{{
+								VolumeMounts: []*ompb.VolumeMount{{
+									Name:      "test-volume2",
+									MountPath: "/usr/lib/test2",
+								}},
+							}},
 							Affinity: &ompb.Affinity{
 								PodAntiAffinity: &ompb.Affinity_PodAntiAffinity{},
 							},
+							Volumes: []*ompb.Volume{{
+								Name: "test-volume",
+							}, {
+								Name: "test-volume2",
+							}},
 						},
 					},
 				},
