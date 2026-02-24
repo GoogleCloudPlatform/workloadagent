@@ -1636,8 +1636,9 @@ type Container struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Env     []*Env     `protobuf:"bytes,1,rep,name=env,proto3" json:"env,omitempty"`
-	EnvFrom []*EnvFrom `protobuf:"bytes,2,rep,name=env_from,json=envFrom,proto3" json:"env_from,omitempty"`
+	Env          []*Env         `protobuf:"bytes,1,rep,name=env,proto3" json:"env,omitempty"`
+	EnvFrom      []*EnvFrom     `protobuf:"bytes,2,rep,name=env_from,json=envFrom,proto3" json:"env_from,omitempty"`
+	VolumeMounts []*VolumeMount `protobuf:"bytes,3,rep,name=volume_mounts,json=volumeMounts,proto3" json:"volume_mounts,omitempty"`
 }
 
 func (x *Container) Reset() {
@@ -1686,6 +1687,13 @@ func (x *Container) GetEnvFrom() []*EnvFrom {
 	return nil
 }
 
+func (x *Container) GetVolumeMounts() []*VolumeMount {
+	if x != nil {
+		return x.VolumeMounts
+	}
+	return nil
+}
+
 // Derived from
 // https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#volume-v1-core
 type Volume struct {
@@ -1694,6 +1702,7 @@ type Volume struct {
 	unknownFields protoimpl.UnknownFields
 
 	Secret *Volume_Secret `protobuf:"bytes,1,opt,name=secret,proto3" json:"secret,omitempty"`
+	Name   string         `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 }
 
 func (x *Volume) Reset() {
@@ -1733,6 +1742,13 @@ func (x *Volume) GetSecret() *Volume_Secret {
 		return x.Secret
 	}
 	return nil
+}
+
+func (x *Volume) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
 }
 
 // Derived from
@@ -1931,6 +1947,63 @@ func (x *Affinity) GetPodAntiAffinity() *Affinity_PodAntiAffinity {
 	return nil
 }
 
+// Derived from
+// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#volumemount-v1-core
+type VolumeMount struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Name      string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	MountPath string `protobuf:"bytes,2,opt,name=mount_path,json=mountPath,proto3" json:"mount_path,omitempty"`
+}
+
+func (x *VolumeMount) Reset() {
+	*x = VolumeMount{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[29]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *VolumeMount) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VolumeMount) ProtoMessage() {}
+
+func (x *VolumeMount) ProtoReflect() protoreflect.Message {
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[29]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VolumeMount.ProtoReflect.Descriptor instead.
+func (*VolumeMount) Descriptor() ([]byte, []int) {
+	return file_protos_openshiftmetrics_openshiftmetrics_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *VolumeMount) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *VolumeMount) GetMountPath() string {
+	if x != nil {
+		return x.MountPath
+	}
+	return ""
+}
+
 // Reference:
 // https://docs.redhat.com/en/documentation/openshift_container_platform/4.20/html/authentication_and_authorization/managing-cloud-provider-credentials
 type CloudCredentialConfig struct {
@@ -1945,7 +2018,7 @@ type CloudCredentialConfig struct {
 func (x *CloudCredentialConfig) Reset() {
 	*x = CloudCredentialConfig{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[29]
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[30]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1958,7 +2031,7 @@ func (x *CloudCredentialConfig) String() string {
 func (*CloudCredentialConfig) ProtoMessage() {}
 
 func (x *CloudCredentialConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[29]
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[30]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1971,7 +2044,7 @@ func (x *CloudCredentialConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloudCredentialConfig.ProtoReflect.Descriptor instead.
 func (*CloudCredentialConfig) Descriptor() ([]byte, []int) {
-	return file_protos_openshiftmetrics_openshiftmetrics_proto_rawDescGZIP(), []int{29}
+	return file_protos_openshiftmetrics_openshiftmetrics_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *CloudCredentialConfig) GetMetadata() *ResourceMetadata {
@@ -2000,7 +2073,7 @@ type ResourceListContainer_Metadata struct {
 func (x *ResourceListContainer_Metadata) Reset() {
 	*x = ResourceListContainer_Metadata{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[30]
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[31]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2013,7 +2086,7 @@ func (x *ResourceListContainer_Metadata) String() string {
 func (*ResourceListContainer_Metadata) ProtoMessage() {}
 
 func (x *ResourceListContainer_Metadata) ProtoReflect() protoreflect.Message {
-	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[30]
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[31]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2053,7 +2126,7 @@ type CsiDriver_Spec struct {
 func (x *CsiDriver_Spec) Reset() {
 	*x = CsiDriver_Spec{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[33]
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[34]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2066,7 +2139,7 @@ func (x *CsiDriver_Spec) String() string {
 func (*CsiDriver_Spec) ProtoMessage() {}
 
 func (x *CsiDriver_Spec) ProtoReflect() protoreflect.Message {
-	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[33]
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[34]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2145,7 +2218,7 @@ type ClusterCsiDriver_Spec struct {
 func (x *ClusterCsiDriver_Spec) Reset() {
 	*x = ClusterCsiDriver_Spec{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[34]
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[35]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2158,7 +2231,7 @@ func (x *ClusterCsiDriver_Spec) String() string {
 func (*ClusterCsiDriver_Spec) ProtoMessage() {}
 
 func (x *ClusterCsiDriver_Spec) ProtoReflect() protoreflect.Message {
-	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[34]
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[35]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2213,7 +2286,7 @@ type ClusterCsiDriver_DriverConfig struct {
 func (x *ClusterCsiDriver_DriverConfig) Reset() {
 	*x = ClusterCsiDriver_DriverConfig{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[35]
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[36]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2226,7 +2299,7 @@ func (x *ClusterCsiDriver_DriverConfig) String() string {
 func (*ClusterCsiDriver_DriverConfig) ProtoMessage() {}
 
 func (x *ClusterCsiDriver_DriverConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[35]
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[36]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2260,7 +2333,7 @@ type ClusterCsiDriver_Status struct {
 func (x *ClusterCsiDriver_Status) Reset() {
 	*x = ClusterCsiDriver_Status{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[36]
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[37]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2273,7 +2346,7 @@ func (x *ClusterCsiDriver_Status) String() string {
 func (*ClusterCsiDriver_Status) ProtoMessage() {}
 
 func (x *ClusterCsiDriver_Status) ProtoReflect() protoreflect.Message {
-	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[36]
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[37]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2309,7 +2382,7 @@ type ClusterCsiDriver_Conditions struct {
 func (x *ClusterCsiDriver_Conditions) Reset() {
 	*x = ClusterCsiDriver_Conditions{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[37]
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[38]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2322,7 +2395,7 @@ func (x *ClusterCsiDriver_Conditions) String() string {
 func (*ClusterCsiDriver_Conditions) ProtoMessage() {}
 
 func (x *ClusterCsiDriver_Conditions) ProtoReflect() protoreflect.Message {
-	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[37]
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[38]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2374,7 +2447,7 @@ type PersistentVolumeClaim_Spec struct {
 func (x *PersistentVolumeClaim_Spec) Reset() {
 	*x = PersistentVolumeClaim_Spec{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[39]
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[40]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2387,7 +2460,7 @@ func (x *PersistentVolumeClaim_Spec) String() string {
 func (*PersistentVolumeClaim_Spec) ProtoMessage() {}
 
 func (x *PersistentVolumeClaim_Spec) ProtoReflect() protoreflect.Message {
-	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[39]
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[40]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2449,7 +2522,7 @@ type PersistentVolumeClaim_Resources struct {
 func (x *PersistentVolumeClaim_Resources) Reset() {
 	*x = PersistentVolumeClaim_Resources{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[40]
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[41]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2462,7 +2535,7 @@ func (x *PersistentVolumeClaim_Resources) String() string {
 func (*PersistentVolumeClaim_Resources) ProtoMessage() {}
 
 func (x *PersistentVolumeClaim_Resources) ProtoReflect() protoreflect.Message {
-	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[40]
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[41]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2496,7 +2569,7 @@ type PersistentVolumeClaim_Requests struct {
 func (x *PersistentVolumeClaim_Requests) Reset() {
 	*x = PersistentVolumeClaim_Requests{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[41]
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[42]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2509,7 +2582,7 @@ func (x *PersistentVolumeClaim_Requests) String() string {
 func (*PersistentVolumeClaim_Requests) ProtoMessage() {}
 
 func (x *PersistentVolumeClaim_Requests) ProtoReflect() protoreflect.Message {
-	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[41]
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[42]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2545,7 +2618,7 @@ type PersistentVolumeClaim_Status struct {
 func (x *PersistentVolumeClaim_Status) Reset() {
 	*x = PersistentVolumeClaim_Status{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[42]
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[43]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2558,7 +2631,7 @@ func (x *PersistentVolumeClaim_Status) String() string {
 func (*PersistentVolumeClaim_Status) ProtoMessage() {}
 
 func (x *PersistentVolumeClaim_Status) ProtoReflect() protoreflect.Message {
-	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[42]
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[43]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2606,7 +2679,7 @@ type PersistentVolumeClaim_Capacity struct {
 func (x *PersistentVolumeClaim_Capacity) Reset() {
 	*x = PersistentVolumeClaim_Capacity{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[43]
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[44]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2619,7 +2692,7 @@ func (x *PersistentVolumeClaim_Capacity) String() string {
 func (*PersistentVolumeClaim_Capacity) ProtoMessage() {}
 
 func (x *PersistentVolumeClaim_Capacity) ProtoReflect() protoreflect.Message {
-	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[43]
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[44]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2653,7 +2726,7 @@ type Deployment_Spec struct {
 func (x *Deployment_Spec) Reset() {
 	*x = Deployment_Spec{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[45]
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[46]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2666,7 +2739,7 @@ func (x *Deployment_Spec) String() string {
 func (*Deployment_Spec) ProtoMessage() {}
 
 func (x *Deployment_Spec) ProtoReflect() protoreflect.Message {
-	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[45]
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[46]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2700,7 +2773,7 @@ type Volume_Secret struct {
 func (x *Volume_Secret) Reset() {
 	*x = Volume_Secret{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[46]
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[47]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2713,7 +2786,7 @@ func (x *Volume_Secret) String() string {
 func (*Volume_Secret) ProtoMessage() {}
 
 func (x *Volume_Secret) ProtoReflect() protoreflect.Message {
-	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[46]
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[47]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2747,7 +2820,7 @@ type Env_ValueFrom struct {
 func (x *Env_ValueFrom) Reset() {
 	*x = Env_ValueFrom{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[47]
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[48]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2760,7 +2833,7 @@ func (x *Env_ValueFrom) String() string {
 func (*Env_ValueFrom) ProtoMessage() {}
 
 func (x *Env_ValueFrom) ProtoReflect() protoreflect.Message {
-	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[47]
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[48]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2794,7 +2867,7 @@ type Env_ValueFrom_SecretKeyRef struct {
 func (x *Env_ValueFrom_SecretKeyRef) Reset() {
 	*x = Env_ValueFrom_SecretKeyRef{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[48]
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[49]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2807,7 +2880,7 @@ func (x *Env_ValueFrom_SecretKeyRef) String() string {
 func (*Env_ValueFrom_SecretKeyRef) ProtoMessage() {}
 
 func (x *Env_ValueFrom_SecretKeyRef) ProtoReflect() protoreflect.Message {
-	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[48]
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[49]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2841,7 +2914,7 @@ type EnvFrom_SecretRef struct {
 func (x *EnvFrom_SecretRef) Reset() {
 	*x = EnvFrom_SecretRef{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[49]
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[50]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2854,7 +2927,7 @@ func (x *EnvFrom_SecretRef) String() string {
 func (*EnvFrom_SecretRef) ProtoMessage() {}
 
 func (x *EnvFrom_SecretRef) ProtoReflect() protoreflect.Message {
-	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[49]
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[50]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2888,7 +2961,7 @@ type Affinity_PodAntiAffinity struct {
 func (x *Affinity_PodAntiAffinity) Reset() {
 	*x = Affinity_PodAntiAffinity{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[50]
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[51]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2901,7 +2974,7 @@ func (x *Affinity_PodAntiAffinity) String() string {
 func (*Affinity_PodAntiAffinity) ProtoMessage() {}
 
 func (x *Affinity_PodAntiAffinity) ProtoReflect() protoreflect.Message {
-	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[50]
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[51]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2935,7 +3008,7 @@ type Affinity_PodAntiAffinity_PreferredDuringSchedulingIgnoredDuringExecution st
 func (x *Affinity_PodAntiAffinity_PreferredDuringSchedulingIgnoredDuringExecution) Reset() {
 	*x = Affinity_PodAntiAffinity_PreferredDuringSchedulingIgnoredDuringExecution{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[51]
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[52]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2948,7 +3021,7 @@ func (x *Affinity_PodAntiAffinity_PreferredDuringSchedulingIgnoredDuringExecutio
 func (*Affinity_PodAntiAffinity_PreferredDuringSchedulingIgnoredDuringExecution) ProtoMessage() {}
 
 func (x *Affinity_PodAntiAffinity_PreferredDuringSchedulingIgnoredDuringExecution) ProtoReflect() protoreflect.Message {
-	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[51]
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[52]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2982,7 +3055,7 @@ type Affinity_PodAntiAffinity_PreferredDuringSchedulingIgnoredDuringExecution_Po
 func (x *Affinity_PodAntiAffinity_PreferredDuringSchedulingIgnoredDuringExecution_PodAffinityTerm) Reset() {
 	*x = Affinity_PodAntiAffinity_PreferredDuringSchedulingIgnoredDuringExecution_PodAffinityTerm{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[52]
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[53]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2996,7 +3069,7 @@ func (*Affinity_PodAntiAffinity_PreferredDuringSchedulingIgnoredDuringExecution_
 }
 
 func (x *Affinity_PodAntiAffinity_PreferredDuringSchedulingIgnoredDuringExecution_PodAffinityTerm) ProtoReflect() protoreflect.Message {
-	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[52]
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[53]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3030,7 +3103,7 @@ type CloudCredentialConfig_Spec struct {
 func (x *CloudCredentialConfig_Spec) Reset() {
 	*x = CloudCredentialConfig_Spec{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[53]
+		mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[54]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3043,7 +3116,7 @@ func (x *CloudCredentialConfig_Spec) String() string {
 func (*CloudCredentialConfig_Spec) ProtoMessage() {}
 
 func (x *CloudCredentialConfig_Spec) ProtoReflect() protoreflect.Message {
-	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[53]
+	mi := &file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[54]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3056,7 +3129,7 @@ func (x *CloudCredentialConfig_Spec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloudCredentialConfig_Spec.ProtoReflect.Descriptor instead.
 func (*CloudCredentialConfig_Spec) Descriptor() ([]byte, []int) {
-	return file_protos_openshiftmetrics_openshiftmetrics_proto_rawDescGZIP(), []int{29, 0}
+	return file_protos_openshiftmetrics_openshiftmetrics_proto_rawDescGZIP(), []int{30, 0}
 }
 
 func (x *CloudCredentialConfig_Spec) GetCredentialsMode() string {
@@ -3588,7 +3661,7 @@ var file_protos_openshiftmetrics_openshiftmetrics_proto_rawDesc = []byte{
 	0x28, 0x0b, 0x32, 0x2f, 0x2e, 0x77, 0x6f, 0x72, 0x6b, 0x6c, 0x6f, 0x61, 0x64, 0x61, 0x67, 0x65,
 	0x6e, 0x74, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73, 0x2e, 0x6f, 0x70, 0x65, 0x6e, 0x73, 0x68,
 	0x69, 0x66, 0x74, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x2e, 0x41, 0x66, 0x66, 0x69, 0x6e,
-	0x69, 0x74, 0x79, 0x52, 0x08, 0x61, 0x66, 0x66, 0x69, 0x6e, 0x69, 0x74, 0x79, 0x22, 0x94, 0x01,
+	0x69, 0x74, 0x79, 0x52, 0x08, 0x61, 0x66, 0x66, 0x69, 0x6e, 0x69, 0x74, 0x79, 0x22, 0xed, 0x01,
 	0x0a, 0x09, 0x43, 0x6f, 0x6e, 0x74, 0x61, 0x69, 0x6e, 0x65, 0x72, 0x12, 0x3c, 0x0a, 0x03, 0x65,
 	0x6e, 0x76, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x2a, 0x2e, 0x77, 0x6f, 0x72, 0x6b, 0x6c,
 	0x6f, 0x61, 0x64, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73, 0x2e,
@@ -3598,106 +3671,116 @@ var file_protos_openshiftmetrics_openshiftmetrics_proto_rawDesc = []byte{
 	0x72, 0x6b, 0x6c, 0x6f, 0x61, 0x64, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x2e, 0x70, 0x72, 0x6f, 0x74,
 	0x6f, 0x73, 0x2e, 0x6f, 0x70, 0x65, 0x6e, 0x73, 0x68, 0x69, 0x66, 0x74, 0x6d, 0x65, 0x74, 0x72,
 	0x69, 0x63, 0x73, 0x2e, 0x45, 0x6e, 0x76, 0x46, 0x72, 0x6f, 0x6d, 0x52, 0x07, 0x65, 0x6e, 0x76,
-	0x46, 0x72, 0x6f, 0x6d, 0x22, 0x81, 0x01, 0x0a, 0x06, 0x56, 0x6f, 0x6c, 0x75, 0x6d, 0x65, 0x12,
-	0x4c, 0x0a, 0x06, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32,
-	0x34, 0x2e, 0x77, 0x6f, 0x72, 0x6b, 0x6c, 0x6f, 0x61, 0x64, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x2e,
-	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73, 0x2e, 0x6f, 0x70, 0x65, 0x6e, 0x73, 0x68, 0x69, 0x66, 0x74,
-	0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x2e, 0x56, 0x6f, 0x6c, 0x75, 0x6d, 0x65, 0x2e, 0x53,
-	0x65, 0x63, 0x72, 0x65, 0x74, 0x52, 0x06, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x1a, 0x29, 0x0a,
-	0x06, 0x53, 0x65, 0x63, 0x72, 0x65, 0x74, 0x12, 0x1f, 0x0a, 0x0b, 0x73, 0x65, 0x63, 0x72, 0x65,
-	0x74, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0a, 0x73, 0x65,
-	0x63, 0x72, 0x65, 0x74, 0x4e, 0x61, 0x6d, 0x65, 0x22, 0xf5, 0x01, 0x0a, 0x03, 0x45, 0x6e, 0x76,
-	0x12, 0x53, 0x0a, 0x0a, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x5f, 0x66, 0x72, 0x6f, 0x6d, 0x18, 0x01,
-	0x20, 0x01, 0x28, 0x0b, 0x32, 0x34, 0x2e, 0x77, 0x6f, 0x72, 0x6b, 0x6c, 0x6f, 0x61, 0x64, 0x61,
-	0x67, 0x65, 0x6e, 0x74, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73, 0x2e, 0x6f, 0x70, 0x65, 0x6e,
-	0x73, 0x68, 0x69, 0x66, 0x74, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x2e, 0x45, 0x6e, 0x76,
-	0x2e, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x46, 0x72, 0x6f, 0x6d, 0x52, 0x09, 0x76, 0x61, 0x6c, 0x75,
-	0x65, 0x46, 0x72, 0x6f, 0x6d, 0x1a, 0x98, 0x01, 0x0a, 0x09, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x46,
-	0x72, 0x6f, 0x6d, 0x12, 0x67, 0x0a, 0x0e, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x5f, 0x6b, 0x65,
-	0x79, 0x5f, 0x72, 0x65, 0x66, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x41, 0x2e, 0x77, 0x6f,
+	0x46, 0x72, 0x6f, 0x6d, 0x12, 0x57, 0x0a, 0x0d, 0x76, 0x6f, 0x6c, 0x75, 0x6d, 0x65, 0x5f, 0x6d,
+	0x6f, 0x75, 0x6e, 0x74, 0x73, 0x18, 0x03, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x32, 0x2e, 0x77, 0x6f,
 	0x72, 0x6b, 0x6c, 0x6f, 0x61, 0x64, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x2e, 0x70, 0x72, 0x6f, 0x74,
 	0x6f, 0x73, 0x2e, 0x6f, 0x70, 0x65, 0x6e, 0x73, 0x68, 0x69, 0x66, 0x74, 0x6d, 0x65, 0x74, 0x72,
-	0x69, 0x63, 0x73, 0x2e, 0x45, 0x6e, 0x76, 0x2e, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x46, 0x72, 0x6f,
-	0x6d, 0x2e, 0x53, 0x65, 0x63, 0x72, 0x65, 0x74, 0x4b, 0x65, 0x79, 0x52, 0x65, 0x66, 0x52, 0x0c,
-	0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x4b, 0x65, 0x79, 0x52, 0x65, 0x66, 0x1a, 0x22, 0x0a, 0x0c,
-	0x53, 0x65, 0x63, 0x72, 0x65, 0x74, 0x4b, 0x65, 0x79, 0x52, 0x65, 0x66, 0x12, 0x12, 0x0a, 0x04,
-	0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x6e, 0x61, 0x6d, 0x65,
-	0x22, 0x83, 0x01, 0x0a, 0x07, 0x45, 0x6e, 0x76, 0x46, 0x72, 0x6f, 0x6d, 0x12, 0x57, 0x0a, 0x0a,
-	0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x5f, 0x72, 0x65, 0x66, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b,
-	0x32, 0x38, 0x2e, 0x77, 0x6f, 0x72, 0x6b, 0x6c, 0x6f, 0x61, 0x64, 0x61, 0x67, 0x65, 0x6e, 0x74,
+	0x69, 0x63, 0x73, 0x2e, 0x56, 0x6f, 0x6c, 0x75, 0x6d, 0x65, 0x4d, 0x6f, 0x75, 0x6e, 0x74, 0x52,
+	0x0c, 0x76, 0x6f, 0x6c, 0x75, 0x6d, 0x65, 0x4d, 0x6f, 0x75, 0x6e, 0x74, 0x73, 0x22, 0x95, 0x01,
+	0x0a, 0x06, 0x56, 0x6f, 0x6c, 0x75, 0x6d, 0x65, 0x12, 0x4c, 0x0a, 0x06, 0x73, 0x65, 0x63, 0x72,
+	0x65, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x34, 0x2e, 0x77, 0x6f, 0x72, 0x6b, 0x6c,
+	0x6f, 0x61, 0x64, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73, 0x2e,
+	0x6f, 0x70, 0x65, 0x6e, 0x73, 0x68, 0x69, 0x66, 0x74, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73,
+	0x2e, 0x56, 0x6f, 0x6c, 0x75, 0x6d, 0x65, 0x2e, 0x53, 0x65, 0x63, 0x72, 0x65, 0x74, 0x52, 0x06,
+	0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x12, 0x12, 0x0a, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x02,
+	0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x1a, 0x29, 0x0a, 0x06, 0x53, 0x65,
+	0x63, 0x72, 0x65, 0x74, 0x12, 0x1f, 0x0a, 0x0b, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x5f, 0x6e,
+	0x61, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0a, 0x73, 0x65, 0x63, 0x72, 0x65,
+	0x74, 0x4e, 0x61, 0x6d, 0x65, 0x22, 0xf5, 0x01, 0x0a, 0x03, 0x45, 0x6e, 0x76, 0x12, 0x53, 0x0a,
+	0x0a, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x5f, 0x66, 0x72, 0x6f, 0x6d, 0x18, 0x01, 0x20, 0x01, 0x28,
+	0x0b, 0x32, 0x34, 0x2e, 0x77, 0x6f, 0x72, 0x6b, 0x6c, 0x6f, 0x61, 0x64, 0x61, 0x67, 0x65, 0x6e,
+	0x74, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73, 0x2e, 0x6f, 0x70, 0x65, 0x6e, 0x73, 0x68, 0x69,
+	0x66, 0x74, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x2e, 0x45, 0x6e, 0x76, 0x2e, 0x56, 0x61,
+	0x6c, 0x75, 0x65, 0x46, 0x72, 0x6f, 0x6d, 0x52, 0x09, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x46, 0x72,
+	0x6f, 0x6d, 0x1a, 0x98, 0x01, 0x0a, 0x09, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x46, 0x72, 0x6f, 0x6d,
+	0x12, 0x67, 0x0a, 0x0e, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x5f, 0x6b, 0x65, 0x79, 0x5f, 0x72,
+	0x65, 0x66, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x41, 0x2e, 0x77, 0x6f, 0x72, 0x6b, 0x6c,
+	0x6f, 0x61, 0x64, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73, 0x2e,
+	0x6f, 0x70, 0x65, 0x6e, 0x73, 0x68, 0x69, 0x66, 0x74, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73,
+	0x2e, 0x45, 0x6e, 0x76, 0x2e, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x46, 0x72, 0x6f, 0x6d, 0x2e, 0x53,
+	0x65, 0x63, 0x72, 0x65, 0x74, 0x4b, 0x65, 0x79, 0x52, 0x65, 0x66, 0x52, 0x0c, 0x73, 0x65, 0x63,
+	0x72, 0x65, 0x74, 0x4b, 0x65, 0x79, 0x52, 0x65, 0x66, 0x1a, 0x22, 0x0a, 0x0c, 0x53, 0x65, 0x63,
+	0x72, 0x65, 0x74, 0x4b, 0x65, 0x79, 0x52, 0x65, 0x66, 0x12, 0x12, 0x0a, 0x04, 0x6e, 0x61, 0x6d,
+	0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x22, 0x83, 0x01,
+	0x0a, 0x07, 0x45, 0x6e, 0x76, 0x46, 0x72, 0x6f, 0x6d, 0x12, 0x57, 0x0a, 0x0a, 0x73, 0x65, 0x63,
+	0x72, 0x65, 0x74, 0x5f, 0x72, 0x65, 0x66, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x38, 0x2e,
+	0x77, 0x6f, 0x72, 0x6b, 0x6c, 0x6f, 0x61, 0x64, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x2e, 0x70, 0x72,
+	0x6f, 0x74, 0x6f, 0x73, 0x2e, 0x6f, 0x70, 0x65, 0x6e, 0x73, 0x68, 0x69, 0x66, 0x74, 0x6d, 0x65,
+	0x74, 0x72, 0x69, 0x63, 0x73, 0x2e, 0x45, 0x6e, 0x76, 0x46, 0x72, 0x6f, 0x6d, 0x2e, 0x53, 0x65,
+	0x63, 0x72, 0x65, 0x74, 0x52, 0x65, 0x66, 0x52, 0x09, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x52,
+	0x65, 0x66, 0x1a, 0x1f, 0x0a, 0x09, 0x53, 0x65, 0x63, 0x72, 0x65, 0x74, 0x52, 0x65, 0x66, 0x12,
+	0x12, 0x0a, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x6e,
+	0x61, 0x6d, 0x65, 0x22, 0x3e, 0x0a, 0x19, 0x54, 0x6f, 0x70, 0x6f, 0x6c, 0x6f, 0x67, 0x79, 0x53,
+	0x70, 0x72, 0x65, 0x61, 0x64, 0x43, 0x6f, 0x6e, 0x73, 0x74, 0x72, 0x61, 0x69, 0x6e, 0x74, 0x73,
+	0x12, 0x21, 0x0a, 0x0c, 0x74, 0x6f, 0x70, 0x6f, 0x6c, 0x6f, 0x67, 0x79, 0x5f, 0x6b, 0x65, 0x79,
+	0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x74, 0x6f, 0x70, 0x6f, 0x6c, 0x6f, 0x67, 0x79,
+	0x4b, 0x65, 0x79, 0x22, 0x84, 0x05, 0x0a, 0x08, 0x41, 0x66, 0x66, 0x69, 0x6e, 0x69, 0x74, 0x79,
+	0x12, 0x6b, 0x0a, 0x11, 0x70, 0x6f, 0x64, 0x5f, 0x61, 0x6e, 0x74, 0x69, 0x5f, 0x61, 0x66, 0x66,
+	0x69, 0x6e, 0x69, 0x74, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x3f, 0x2e, 0x77, 0x6f,
+	0x72, 0x6b, 0x6c, 0x6f, 0x61, 0x64, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x2e, 0x70, 0x72, 0x6f, 0x74,
+	0x6f, 0x73, 0x2e, 0x6f, 0x70, 0x65, 0x6e, 0x73, 0x68, 0x69, 0x66, 0x74, 0x6d, 0x65, 0x74, 0x72,
+	0x69, 0x63, 0x73, 0x2e, 0x41, 0x66, 0x66, 0x69, 0x6e, 0x69, 0x74, 0x79, 0x2e, 0x50, 0x6f, 0x64,
+	0x41, 0x6e, 0x74, 0x69, 0x41, 0x66, 0x66, 0x69, 0x6e, 0x69, 0x74, 0x79, 0x52, 0x0f, 0x70, 0x6f,
+	0x64, 0x41, 0x6e, 0x74, 0x69, 0x41, 0x66, 0x66, 0x69, 0x6e, 0x69, 0x74, 0x79, 0x1a, 0x8a, 0x04,
+	0x0a, 0x0f, 0x50, 0x6f, 0x64, 0x41, 0x6e, 0x74, 0x69, 0x41, 0x66, 0x66, 0x69, 0x6e, 0x69, 0x74,
+	0x79, 0x12, 0xde, 0x01, 0x0a, 0x34, 0x70, 0x72, 0x65, 0x66, 0x65, 0x72, 0x72, 0x65, 0x64, 0x5f,
+	0x64, 0x75, 0x72, 0x69, 0x6e, 0x67, 0x5f, 0x73, 0x63, 0x68, 0x65, 0x64, 0x75, 0x6c, 0x69, 0x6e,
+	0x67, 0x5f, 0x69, 0x67, 0x6e, 0x6f, 0x72, 0x65, 0x64, 0x5f, 0x64, 0x75, 0x72, 0x69, 0x6e, 0x67,
+	0x5f, 0x65, 0x78, 0x65, 0x63, 0x75, 0x74, 0x69, 0x6f, 0x6e, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b,
+	0x32, 0x6f, 0x2e, 0x77, 0x6f, 0x72, 0x6b, 0x6c, 0x6f, 0x61, 0x64, 0x61, 0x67, 0x65, 0x6e, 0x74,
 	0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73, 0x2e, 0x6f, 0x70, 0x65, 0x6e, 0x73, 0x68, 0x69, 0x66,
-	0x74, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x2e, 0x45, 0x6e, 0x76, 0x46, 0x72, 0x6f, 0x6d,
-	0x2e, 0x53, 0x65, 0x63, 0x72, 0x65, 0x74, 0x52, 0x65, 0x66, 0x52, 0x09, 0x73, 0x65, 0x63, 0x72,
-	0x65, 0x74, 0x52, 0x65, 0x66, 0x1a, 0x1f, 0x0a, 0x09, 0x53, 0x65, 0x63, 0x72, 0x65, 0x74, 0x52,
-	0x65, 0x66, 0x12, 0x12, 0x0a, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09,
-	0x52, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x22, 0x3e, 0x0a, 0x19, 0x54, 0x6f, 0x70, 0x6f, 0x6c, 0x6f,
-	0x67, 0x79, 0x53, 0x70, 0x72, 0x65, 0x61, 0x64, 0x43, 0x6f, 0x6e, 0x73, 0x74, 0x72, 0x61, 0x69,
-	0x6e, 0x74, 0x73, 0x12, 0x21, 0x0a, 0x0c, 0x74, 0x6f, 0x70, 0x6f, 0x6c, 0x6f, 0x67, 0x79, 0x5f,
-	0x6b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x74, 0x6f, 0x70, 0x6f, 0x6c,
-	0x6f, 0x67, 0x79, 0x4b, 0x65, 0x79, 0x22, 0x84, 0x05, 0x0a, 0x08, 0x41, 0x66, 0x66, 0x69, 0x6e,
-	0x69, 0x74, 0x79, 0x12, 0x6b, 0x0a, 0x11, 0x70, 0x6f, 0x64, 0x5f, 0x61, 0x6e, 0x74, 0x69, 0x5f,
-	0x61, 0x66, 0x66, 0x69, 0x6e, 0x69, 0x74, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x3f,
-	0x2e, 0x77, 0x6f, 0x72, 0x6b, 0x6c, 0x6f, 0x61, 0x64, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x2e, 0x70,
-	0x72, 0x6f, 0x74, 0x6f, 0x73, 0x2e, 0x6f, 0x70, 0x65, 0x6e, 0x73, 0x68, 0x69, 0x66, 0x74, 0x6d,
-	0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x2e, 0x41, 0x66, 0x66, 0x69, 0x6e, 0x69, 0x74, 0x79, 0x2e,
-	0x50, 0x6f, 0x64, 0x41, 0x6e, 0x74, 0x69, 0x41, 0x66, 0x66, 0x69, 0x6e, 0x69, 0x74, 0x79, 0x52,
-	0x0f, 0x70, 0x6f, 0x64, 0x41, 0x6e, 0x74, 0x69, 0x41, 0x66, 0x66, 0x69, 0x6e, 0x69, 0x74, 0x79,
-	0x1a, 0x8a, 0x04, 0x0a, 0x0f, 0x50, 0x6f, 0x64, 0x41, 0x6e, 0x74, 0x69, 0x41, 0x66, 0x66, 0x69,
-	0x6e, 0x69, 0x74, 0x79, 0x12, 0xde, 0x01, 0x0a, 0x34, 0x70, 0x72, 0x65, 0x66, 0x65, 0x72, 0x72,
-	0x65, 0x64, 0x5f, 0x64, 0x75, 0x72, 0x69, 0x6e, 0x67, 0x5f, 0x73, 0x63, 0x68, 0x65, 0x64, 0x75,
-	0x6c, 0x69, 0x6e, 0x67, 0x5f, 0x69, 0x67, 0x6e, 0x6f, 0x72, 0x65, 0x64, 0x5f, 0x64, 0x75, 0x72,
-	0x69, 0x6e, 0x67, 0x5f, 0x65, 0x78, 0x65, 0x63, 0x75, 0x74, 0x69, 0x6f, 0x6e, 0x18, 0x01, 0x20,
-	0x03, 0x28, 0x0b, 0x32, 0x6f, 0x2e, 0x77, 0x6f, 0x72, 0x6b, 0x6c, 0x6f, 0x61, 0x64, 0x61, 0x67,
-	0x65, 0x6e, 0x74, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73, 0x2e, 0x6f, 0x70, 0x65, 0x6e, 0x73,
-	0x68, 0x69, 0x66, 0x74, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x2e, 0x41, 0x66, 0x66, 0x69,
-	0x6e, 0x69, 0x74, 0x79, 0x2e, 0x50, 0x6f, 0x64, 0x41, 0x6e, 0x74, 0x69, 0x41, 0x66, 0x66, 0x69,
-	0x6e, 0x69, 0x74, 0x79, 0x2e, 0x50, 0x72, 0x65, 0x66, 0x65, 0x72, 0x72, 0x65, 0x64, 0x44, 0x75,
-	0x72, 0x69, 0x6e, 0x67, 0x53, 0x63, 0x68, 0x65, 0x64, 0x75, 0x6c, 0x69, 0x6e, 0x67, 0x49, 0x67,
-	0x6e, 0x6f, 0x72, 0x65, 0x64, 0x44, 0x75, 0x72, 0x69, 0x6e, 0x67, 0x45, 0x78, 0x65, 0x63, 0x75,
-	0x74, 0x69, 0x6f, 0x6e, 0x52, 0x2f, 0x70, 0x72, 0x65, 0x66, 0x65, 0x72, 0x72, 0x65, 0x64, 0x44,
-	0x75, 0x72, 0x69, 0x6e, 0x67, 0x53, 0x63, 0x68, 0x65, 0x64, 0x75, 0x6c, 0x69, 0x6e, 0x67, 0x49,
-	0x67, 0x6e, 0x6f, 0x72, 0x65, 0x64, 0x44, 0x75, 0x72, 0x69, 0x6e, 0x67, 0x45, 0x78, 0x65, 0x63,
-	0x75, 0x74, 0x69, 0x6f, 0x6e, 0x1a, 0x95, 0x02, 0x0a, 0x2f, 0x50, 0x72, 0x65, 0x66, 0x65, 0x72,
-	0x72, 0x65, 0x64, 0x44, 0x75, 0x72, 0x69, 0x6e, 0x67, 0x53, 0x63, 0x68, 0x65, 0x64, 0x75, 0x6c,
-	0x69, 0x6e, 0x67, 0x49, 0x67, 0x6e, 0x6f, 0x72, 0x65, 0x64, 0x44, 0x75, 0x72, 0x69, 0x6e, 0x67,
-	0x45, 0x78, 0x65, 0x63, 0x75, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0xab, 0x01, 0x0a, 0x11, 0x70, 0x6f,
-	0x64, 0x5f, 0x61, 0x66, 0x66, 0x69, 0x6e, 0x69, 0x74, 0x79, 0x5f, 0x74, 0x65, 0x72, 0x6d, 0x18,
-	0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x7f, 0x2e, 0x77, 0x6f, 0x72, 0x6b, 0x6c, 0x6f, 0x61, 0x64,
-	0x61, 0x67, 0x65, 0x6e, 0x74, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73, 0x2e, 0x6f, 0x70, 0x65,
-	0x6e, 0x73, 0x68, 0x69, 0x66, 0x74, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x2e, 0x41, 0x66,
-	0x66, 0x69, 0x6e, 0x69, 0x74, 0x79, 0x2e, 0x50, 0x6f, 0x64, 0x41, 0x6e, 0x74, 0x69, 0x41, 0x66,
-	0x66, 0x69, 0x6e, 0x69, 0x74, 0x79, 0x2e, 0x50, 0x72, 0x65, 0x66, 0x65, 0x72, 0x72, 0x65, 0x64,
+	0x74, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x2e, 0x41, 0x66, 0x66, 0x69, 0x6e, 0x69, 0x74,
+	0x79, 0x2e, 0x50, 0x6f, 0x64, 0x41, 0x6e, 0x74, 0x69, 0x41, 0x66, 0x66, 0x69, 0x6e, 0x69, 0x74,
+	0x79, 0x2e, 0x50, 0x72, 0x65, 0x66, 0x65, 0x72, 0x72, 0x65, 0x64, 0x44, 0x75, 0x72, 0x69, 0x6e,
+	0x67, 0x53, 0x63, 0x68, 0x65, 0x64, 0x75, 0x6c, 0x69, 0x6e, 0x67, 0x49, 0x67, 0x6e, 0x6f, 0x72,
+	0x65, 0x64, 0x44, 0x75, 0x72, 0x69, 0x6e, 0x67, 0x45, 0x78, 0x65, 0x63, 0x75, 0x74, 0x69, 0x6f,
+	0x6e, 0x52, 0x2f, 0x70, 0x72, 0x65, 0x66, 0x65, 0x72, 0x72, 0x65, 0x64, 0x44, 0x75, 0x72, 0x69,
+	0x6e, 0x67, 0x53, 0x63, 0x68, 0x65, 0x64, 0x75, 0x6c, 0x69, 0x6e, 0x67, 0x49, 0x67, 0x6e, 0x6f,
+	0x72, 0x65, 0x64, 0x44, 0x75, 0x72, 0x69, 0x6e, 0x67, 0x45, 0x78, 0x65, 0x63, 0x75, 0x74, 0x69,
+	0x6f, 0x6e, 0x1a, 0x95, 0x02, 0x0a, 0x2f, 0x50, 0x72, 0x65, 0x66, 0x65, 0x72, 0x72, 0x65, 0x64,
 	0x44, 0x75, 0x72, 0x69, 0x6e, 0x67, 0x53, 0x63, 0x68, 0x65, 0x64, 0x75, 0x6c, 0x69, 0x6e, 0x67,
 	0x49, 0x67, 0x6e, 0x6f, 0x72, 0x65, 0x64, 0x44, 0x75, 0x72, 0x69, 0x6e, 0x67, 0x45, 0x78, 0x65,
-	0x63, 0x75, 0x74, 0x69, 0x6f, 0x6e, 0x2e, 0x50, 0x6f, 0x64, 0x41, 0x66, 0x66, 0x69, 0x6e, 0x69,
-	0x74, 0x79, 0x54, 0x65, 0x72, 0x6d, 0x52, 0x0f, 0x70, 0x6f, 0x64, 0x41, 0x66, 0x66, 0x69, 0x6e,
-	0x69, 0x74, 0x79, 0x54, 0x65, 0x72, 0x6d, 0x1a, 0x34, 0x0a, 0x0f, 0x50, 0x6f, 0x64, 0x41, 0x66,
-	0x66, 0x69, 0x6e, 0x69, 0x74, 0x79, 0x54, 0x65, 0x72, 0x6d, 0x12, 0x21, 0x0a, 0x0c, 0x74, 0x6f,
-	0x70, 0x6f, 0x6c, 0x6f, 0x67, 0x79, 0x5f, 0x6b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09,
-	0x52, 0x0b, 0x74, 0x6f, 0x70, 0x6f, 0x6c, 0x6f, 0x67, 0x79, 0x4b, 0x65, 0x79, 0x22, 0xf6, 0x01,
-	0x0a, 0x15, 0x43, 0x6c, 0x6f, 0x75, 0x64, 0x43, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61,
-	0x6c, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x53, 0x0a, 0x08, 0x6d, 0x65, 0x74, 0x61, 0x64,
-	0x61, 0x74, 0x61, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x37, 0x2e, 0x77, 0x6f, 0x72, 0x6b,
+	0x63, 0x75, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0xab, 0x01, 0x0a, 0x11, 0x70, 0x6f, 0x64, 0x5f, 0x61,
+	0x66, 0x66, 0x69, 0x6e, 0x69, 0x74, 0x79, 0x5f, 0x74, 0x65, 0x72, 0x6d, 0x18, 0x01, 0x20, 0x01,
+	0x28, 0x0b, 0x32, 0x7f, 0x2e, 0x77, 0x6f, 0x72, 0x6b, 0x6c, 0x6f, 0x61, 0x64, 0x61, 0x67, 0x65,
+	0x6e, 0x74, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73, 0x2e, 0x6f, 0x70, 0x65, 0x6e, 0x73, 0x68,
+	0x69, 0x66, 0x74, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x2e, 0x41, 0x66, 0x66, 0x69, 0x6e,
+	0x69, 0x74, 0x79, 0x2e, 0x50, 0x6f, 0x64, 0x41, 0x6e, 0x74, 0x69, 0x41, 0x66, 0x66, 0x69, 0x6e,
+	0x69, 0x74, 0x79, 0x2e, 0x50, 0x72, 0x65, 0x66, 0x65, 0x72, 0x72, 0x65, 0x64, 0x44, 0x75, 0x72,
+	0x69, 0x6e, 0x67, 0x53, 0x63, 0x68, 0x65, 0x64, 0x75, 0x6c, 0x69, 0x6e, 0x67, 0x49, 0x67, 0x6e,
+	0x6f, 0x72, 0x65, 0x64, 0x44, 0x75, 0x72, 0x69, 0x6e, 0x67, 0x45, 0x78, 0x65, 0x63, 0x75, 0x74,
+	0x69, 0x6f, 0x6e, 0x2e, 0x50, 0x6f, 0x64, 0x41, 0x66, 0x66, 0x69, 0x6e, 0x69, 0x74, 0x79, 0x54,
+	0x65, 0x72, 0x6d, 0x52, 0x0f, 0x70, 0x6f, 0x64, 0x41, 0x66, 0x66, 0x69, 0x6e, 0x69, 0x74, 0x79,
+	0x54, 0x65, 0x72, 0x6d, 0x1a, 0x34, 0x0a, 0x0f, 0x50, 0x6f, 0x64, 0x41, 0x66, 0x66, 0x69, 0x6e,
+	0x69, 0x74, 0x79, 0x54, 0x65, 0x72, 0x6d, 0x12, 0x21, 0x0a, 0x0c, 0x74, 0x6f, 0x70, 0x6f, 0x6c,
+	0x6f, 0x67, 0x79, 0x5f, 0x6b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x74,
+	0x6f, 0x70, 0x6f, 0x6c, 0x6f, 0x67, 0x79, 0x4b, 0x65, 0x79, 0x22, 0x40, 0x0a, 0x0b, 0x56, 0x6f,
+	0x6c, 0x75, 0x6d, 0x65, 0x4d, 0x6f, 0x75, 0x6e, 0x74, 0x12, 0x12, 0x0a, 0x04, 0x6e, 0x61, 0x6d,
+	0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x12, 0x1d, 0x0a,
+	0x0a, 0x6d, 0x6f, 0x75, 0x6e, 0x74, 0x5f, 0x70, 0x61, 0x74, 0x68, 0x18, 0x02, 0x20, 0x01, 0x28,
+	0x09, 0x52, 0x09, 0x6d, 0x6f, 0x75, 0x6e, 0x74, 0x50, 0x61, 0x74, 0x68, 0x22, 0xf6, 0x01, 0x0a,
+	0x15, 0x43, 0x6c, 0x6f, 0x75, 0x64, 0x43, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61, 0x6c,
+	0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x53, 0x0a, 0x08, 0x6d, 0x65, 0x74, 0x61, 0x64, 0x61,
+	0x74, 0x61, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x37, 0x2e, 0x77, 0x6f, 0x72, 0x6b, 0x6c,
+	0x6f, 0x61, 0x64, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73, 0x2e,
+	0x6f, 0x70, 0x65, 0x6e, 0x73, 0x68, 0x69, 0x66, 0x74, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73,
+	0x2e, 0x52, 0x65, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74,
+	0x61, 0x52, 0x08, 0x6d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x12, 0x55, 0x0a, 0x04, 0x73,
+	0x70, 0x65, 0x63, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x41, 0x2e, 0x77, 0x6f, 0x72, 0x6b,
 	0x6c, 0x6f, 0x61, 0x64, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73,
 	0x2e, 0x6f, 0x70, 0x65, 0x6e, 0x73, 0x68, 0x69, 0x66, 0x74, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63,
-	0x73, 0x2e, 0x52, 0x65, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61,
-	0x74, 0x61, 0x52, 0x08, 0x6d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x12, 0x55, 0x0a, 0x04,
-	0x73, 0x70, 0x65, 0x63, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x41, 0x2e, 0x77, 0x6f, 0x72,
-	0x6b, 0x6c, 0x6f, 0x61, 0x64, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f,
-	0x73, 0x2e, 0x6f, 0x70, 0x65, 0x6e, 0x73, 0x68, 0x69, 0x66, 0x74, 0x6d, 0x65, 0x74, 0x72, 0x69,
-	0x63, 0x73, 0x2e, 0x43, 0x6c, 0x6f, 0x75, 0x64, 0x43, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69,
-	0x61, 0x6c, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x2e, 0x53, 0x70, 0x65, 0x63, 0x52, 0x04, 0x73,
-	0x70, 0x65, 0x63, 0x1a, 0x31, 0x0a, 0x04, 0x53, 0x70, 0x65, 0x63, 0x12, 0x29, 0x0a, 0x10, 0x63,
-	0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61, 0x6c, 0x73, 0x5f, 0x6d, 0x6f, 0x64, 0x65, 0x18,
-	0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0f, 0x63, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61,
-	0x6c, 0x73, 0x4d, 0x6f, 0x64, 0x65, 0x42, 0x61, 0x42, 0x17, 0x4f, 0x70, 0x65, 0x6e, 0x73, 0x68,
-	0x69, 0x66, 0x74, 0x4d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x50, 0x61, 0x79, 0x6c, 0x6f, 0x61,
-	0x64, 0x50, 0x01, 0x5a, 0x44, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f,
-	0x47, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x43, 0x6c, 0x6f, 0x75, 0x64, 0x50, 0x6c, 0x61, 0x74, 0x66,
-	0x6f, 0x72, 0x6d, 0x2f, 0x77, 0x6f, 0x72, 0x6b, 0x6c, 0x6f, 0x61, 0x64, 0x61, 0x67, 0x65, 0x6e,
-	0x74, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73, 0x2f, 0x6f, 0x70, 0x65, 0x6e, 0x73, 0x68, 0x69,
-	0x66, 0x74, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f,
-	0x33,
+	0x73, 0x2e, 0x43, 0x6c, 0x6f, 0x75, 0x64, 0x43, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61,
+	0x6c, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x2e, 0x53, 0x70, 0x65, 0x63, 0x52, 0x04, 0x73, 0x70,
+	0x65, 0x63, 0x1a, 0x31, 0x0a, 0x04, 0x53, 0x70, 0x65, 0x63, 0x12, 0x29, 0x0a, 0x10, 0x63, 0x72,
+	0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61, 0x6c, 0x73, 0x5f, 0x6d, 0x6f, 0x64, 0x65, 0x18, 0x01,
+	0x20, 0x01, 0x28, 0x09, 0x52, 0x0f, 0x63, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61, 0x6c,
+	0x73, 0x4d, 0x6f, 0x64, 0x65, 0x42, 0x61, 0x42, 0x17, 0x4f, 0x70, 0x65, 0x6e, 0x73, 0x68, 0x69,
+	0x66, 0x74, 0x4d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x50, 0x61, 0x79, 0x6c, 0x6f, 0x61, 0x64,
+	0x50, 0x01, 0x5a, 0x44, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x47,
+	0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x43, 0x6c, 0x6f, 0x75, 0x64, 0x50, 0x6c, 0x61, 0x74, 0x66, 0x6f,
+	0x72, 0x6d, 0x2f, 0x77, 0x6f, 0x72, 0x6b, 0x6c, 0x6f, 0x61, 0x64, 0x61, 0x67, 0x65, 0x6e, 0x74,
+	0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73, 0x2f, 0x6f, 0x70, 0x65, 0x6e, 0x73, 0x68, 0x69, 0x66,
+	0x74, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -3712,7 +3795,7 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_rawDescGZIP() []byte {
 	return file_protos_openshiftmetrics_openshiftmetrics_proto_rawDescData
 }
 
-var file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes = make([]protoimpl.MessageInfo, 54)
+var file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes = make([]protoimpl.MessageInfo, 55)
 var file_protos_openshiftmetrics_openshiftmetrics_proto_goTypes = []interface{}{
 	(*OpenshiftMetricsPayload)(nil),         // 0: workloadagent.protos.openshiftmetrics.OpenshiftMetricsPayload
 	(*ResourceListContainer)(nil),           // 1: workloadagent.protos.openshiftmetrics.ResourceListContainer
@@ -3743,32 +3826,33 @@ var file_protos_openshiftmetrics_openshiftmetrics_proto_goTypes = []interface{}{
 	(*EnvFrom)(nil),                         // 26: workloadagent.protos.openshiftmetrics.EnvFrom
 	(*TopologySpreadConstraints)(nil),       // 27: workloadagent.protos.openshiftmetrics.TopologySpreadConstraints
 	(*Affinity)(nil),                        // 28: workloadagent.protos.openshiftmetrics.Affinity
-	(*CloudCredentialConfig)(nil),           // 29: workloadagent.protos.openshiftmetrics.CloudCredentialConfig
-	(*ResourceListContainer_Metadata)(nil),  // 30: workloadagent.protos.openshiftmetrics.ResourceListContainer.Metadata
-	nil,                                     // 31: workloadagent.protos.openshiftmetrics.ResourceMetadata.LabelsEntry
-	nil,                                     // 32: workloadagent.protos.openshiftmetrics.ResourceMetadata.AnnotationsEntry
-	(*CsiDriver_Spec)(nil),                  // 33: workloadagent.protos.openshiftmetrics.CsiDriver.Spec
-	(*ClusterCsiDriver_Spec)(nil),           // 34: workloadagent.protos.openshiftmetrics.ClusterCsiDriver.Spec
-	(*ClusterCsiDriver_DriverConfig)(nil),   // 35: workloadagent.protos.openshiftmetrics.ClusterCsiDriver.DriverConfig
-	(*ClusterCsiDriver_Status)(nil),         // 36: workloadagent.protos.openshiftmetrics.ClusterCsiDriver.Status
-	(*ClusterCsiDriver_Conditions)(nil),     // 37: workloadagent.protos.openshiftmetrics.ClusterCsiDriver.Conditions
-	nil,                                     // 38: workloadagent.protos.openshiftmetrics.StorageClass.ParametersEntry
-	(*PersistentVolumeClaim_Spec)(nil),      // 39: workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Spec
-	(*PersistentVolumeClaim_Resources)(nil), // 40: workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Resources
-	(*PersistentVolumeClaim_Requests)(nil),  // 41: workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Requests
-	(*PersistentVolumeClaim_Status)(nil),    // 42: workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Status
-	(*PersistentVolumeClaim_Capacity)(nil),  // 43: workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Capacity
-	nil,                                     // 44: workloadagent.protos.openshiftmetrics.ConfigMap.DataEntry
-	(*Deployment_Spec)(nil),                 // 45: workloadagent.protos.openshiftmetrics.Deployment.Spec
-	(*Volume_Secret)(nil),                   // 46: workloadagent.protos.openshiftmetrics.Volume.Secret
-	(*Env_ValueFrom)(nil),                   // 47: workloadagent.protos.openshiftmetrics.Env.ValueFrom
-	(*Env_ValueFrom_SecretKeyRef)(nil),      // 48: workloadagent.protos.openshiftmetrics.Env.ValueFrom.SecretKeyRef
-	(*EnvFrom_SecretRef)(nil),               // 49: workloadagent.protos.openshiftmetrics.EnvFrom.SecretRef
-	(*Affinity_PodAntiAffinity)(nil),        // 50: workloadagent.protos.openshiftmetrics.Affinity.PodAntiAffinity
-	(*Affinity_PodAntiAffinity_PreferredDuringSchedulingIgnoredDuringExecution)(nil),                 // 51: workloadagent.protos.openshiftmetrics.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution
-	(*Affinity_PodAntiAffinity_PreferredDuringSchedulingIgnoredDuringExecution_PodAffinityTerm)(nil), // 52: workloadagent.protos.openshiftmetrics.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution.PodAffinityTerm
-	(*CloudCredentialConfig_Spec)(nil), // 53: workloadagent.protos.openshiftmetrics.CloudCredentialConfig.Spec
-	(*timestamppb.Timestamp)(nil),      // 54: google.protobuf.Timestamp
+	(*VolumeMount)(nil),                     // 29: workloadagent.protos.openshiftmetrics.VolumeMount
+	(*CloudCredentialConfig)(nil),           // 30: workloadagent.protos.openshiftmetrics.CloudCredentialConfig
+	(*ResourceListContainer_Metadata)(nil),  // 31: workloadagent.protos.openshiftmetrics.ResourceListContainer.Metadata
+	nil,                                     // 32: workloadagent.protos.openshiftmetrics.ResourceMetadata.LabelsEntry
+	nil,                                     // 33: workloadagent.protos.openshiftmetrics.ResourceMetadata.AnnotationsEntry
+	(*CsiDriver_Spec)(nil),                  // 34: workloadagent.protos.openshiftmetrics.CsiDriver.Spec
+	(*ClusterCsiDriver_Spec)(nil),           // 35: workloadagent.protos.openshiftmetrics.ClusterCsiDriver.Spec
+	(*ClusterCsiDriver_DriverConfig)(nil),   // 36: workloadagent.protos.openshiftmetrics.ClusterCsiDriver.DriverConfig
+	(*ClusterCsiDriver_Status)(nil),         // 37: workloadagent.protos.openshiftmetrics.ClusterCsiDriver.Status
+	(*ClusterCsiDriver_Conditions)(nil),     // 38: workloadagent.protos.openshiftmetrics.ClusterCsiDriver.Conditions
+	nil,                                     // 39: workloadagent.protos.openshiftmetrics.StorageClass.ParametersEntry
+	(*PersistentVolumeClaim_Spec)(nil),      // 40: workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Spec
+	(*PersistentVolumeClaim_Resources)(nil), // 41: workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Resources
+	(*PersistentVolumeClaim_Requests)(nil),  // 42: workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Requests
+	(*PersistentVolumeClaim_Status)(nil),    // 43: workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Status
+	(*PersistentVolumeClaim_Capacity)(nil),  // 44: workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Capacity
+	nil,                                     // 45: workloadagent.protos.openshiftmetrics.ConfigMap.DataEntry
+	(*Deployment_Spec)(nil),                 // 46: workloadagent.protos.openshiftmetrics.Deployment.Spec
+	(*Volume_Secret)(nil),                   // 47: workloadagent.protos.openshiftmetrics.Volume.Secret
+	(*Env_ValueFrom)(nil),                   // 48: workloadagent.protos.openshiftmetrics.Env.ValueFrom
+	(*Env_ValueFrom_SecretKeyRef)(nil),      // 49: workloadagent.protos.openshiftmetrics.Env.ValueFrom.SecretKeyRef
+	(*EnvFrom_SecretRef)(nil),               // 50: workloadagent.protos.openshiftmetrics.EnvFrom.SecretRef
+	(*Affinity_PodAntiAffinity)(nil),        // 51: workloadagent.protos.openshiftmetrics.Affinity.PodAntiAffinity
+	(*Affinity_PodAntiAffinity_PreferredDuringSchedulingIgnoredDuringExecution)(nil),                 // 52: workloadagent.protos.openshiftmetrics.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution
+	(*Affinity_PodAntiAffinity_PreferredDuringSchedulingIgnoredDuringExecution_PodAffinityTerm)(nil), // 53: workloadagent.protos.openshiftmetrics.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution.PodAffinityTerm
+	(*CloudCredentialConfig_Spec)(nil), // 54: workloadagent.protos.openshiftmetrics.CloudCredentialConfig.Spec
+	(*timestamppb.Timestamp)(nil),      // 55: google.protobuf.Timestamp
 }
 var file_protos_openshiftmetrics_openshiftmetrics_proto_depIdxs = []int32{
 	1,  // 0: workloadagent.protos.openshiftmetrics.OpenshiftMetricsPayload.namespaces:type_name -> workloadagent.protos.openshiftmetrics.ResourceListContainer
@@ -3780,9 +3864,9 @@ var file_protos_openshiftmetrics_openshiftmetrics_proto_depIdxs = []int32{
 	1,  // 6: workloadagent.protos.openshiftmetrics.OpenshiftMetricsPayload.deployments:type_name -> workloadagent.protos.openshiftmetrics.ResourceListContainer
 	1,  // 7: workloadagent.protos.openshiftmetrics.OpenshiftMetricsPayload.custom_resource_definitions:type_name -> workloadagent.protos.openshiftmetrics.ResourceListContainer
 	1,  // 8: workloadagent.protos.openshiftmetrics.OpenshiftMetricsPayload.nodes:type_name -> workloadagent.protos.openshiftmetrics.ResourceListContainer
-	29, // 9: workloadagent.protos.openshiftmetrics.OpenshiftMetricsPayload.cloud_credential_config:type_name -> workloadagent.protos.openshiftmetrics.CloudCredentialConfig
-	54, // 10: workloadagent.protos.openshiftmetrics.OpenshiftMetricsPayload.scan_timestamp:type_name -> google.protobuf.Timestamp
-	30, // 11: workloadagent.protos.openshiftmetrics.ResourceListContainer.metadata:type_name -> workloadagent.protos.openshiftmetrics.ResourceListContainer.Metadata
+	30, // 9: workloadagent.protos.openshiftmetrics.OpenshiftMetricsPayload.cloud_credential_config:type_name -> workloadagent.protos.openshiftmetrics.CloudCredentialConfig
+	55, // 10: workloadagent.protos.openshiftmetrics.OpenshiftMetricsPayload.scan_timestamp:type_name -> google.protobuf.Timestamp
+	31, // 11: workloadagent.protos.openshiftmetrics.ResourceListContainer.metadata:type_name -> workloadagent.protos.openshiftmetrics.ResourceListContainer.Metadata
 	3,  // 12: workloadagent.protos.openshiftmetrics.ResourceListContainer.namespaces:type_name -> workloadagent.protos.openshiftmetrics.NamespaceList
 	5,  // 13: workloadagent.protos.openshiftmetrics.ResourceListContainer.csi_drivers:type_name -> workloadagent.protos.openshiftmetrics.CsiDriverList
 	7,  // 14: workloadagent.protos.openshiftmetrics.ResourceListContainer.cluster_csi_drivers:type_name -> workloadagent.protos.openshiftmetrics.ClusterCsiDriverList
@@ -3792,35 +3876,35 @@ var file_protos_openshiftmetrics_openshiftmetrics_proto_depIdxs = []int32{
 	19, // 18: workloadagent.protos.openshiftmetrics.ResourceListContainer.deployments:type_name -> workloadagent.protos.openshiftmetrics.DeploymentList
 	15, // 19: workloadagent.protos.openshiftmetrics.ResourceListContainer.custom_resource_definitions:type_name -> workloadagent.protos.openshiftmetrics.CustomResourceDefinitionList
 	17, // 20: workloadagent.protos.openshiftmetrics.ResourceListContainer.nodes:type_name -> workloadagent.protos.openshiftmetrics.NodeList
-	54, // 21: workloadagent.protos.openshiftmetrics.ResourceMetadata.creation_timestamp:type_name -> google.protobuf.Timestamp
-	31, // 22: workloadagent.protos.openshiftmetrics.ResourceMetadata.labels:type_name -> workloadagent.protos.openshiftmetrics.ResourceMetadata.LabelsEntry
-	32, // 23: workloadagent.protos.openshiftmetrics.ResourceMetadata.annotations:type_name -> workloadagent.protos.openshiftmetrics.ResourceMetadata.AnnotationsEntry
+	55, // 21: workloadagent.protos.openshiftmetrics.ResourceMetadata.creation_timestamp:type_name -> google.protobuf.Timestamp
+	32, // 22: workloadagent.protos.openshiftmetrics.ResourceMetadata.labels:type_name -> workloadagent.protos.openshiftmetrics.ResourceMetadata.LabelsEntry
+	33, // 23: workloadagent.protos.openshiftmetrics.ResourceMetadata.annotations:type_name -> workloadagent.protos.openshiftmetrics.ResourceMetadata.AnnotationsEntry
 	4,  // 24: workloadagent.protos.openshiftmetrics.NamespaceList.items:type_name -> workloadagent.protos.openshiftmetrics.Namespace
 	2,  // 25: workloadagent.protos.openshiftmetrics.Namespace.metadata:type_name -> workloadagent.protos.openshiftmetrics.ResourceMetadata
 	6,  // 26: workloadagent.protos.openshiftmetrics.CsiDriverList.items:type_name -> workloadagent.protos.openshiftmetrics.CsiDriver
 	2,  // 27: workloadagent.protos.openshiftmetrics.CsiDriver.metadata:type_name -> workloadagent.protos.openshiftmetrics.ResourceMetadata
-	33, // 28: workloadagent.protos.openshiftmetrics.CsiDriver.spec:type_name -> workloadagent.protos.openshiftmetrics.CsiDriver.Spec
+	34, // 28: workloadagent.protos.openshiftmetrics.CsiDriver.spec:type_name -> workloadagent.protos.openshiftmetrics.CsiDriver.Spec
 	8,  // 29: workloadagent.protos.openshiftmetrics.ClusterCsiDriverList.items:type_name -> workloadagent.protos.openshiftmetrics.ClusterCsiDriver
 	2,  // 30: workloadagent.protos.openshiftmetrics.ClusterCsiDriver.metadata:type_name -> workloadagent.protos.openshiftmetrics.ResourceMetadata
-	34, // 31: workloadagent.protos.openshiftmetrics.ClusterCsiDriver.spec:type_name -> workloadagent.protos.openshiftmetrics.ClusterCsiDriver.Spec
-	36, // 32: workloadagent.protos.openshiftmetrics.ClusterCsiDriver.status:type_name -> workloadagent.protos.openshiftmetrics.ClusterCsiDriver.Status
+	35, // 31: workloadagent.protos.openshiftmetrics.ClusterCsiDriver.spec:type_name -> workloadagent.protos.openshiftmetrics.ClusterCsiDriver.Spec
+	37, // 32: workloadagent.protos.openshiftmetrics.ClusterCsiDriver.status:type_name -> workloadagent.protos.openshiftmetrics.ClusterCsiDriver.Status
 	10, // 33: workloadagent.protos.openshiftmetrics.StorageClassList.items:type_name -> workloadagent.protos.openshiftmetrics.StorageClass
 	2,  // 34: workloadagent.protos.openshiftmetrics.StorageClass.metadata:type_name -> workloadagent.protos.openshiftmetrics.ResourceMetadata
-	38, // 35: workloadagent.protos.openshiftmetrics.StorageClass.parameters:type_name -> workloadagent.protos.openshiftmetrics.StorageClass.ParametersEntry
+	39, // 35: workloadagent.protos.openshiftmetrics.StorageClass.parameters:type_name -> workloadagent.protos.openshiftmetrics.StorageClass.ParametersEntry
 	12, // 36: workloadagent.protos.openshiftmetrics.PersistentVolumeClaimList.items:type_name -> workloadagent.protos.openshiftmetrics.PersistentVolumeClaim
 	2,  // 37: workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.metadata:type_name -> workloadagent.protos.openshiftmetrics.ResourceMetadata
-	39, // 38: workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.spec:type_name -> workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Spec
-	42, // 39: workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.status:type_name -> workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Status
+	40, // 38: workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.spec:type_name -> workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Spec
+	43, // 39: workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.status:type_name -> workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Status
 	14, // 40: workloadagent.protos.openshiftmetrics.ConfigMapList.items:type_name -> workloadagent.protos.openshiftmetrics.ConfigMap
 	2,  // 41: workloadagent.protos.openshiftmetrics.ConfigMap.metadata:type_name -> workloadagent.protos.openshiftmetrics.ResourceMetadata
-	44, // 42: workloadagent.protos.openshiftmetrics.ConfigMap.data:type_name -> workloadagent.protos.openshiftmetrics.ConfigMap.DataEntry
+	45, // 42: workloadagent.protos.openshiftmetrics.ConfigMap.data:type_name -> workloadagent.protos.openshiftmetrics.ConfigMap.DataEntry
 	16, // 43: workloadagent.protos.openshiftmetrics.CustomResourceDefinitionList.items:type_name -> workloadagent.protos.openshiftmetrics.CustomResourceDefinition
 	2,  // 44: workloadagent.protos.openshiftmetrics.CustomResourceDefinition.metadata:type_name -> workloadagent.protos.openshiftmetrics.ResourceMetadata
 	18, // 45: workloadagent.protos.openshiftmetrics.NodeList.items:type_name -> workloadagent.protos.openshiftmetrics.Node
 	2,  // 46: workloadagent.protos.openshiftmetrics.Node.metadata:type_name -> workloadagent.protos.openshiftmetrics.ResourceMetadata
 	20, // 47: workloadagent.protos.openshiftmetrics.DeploymentList.items:type_name -> workloadagent.protos.openshiftmetrics.Deployment
 	2,  // 48: workloadagent.protos.openshiftmetrics.Deployment.metadata:type_name -> workloadagent.protos.openshiftmetrics.ResourceMetadata
-	45, // 49: workloadagent.protos.openshiftmetrics.Deployment.spec:type_name -> workloadagent.protos.openshiftmetrics.Deployment.Spec
+	46, // 49: workloadagent.protos.openshiftmetrics.Deployment.spec:type_name -> workloadagent.protos.openshiftmetrics.Deployment.Spec
 	2,  // 50: workloadagent.protos.openshiftmetrics.PodTemplate.metadata:type_name -> workloadagent.protos.openshiftmetrics.ResourceMetadata
 	22, // 51: workloadagent.protos.openshiftmetrics.PodTemplate.spec:type_name -> workloadagent.protos.openshiftmetrics.PodSpec
 	23, // 52: workloadagent.protos.openshiftmetrics.PodSpec.containers:type_name -> workloadagent.protos.openshiftmetrics.Container
@@ -3830,27 +3914,28 @@ var file_protos_openshiftmetrics_openshiftmetrics_proto_depIdxs = []int32{
 	28, // 56: workloadagent.protos.openshiftmetrics.PodSpec.affinity:type_name -> workloadagent.protos.openshiftmetrics.Affinity
 	25, // 57: workloadagent.protos.openshiftmetrics.Container.env:type_name -> workloadagent.protos.openshiftmetrics.Env
 	26, // 58: workloadagent.protos.openshiftmetrics.Container.env_from:type_name -> workloadagent.protos.openshiftmetrics.EnvFrom
-	46, // 59: workloadagent.protos.openshiftmetrics.Volume.secret:type_name -> workloadagent.protos.openshiftmetrics.Volume.Secret
-	47, // 60: workloadagent.protos.openshiftmetrics.Env.value_from:type_name -> workloadagent.protos.openshiftmetrics.Env.ValueFrom
-	49, // 61: workloadagent.protos.openshiftmetrics.EnvFrom.secret_ref:type_name -> workloadagent.protos.openshiftmetrics.EnvFrom.SecretRef
-	50, // 62: workloadagent.protos.openshiftmetrics.Affinity.pod_anti_affinity:type_name -> workloadagent.protos.openshiftmetrics.Affinity.PodAntiAffinity
-	2,  // 63: workloadagent.protos.openshiftmetrics.CloudCredentialConfig.metadata:type_name -> workloadagent.protos.openshiftmetrics.ResourceMetadata
-	53, // 64: workloadagent.protos.openshiftmetrics.CloudCredentialConfig.spec:type_name -> workloadagent.protos.openshiftmetrics.CloudCredentialConfig.Spec
-	35, // 65: workloadagent.protos.openshiftmetrics.ClusterCsiDriver.Spec.driver_config:type_name -> workloadagent.protos.openshiftmetrics.ClusterCsiDriver.DriverConfig
-	37, // 66: workloadagent.protos.openshiftmetrics.ClusterCsiDriver.Status.conditions:type_name -> workloadagent.protos.openshiftmetrics.ClusterCsiDriver.Conditions
-	54, // 67: workloadagent.protos.openshiftmetrics.ClusterCsiDriver.Conditions.last_transition_time:type_name -> google.protobuf.Timestamp
-	40, // 68: workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Spec.resources:type_name -> workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Resources
-	41, // 69: workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Resources.requests:type_name -> workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Requests
-	43, // 70: workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Status.capacity:type_name -> workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Capacity
-	21, // 71: workloadagent.protos.openshiftmetrics.Deployment.Spec.pod_template:type_name -> workloadagent.protos.openshiftmetrics.PodTemplate
-	48, // 72: workloadagent.protos.openshiftmetrics.Env.ValueFrom.secret_key_ref:type_name -> workloadagent.protos.openshiftmetrics.Env.ValueFrom.SecretKeyRef
-	51, // 73: workloadagent.protos.openshiftmetrics.Affinity.PodAntiAffinity.preferred_during_scheduling_ignored_during_execution:type_name -> workloadagent.protos.openshiftmetrics.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution
-	52, // 74: workloadagent.protos.openshiftmetrics.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution.pod_affinity_term:type_name -> workloadagent.protos.openshiftmetrics.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution.PodAffinityTerm
-	75, // [75:75] is the sub-list for method output_type
-	75, // [75:75] is the sub-list for method input_type
-	75, // [75:75] is the sub-list for extension type_name
-	75, // [75:75] is the sub-list for extension extendee
-	0,  // [0:75] is the sub-list for field type_name
+	29, // 59: workloadagent.protos.openshiftmetrics.Container.volume_mounts:type_name -> workloadagent.protos.openshiftmetrics.VolumeMount
+	47, // 60: workloadagent.protos.openshiftmetrics.Volume.secret:type_name -> workloadagent.protos.openshiftmetrics.Volume.Secret
+	48, // 61: workloadagent.protos.openshiftmetrics.Env.value_from:type_name -> workloadagent.protos.openshiftmetrics.Env.ValueFrom
+	50, // 62: workloadagent.protos.openshiftmetrics.EnvFrom.secret_ref:type_name -> workloadagent.protos.openshiftmetrics.EnvFrom.SecretRef
+	51, // 63: workloadagent.protos.openshiftmetrics.Affinity.pod_anti_affinity:type_name -> workloadagent.protos.openshiftmetrics.Affinity.PodAntiAffinity
+	2,  // 64: workloadagent.protos.openshiftmetrics.CloudCredentialConfig.metadata:type_name -> workloadagent.protos.openshiftmetrics.ResourceMetadata
+	54, // 65: workloadagent.protos.openshiftmetrics.CloudCredentialConfig.spec:type_name -> workloadagent.protos.openshiftmetrics.CloudCredentialConfig.Spec
+	36, // 66: workloadagent.protos.openshiftmetrics.ClusterCsiDriver.Spec.driver_config:type_name -> workloadagent.protos.openshiftmetrics.ClusterCsiDriver.DriverConfig
+	38, // 67: workloadagent.protos.openshiftmetrics.ClusterCsiDriver.Status.conditions:type_name -> workloadagent.protos.openshiftmetrics.ClusterCsiDriver.Conditions
+	55, // 68: workloadagent.protos.openshiftmetrics.ClusterCsiDriver.Conditions.last_transition_time:type_name -> google.protobuf.Timestamp
+	41, // 69: workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Spec.resources:type_name -> workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Resources
+	42, // 70: workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Resources.requests:type_name -> workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Requests
+	44, // 71: workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Status.capacity:type_name -> workloadagent.protos.openshiftmetrics.PersistentVolumeClaim.Capacity
+	21, // 72: workloadagent.protos.openshiftmetrics.Deployment.Spec.pod_template:type_name -> workloadagent.protos.openshiftmetrics.PodTemplate
+	49, // 73: workloadagent.protos.openshiftmetrics.Env.ValueFrom.secret_key_ref:type_name -> workloadagent.protos.openshiftmetrics.Env.ValueFrom.SecretKeyRef
+	52, // 74: workloadagent.protos.openshiftmetrics.Affinity.PodAntiAffinity.preferred_during_scheduling_ignored_during_execution:type_name -> workloadagent.protos.openshiftmetrics.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution
+	53, // 75: workloadagent.protos.openshiftmetrics.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution.pod_affinity_term:type_name -> workloadagent.protos.openshiftmetrics.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution.PodAffinityTerm
+	76, // [76:76] is the sub-list for method output_type
+	76, // [76:76] is the sub-list for method input_type
+	76, // [76:76] is the sub-list for extension type_name
+	76, // [76:76] is the sub-list for extension extendee
+	0,  // [0:76] is the sub-list for field type_name
 }
 
 func init() { file_protos_openshiftmetrics_openshiftmetrics_proto_init() }
@@ -4208,7 +4293,7 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 			}
 		}
 		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[29].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CloudCredentialConfig); i {
+			switch v := v.(*VolumeMount); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4220,6 +4305,18 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 			}
 		}
 		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[30].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*CloudCredentialConfig); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[31].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ResourceListContainer_Metadata); i {
 			case 0:
 				return &v.state
@@ -4231,7 +4328,7 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 				return nil
 			}
 		}
-		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[33].Exporter = func(v interface{}, i int) interface{} {
+		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[34].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*CsiDriver_Spec); i {
 			case 0:
 				return &v.state
@@ -4243,7 +4340,7 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 				return nil
 			}
 		}
-		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[34].Exporter = func(v interface{}, i int) interface{} {
+		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[35].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ClusterCsiDriver_Spec); i {
 			case 0:
 				return &v.state
@@ -4255,7 +4352,7 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 				return nil
 			}
 		}
-		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[35].Exporter = func(v interface{}, i int) interface{} {
+		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[36].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ClusterCsiDriver_DriverConfig); i {
 			case 0:
 				return &v.state
@@ -4267,7 +4364,7 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 				return nil
 			}
 		}
-		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[36].Exporter = func(v interface{}, i int) interface{} {
+		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[37].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ClusterCsiDriver_Status); i {
 			case 0:
 				return &v.state
@@ -4279,7 +4376,7 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 				return nil
 			}
 		}
-		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[37].Exporter = func(v interface{}, i int) interface{} {
+		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[38].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ClusterCsiDriver_Conditions); i {
 			case 0:
 				return &v.state
@@ -4291,7 +4388,7 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 				return nil
 			}
 		}
-		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[39].Exporter = func(v interface{}, i int) interface{} {
+		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[40].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*PersistentVolumeClaim_Spec); i {
 			case 0:
 				return &v.state
@@ -4303,7 +4400,7 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 				return nil
 			}
 		}
-		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[40].Exporter = func(v interface{}, i int) interface{} {
+		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[41].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*PersistentVolumeClaim_Resources); i {
 			case 0:
 				return &v.state
@@ -4315,7 +4412,7 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 				return nil
 			}
 		}
-		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[41].Exporter = func(v interface{}, i int) interface{} {
+		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[42].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*PersistentVolumeClaim_Requests); i {
 			case 0:
 				return &v.state
@@ -4327,7 +4424,7 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 				return nil
 			}
 		}
-		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[42].Exporter = func(v interface{}, i int) interface{} {
+		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[43].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*PersistentVolumeClaim_Status); i {
 			case 0:
 				return &v.state
@@ -4339,7 +4436,7 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 				return nil
 			}
 		}
-		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[43].Exporter = func(v interface{}, i int) interface{} {
+		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[44].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*PersistentVolumeClaim_Capacity); i {
 			case 0:
 				return &v.state
@@ -4351,7 +4448,7 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 				return nil
 			}
 		}
-		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[45].Exporter = func(v interface{}, i int) interface{} {
+		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[46].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Deployment_Spec); i {
 			case 0:
 				return &v.state
@@ -4363,7 +4460,7 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 				return nil
 			}
 		}
-		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[46].Exporter = func(v interface{}, i int) interface{} {
+		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[47].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Volume_Secret); i {
 			case 0:
 				return &v.state
@@ -4375,7 +4472,7 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 				return nil
 			}
 		}
-		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[47].Exporter = func(v interface{}, i int) interface{} {
+		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[48].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Env_ValueFrom); i {
 			case 0:
 				return &v.state
@@ -4387,7 +4484,7 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 				return nil
 			}
 		}
-		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[48].Exporter = func(v interface{}, i int) interface{} {
+		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[49].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Env_ValueFrom_SecretKeyRef); i {
 			case 0:
 				return &v.state
@@ -4399,7 +4496,7 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 				return nil
 			}
 		}
-		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[49].Exporter = func(v interface{}, i int) interface{} {
+		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[50].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*EnvFrom_SecretRef); i {
 			case 0:
 				return &v.state
@@ -4411,7 +4508,7 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 				return nil
 			}
 		}
-		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[50].Exporter = func(v interface{}, i int) interface{} {
+		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[51].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Affinity_PodAntiAffinity); i {
 			case 0:
 				return &v.state
@@ -4423,7 +4520,7 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 				return nil
 			}
 		}
-		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[51].Exporter = func(v interface{}, i int) interface{} {
+		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[52].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Affinity_PodAntiAffinity_PreferredDuringSchedulingIgnoredDuringExecution); i {
 			case 0:
 				return &v.state
@@ -4435,7 +4532,7 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 				return nil
 			}
 		}
-		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[52].Exporter = func(v interface{}, i int) interface{} {
+		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[53].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Affinity_PodAntiAffinity_PreferredDuringSchedulingIgnoredDuringExecution_PodAffinityTerm); i {
 			case 0:
 				return &v.state
@@ -4447,7 +4544,7 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 				return nil
 			}
 		}
-		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[53].Exporter = func(v interface{}, i int) interface{} {
+		file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[54].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*CloudCredentialConfig_Spec); i {
 			case 0:
 				return &v.state
@@ -4472,15 +4569,15 @@ func file_protos_openshiftmetrics_openshiftmetrics_proto_init() {
 		(*ResourceListContainer_Nodes)(nil),
 	}
 	file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[10].OneofWrappers = []interface{}{}
-	file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[33].OneofWrappers = []interface{}{}
-	file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[39].OneofWrappers = []interface{}{}
+	file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[34].OneofWrappers = []interface{}{}
+	file_protos_openshiftmetrics_openshiftmetrics_proto_msgTypes[40].OneofWrappers = []interface{}{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_protos_openshiftmetrics_openshiftmetrics_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   54,
+			NumMessages:   55,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
