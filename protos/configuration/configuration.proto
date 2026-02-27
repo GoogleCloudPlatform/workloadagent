@@ -80,6 +80,10 @@ message OracleConfiguration {
   optional bool enabled = 1;
   OracleDiscovery oracle_discovery = 2;
   OracleMetrics oracle_metrics = 3;
+  message OracleHandlers {
+    ConnectionParameters connection_parameters = 1;
+  }
+  OracleHandlers oracle_handlers = 4;
 }
 
 message OracleDiscovery {

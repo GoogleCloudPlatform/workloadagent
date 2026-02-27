@@ -729,7 +729,7 @@ func TestValidateOracleConfiguration(t *testing.T) {
 		want   error
 	}{
 		{
-			name: "Valid configuration",
+			name: "ValidConfiguration",
 			config: &cpb.Configuration{
 				OracleConfiguration: &cpb.OracleConfiguration{
 					Enabled: proto.Bool(true),
@@ -748,10 +748,9 @@ func TestValidateOracleConfiguration(t *testing.T) {
 					},
 				},
 			},
-			want: nil,
 		},
 		{
-			name: "Oracle Metrics enabled but no connection parameters",
+			name: "OracleMetricsEnabled_NoConnectionParameters",
 			config: &cpb.Configuration{
 				OracleConfiguration: &cpb.OracleConfiguration{
 					Enabled: proto.Bool(true),
@@ -763,7 +762,7 @@ func TestValidateOracleConfiguration(t *testing.T) {
 			want: errMissingConnectionParameters,
 		},
 		{
-			name: "Oracle Metrics enabled but username not provided",
+			name: "OracleMetricsEnabled_NoUsername",
 			config: &cpb.Configuration{
 				OracleConfiguration: &cpb.OracleConfiguration{
 					Enabled: proto.Bool(true),
@@ -784,7 +783,7 @@ func TestValidateOracleConfiguration(t *testing.T) {
 			want: errMissingUsername,
 		},
 		{
-			name: "Oracle Metrics enabled but service_name not provided",
+			name: "OracleMetricsEnabled_NoServiceName",
 			config: &cpb.Configuration{
 				OracleConfiguration: &cpb.OracleConfiguration{
 					Enabled: proto.Bool(true),
@@ -805,7 +804,7 @@ func TestValidateOracleConfiguration(t *testing.T) {
 			want: errMissingServiceName,
 		},
 		{
-			name: "Oracle Metrics enabled but secret not provided",
+			name: "OracleMetricsEnabled_NoSecret",
 			config: &cpb.Configuration{
 				OracleConfiguration: &cpb.OracleConfiguration{
 					Enabled: proto.Bool(true),
@@ -823,7 +822,7 @@ func TestValidateOracleConfiguration(t *testing.T) {
 			want: errMissingSecret,
 		},
 		{
-			name: "Oracle Metrics enabled but project ID not provided",
+			name: "OracleMetricsEnabled_NoProjectID",
 			config: &cpb.Configuration{
 				OracleConfiguration: &cpb.OracleConfiguration{
 					Enabled: proto.Bool(true),
@@ -842,7 +841,7 @@ func TestValidateOracleConfiguration(t *testing.T) {
 			want: errMissingProjectID,
 		},
 		{
-			name: "Oracle Metrics enabled but secret name not provided",
+			name: "OracleMetricsEnabled_NoSecretName",
 			config: &cpb.Configuration{
 				OracleConfiguration: &cpb.OracleConfiguration{
 					Enabled: proto.Bool(true),
@@ -859,6 +858,117 @@ func TestValidateOracleConfiguration(t *testing.T) {
 				},
 			},
 			want: errMissingSecretName,
+		},
+		{
+			name: "OracleHandlersMissingConnectionParameters",
+			config: &cpb.Configuration{
+				OracleConfiguration: &cpb.OracleConfiguration{
+					Enabled:        proto.Bool(true),
+					OracleHandlers: &cpb.OracleConfiguration_OracleHandlers{},
+				},
+			},
+			want: errMissingConnectionParameters,
+		},
+		{
+			name: "OracleHandlersMissingUsername",
+			config: &cpb.Configuration{
+				OracleConfiguration: &cpb.OracleConfiguration{
+					Enabled: proto.Bool(true),
+					OracleHandlers: &cpb.OracleConfiguration_OracleHandlers{
+						ConnectionParameters: &cpb.ConnectionParameters{
+							ServiceName: "orcl",
+							Secret: &cpb.SecretRef{
+								ProjectId:  "testproject",
+								SecretName: "testsecret",
+							},
+						},
+					},
+				},
+			},
+			want: errMissingUsername,
+		},
+		{
+			name: "OracleHandlersMissingServiceName",
+			config: &cpb.Configuration{
+				OracleConfiguration: &cpb.OracleConfiguration{
+					Enabled: proto.Bool(true),
+					OracleHandlers: &cpb.OracleConfiguration_OracleHandlers{
+						ConnectionParameters: &cpb.ConnectionParameters{
+							Username: "testuser",
+							Secret: &cpb.SecretRef{
+								ProjectId:  "testproject",
+								SecretName: "testsecret",
+							},
+						},
+					},
+				},
+			},
+			want: errMissingServiceName,
+		},
+		{
+			name: "OracleHandlersMissingSecret",
+			config: &cpb.Configuration{
+				OracleConfiguration: &cpb.OracleConfiguration{
+					Enabled: proto.Bool(true),
+					OracleHandlers: &cpb.OracleConfiguration_OracleHandlers{
+						ConnectionParameters: &cpb.ConnectionParameters{
+							Username:    "testuser",
+							ServiceName: "orcl",
+						},
+					},
+				},
+			},
+			want: errMissingSecret,
+		},
+		{
+			name: "OracleHandlersMissingProjectID",
+			config: &cpb.Configuration{
+				OracleConfiguration: &cpb.OracleConfiguration{
+					Enabled: proto.Bool(true),
+					OracleHandlers: &cpb.OracleConfiguration_OracleHandlers{
+						ConnectionParameters: &cpb.ConnectionParameters{
+							Username:    "testuser",
+							ServiceName: "orcl",
+							Secret:      &cpb.SecretRef{SecretName: "testsecret"},
+						},
+					},
+				},
+			},
+			want: errMissingProjectID,
+		},
+		{
+			name: "OracleHandlersMissingSecretName",
+			config: &cpb.Configuration{
+				OracleConfiguration: &cpb.OracleConfiguration{
+					Enabled: proto.Bool(true),
+					OracleHandlers: &cpb.OracleConfiguration_OracleHandlers{
+						ConnectionParameters: &cpb.ConnectionParameters{
+							Username:    "testuser",
+							ServiceName: "orcl",
+							Secret:      &cpb.SecretRef{ProjectId: "testproject"},
+						},
+					},
+				},
+			},
+			want: errMissingSecretName,
+		},
+		{
+			name: "OracleHandlersValidConfiguration",
+			config: &cpb.Configuration{
+				OracleConfiguration: &cpb.OracleConfiguration{
+					Enabled: proto.Bool(true),
+					OracleHandlers: &cpb.OracleConfiguration_OracleHandlers{
+						ConnectionParameters: &cpb.ConnectionParameters{
+							Username:    "testuser",
+							ServiceName: "orcl",
+							Secret: &cpb.SecretRef{
+								ProjectId:  "testproject",
+								SecretName: "testsecret",
+							},
+						},
+					},
+				},
+			},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -877,7 +987,7 @@ func TestValidateSQLServerConfiguration(t *testing.T) {
 		want   error
 	}{
 		{
-			name: "Valid configuration",
+			name: "ValidConfiguration",
 			config: &cpb.Configuration{
 				SqlserverConfiguration: &cpb.SQLServerConfiguration{
 					Enabled: proto.Bool(true),
@@ -890,10 +1000,9 @@ func TestValidateSQLServerConfiguration(t *testing.T) {
 					RetryFrequency:           &dpb.Duration{Seconds: 3600},
 				},
 			},
-			want: nil,
 		},
 		{
-			name: "Collection configuration not provided",
+			name: "CollectionConfigurationNotProvided",
 			config: &cpb.Configuration{
 				SqlserverConfiguration: &cpb.SQLServerConfiguration{
 					Enabled:                  proto.Bool(true),
@@ -905,7 +1014,7 @@ func TestValidateSQLServerConfiguration(t *testing.T) {
 			want: sqlServerConfigurationErrors["errMissingCollectionConfiguration"],
 		},
 		{
-			name: "invalid collection frequency",
+			name: "InvalidCollectionFrequency",
 			config: &cpb.Configuration{
 				SqlserverConfiguration: &cpb.SQLServerConfiguration{
 					Enabled: proto.Bool(true),
@@ -920,7 +1029,7 @@ func TestValidateSQLServerConfiguration(t *testing.T) {
 			want: sqlServerConfigurationErrors["errInvalidCollectionFrequency"],
 		},
 		{
-			name: "unset collection frequency with other fields set",
+			name: "UnsetCollectionFrequencyWithOtherFieldsSet",
 			config: &cpb.Configuration{
 				SqlserverConfiguration: &cpb.SQLServerConfiguration{
 					Enabled: proto.Bool(true),
@@ -933,10 +1042,9 @@ func TestValidateSQLServerConfiguration(t *testing.T) {
 					RetryFrequency:           &dpb.Duration{Seconds: 3600},
 				},
 			},
-			want: nil,
 		},
 		{
-			name: "Credential configurations not provided",
+			name: "CredentialConfigurationsNotProvided",
 			config: &cpb.Configuration{
 				SqlserverConfiguration: &cpb.SQLServerConfiguration{
 					Enabled:                 proto.Bool(true),
@@ -948,7 +1056,7 @@ func TestValidateSQLServerConfiguration(t *testing.T) {
 			want: sqlServerConfigurationErrors["errMissingCredentialConfigurations"],
 		},
 		{
-			name: "invalid collection timeout",
+			name: "InvalidCollectionTimeout",
 			config: &cpb.Configuration{
 				SqlserverConfiguration: &cpb.SQLServerConfiguration{
 					Enabled: proto.Bool(true),
@@ -963,7 +1071,7 @@ func TestValidateSQLServerConfiguration(t *testing.T) {
 			want: sqlServerConfigurationErrors["errInvalidCollectionTimeout"],
 		},
 		{
-			name: "invalid retry frequency",
+			name: "InvalidRetryFrequency",
 			config: &cpb.Configuration{
 				SqlserverConfiguration: &cpb.SQLServerConfiguration{
 					Enabled: proto.Bool(true),
@@ -978,7 +1086,7 @@ func TestValidateSQLServerConfiguration(t *testing.T) {
 			want: sqlServerConfigurationErrors["errInvalidRetryFrequency"],
 		},
 		{
-			name: "invalid max retries",
+			name: "InvalidMaxRetries",
 			config: &cpb.Configuration{
 				SqlserverConfiguration: &cpb.SQLServerConfiguration{
 					Enabled: proto.Bool(true),

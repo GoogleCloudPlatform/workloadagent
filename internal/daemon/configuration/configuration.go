@@ -206,6 +206,26 @@ func validateOracleConfiguration(config *cpb.Configuration) error {
 			}
 		}
 	}
+	if config.GetOracleConfiguration().GetOracleHandlers() != nil {
+		if config.GetOracleConfiguration().GetOracleHandlers().GetConnectionParameters() == nil {
+			return errMissingConnectionParameters
+		}
+		if config.GetOracleConfiguration().GetOracleHandlers().GetConnectionParameters().GetUsername() == "" {
+			return errMissingUsername
+		}
+		if config.GetOracleConfiguration().GetOracleHandlers().GetConnectionParameters().GetServiceName() == "" {
+			return errMissingServiceName
+		}
+		if config.GetOracleConfiguration().GetOracleHandlers().GetConnectionParameters().GetSecret() == nil {
+			return errMissingSecret
+		}
+		if config.GetOracleConfiguration().GetOracleHandlers().GetConnectionParameters().GetSecret().GetProjectId() == "" {
+			return errMissingProjectID
+		}
+		if config.GetOracleConfiguration().GetOracleHandlers().GetConnectionParameters().GetSecret().GetSecretName() == "" {
+			return errMissingSecretName
+		}
+	}
 	return nil
 }
 
