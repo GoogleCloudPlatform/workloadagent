@@ -231,7 +231,7 @@ func (s *Service) startGuestActionsRoutine(ctx context.Context) {
 	gaCtx := log.SetCtx(ctx, "context", "OracleGuestActions")
 	s.guestActionsRoutine = &recovery.RecoverableRoutine{
 		Routine:             runGuestActions,
-		RoutineArg:          runGuestActionsArgs{s: s, handlers: guestActionHandlers()},
+		RoutineArg:          runGuestActionsArgs{s: s, handlers: guestActionHandlers(s.Config)},
 		ErrorCode:           usagemetrics.GuestActionsFailure,
 		UsageLogger:         *usagemetrics.UsageLogger,
 		ExpectedMinDuration: 10 * time.Second,
@@ -240,10 +240,10 @@ func (s *Service) startGuestActionsRoutine(ctx context.Context) {
 	s.guestActionsRoutine.StartRoutine(gaCtx)
 }
 
-func guestActionHandlers() map[string]guestactions.GuestActionHandler {
+func guestActionHandlers(config *cpb.Configuration) map[string]guestactions.GuestActionHandler {
 	return map[string]guestactions.GuestActionHandler{
 		// go/keep-sorted start
-		"oracle_data_guard_switchover":      oraclehandlers.DataGuardSwitchover,
+		"oracle_data_guard_switchover":      oraclehandlers.DataGuardSwitchover(config),
 		"oracle_disable_autostart":          oraclehandlers.DisableAutostart,
 		"oracle_disable_restricted_session": oraclehandlers.DisableRestrictedSession,
 		"oracle_enable_autostart":           oraclehandlers.EnableAutostart,

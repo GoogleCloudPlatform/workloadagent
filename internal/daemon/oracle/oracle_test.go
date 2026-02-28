@@ -348,7 +348,7 @@ func TestRunGuestActions(t *testing.T) {
 }
 
 func TestGuestActionHandlers(t *testing.T) {
-	handlers := guestActionHandlers()
+	handlers := guestActionHandlers(&cpb.Configuration{})
 	expectedHandlers := []string{
 		"oracle_data_guard_switchover",
 		"oracle_disable_autostart",
