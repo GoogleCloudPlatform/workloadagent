@@ -703,20 +703,111 @@ func TestDetectStartupMechanism(t *testing.T) {
 	}
 }
 
-func TestRunDatapatch_NotImplemented(t *testing.T) {
-	command := &gpb.Command{
-		CommandType: &gpb.Command_AgentCommand{
-			AgentCommand: &gpb.AgentCommand{
-				Command: "oracle_run_datapatch",
+func TestRunDatapatch(t *testing.T) {
+	defaultParams := map[string]string{
+		"oracle_sid":  "ORCL",
+		"oracle_home": "/u01/app/oracle/product/19.0.0/dbhome_1",
+		"oracle_user": "oracle",
+	}
+
+	tests := []struct {
+		name          string
+		params        map[string]string
+		mockSQL       map[string]*commandlineexecutor.Result // Mocks for runSQL
+		mockCmds      map[string]commandlineexecutor.Result  // Mocks for executeCommand (datapatch)
+		wantErrorCode codepb.Code
+	}{
+		{
+			name:   "Success",
+			params: defaultParams,
+			mockSQL: map[string]*commandlineexecutor.Result{
+				"ALTER PLUGGABLE DATABASE ALL OPEN;": {ExitCode: 0, StdOut: "Pluggable database altered."},
+				"@?/rdbms/admin/utlrp":               {ExitCode: 0, StdOut: "PL/SQL procedure successfully completed."},
+				"SELECT action_time, action, status, patch_id FROM dba_registry_sqlpatch ORDER BY action_time;": {ExitCode: 0, StdOut: "PATCH INFO"},
 			},
+			mockCmds: map[string]commandlineexecutor.Result{
+				"datapatch": {ExitCode: 0, StdOut: "Datapatch successful"},
+			},
+			wantErrorCode: codepb.Code_OK,
+		},
+		{
+			name:   "PDBOpenFailProceeds",
+			params: defaultParams,
+			mockSQL: map[string]*commandlineexecutor.Result{
+				"ALTER PLUGGABLE DATABASE ALL OPEN;": {ExitCode: 1, Error: fmt.Errorf("ORA-65000: missing or invalid pluggable database name")},
+				"@?/rdbms/admin/utlrp":               {ExitCode: 0, StdOut: "PL/SQL procedure successfully completed."},
+				"SELECT action_time, action, status, patch_id FROM dba_registry_sqlpatch ORDER BY action_time;": {ExitCode: 0, StdOut: "PATCH INFO"},
+			},
+			mockCmds: map[string]commandlineexecutor.Result{
+				"datapatch": {ExitCode: 0, StdOut: "Datapatch successful"},
+			},
+			wantErrorCode: codepb.Code_OK,
+		},
+		{
+			name:   "DatapatchFail",
+			params: defaultParams,
+			mockSQL: map[string]*commandlineexecutor.Result{
+				"ALTER PLUGGABLE DATABASE ALL OPEN;": {ExitCode: 0},
+			},
+			mockCmds: map[string]commandlineexecutor.Result{
+				"datapatch": {ExitCode: 1, StdErr: "Datapatch failed"},
+			},
+			wantErrorCode: codepb.Code_INTERNAL,
+		},
+		{
+			name:   "UtlrpFail",
+			params: defaultParams,
+			mockSQL: map[string]*commandlineexecutor.Result{
+				"ALTER PLUGGABLE DATABASE ALL OPEN;": {ExitCode: 0},
+				"@?/rdbms/admin/utlrp":               {ExitCode: 1, Error: fmt.Errorf("utlrp failed")},
+			},
+			mockCmds: map[string]commandlineexecutor.Result{
+				"datapatch": {ExitCode: 0},
+			},
+			wantErrorCode: codepb.Code_INTERNAL,
+		},
+		{
+			name:          "ValidationFailMissingParams",
+			params:        map[string]string{}, // Missing params
+			wantErrorCode: codepb.Code_INVALID_ARGUMENT,
 		},
 	}
-	result := RunDatapatch(context.Background(), command, nil)
-	if result.GetExitCode() != 1 {
-		t.Errorf("RunDatapatch() returned exit code %d, want 1", result.GetExitCode())
-	}
-	if !strings.Contains(result.GetStdout(), "not implemented") {
-		t.Errorf("RunDatapatch() returned stdout %q, want 'not implemented'", result.GetStdout())
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Mock runSQL
+			origRunSQL := runSQL
+			defer func() { runSQL = origRunSQL }()
+			runSQL = createMockRunSQL(tc.mockSQL)
+
+			// Mock executeCommand for datapatch
+			origExecuteCommand := executeCommand
+			defer func() { executeCommand = origExecuteCommand }()
+			executeCommand = func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				if strings.Contains(params.Executable, "datapatch") {
+					return tc.mockCmds["datapatch"]
+				}
+				return commandlineexecutor.Result{ExitCode: 1, StdErr: "Unknown command: " + params.Executable}
+			}
+
+			command := &gpb.Command{
+				CommandType: &gpb.Command_AgentCommand{
+					AgentCommand: &gpb.AgentCommand{
+						Command:    "oracle_run_datapatch",
+						Parameters: tc.params,
+					},
+				},
+			}
+			result := RunDatapatch(context.Background(), command, nil)
+
+			s := &spb.Status{}
+			if err := anypb.UnmarshalTo(result.Payload, s, proto.UnmarshalOptions{}); err != nil {
+				t.Fatalf("Failed to unmarshal payload: %v", err)
+			}
+			if s.Code != int32(tc.wantErrorCode) {
+				t.Errorf("RunDatapatch() with params %v returned error code %d, want %d", tc.params, s.Code, tc.wantErrorCode)
+			}
+		})
 	}
 }
 
