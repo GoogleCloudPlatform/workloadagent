@@ -29,6 +29,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/osinfo"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/parametermanager"
 )
 
@@ -209,7 +210,7 @@ func TestCheckForPMUpdate(t *testing.T) {
 func TestNewDaemon(t *testing.T) {
 	lp := log.Parameters{OSType: "linux"}
 	cp := &cpb.CloudProperties{ProjectId: "p"}
-	sf := func(ctx context.Context, d *Daemon, wlmClient workloadmanager.WLMWriter, dbcenterClient databasecenter.Client) ServiceSet {
+	sf := func(ctx context.Context, config *cpb.Configuration, cloudProps *cpb.CloudProperties, data osinfo.Data, wlmClient workloadmanager.WLMWriter, dbcenterClient databasecenter.Client) ServiceSet {
 		return ServiceSet{}
 	}
 	d := NewDaemon(lp, cp, sf)
@@ -222,11 +223,10 @@ func TestNewDaemon(t *testing.T) {
 }
 
 func TestDefaultServiceFactory(t *testing.T) {
-	d := &Daemon{
-		config:     &cpb.Configuration{},
-		cloudProps: &cpb.CloudProperties{},
-	}
-	ss := DefaultServiceFactory(context.Background(), d, nil, nil)
+	config := &cpb.Configuration{}
+	cloudProps := &cpb.CloudProperties{}
+	osData := osinfo.Data{}
+	ss := DefaultServiceFactory(context.Background(), config, cloudProps, osData, nil, nil)
 	if len(ss.Services) == 0 {
 		t.Error("DefaultServiceFactory() returned no services")
 	}

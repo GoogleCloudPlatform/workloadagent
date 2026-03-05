@@ -72,7 +72,7 @@ type ServiceSet struct {
 }
 
 // ServiceFactoryFunc is a function that creates a ServiceSet.
-type ServiceFactoryFunc func(ctx context.Context, d *Daemon, wlmClient workloadmanager.WLMWriter, dbcenterClient databasecenter.Client) ServiceSet
+type ServiceFactoryFunc func(ctx context.Context, config *cpb.Configuration, cloudProps *cpb.CloudProperties, osData osinfo.Data, wlmClient workloadmanager.WLMWriter, dbcenterClient databasecenter.Client) ServiceSet
 
 type (
 	// Service defines the common interface for workload services.
@@ -110,7 +110,7 @@ func NewDaemon(lp log.Parameters, cloudProps *cpb.CloudProperties, serviceFactor
 }
 
 // DefaultServiceFactory is the default service factory for the agent.
-func DefaultServiceFactory(ctx context.Context, d *Daemon, wlmClient workloadmanager.WLMWriter, dbcenterClient databasecenter.Client) ServiceSet {
+func DefaultServiceFactory(ctx context.Context, config *cpb.Configuration, cloudProps *cpb.CloudProperties, osData osinfo.Data, wlmClient workloadmanager.WLMWriter, dbcenterClient databasecenter.Client) ServiceSet {
 	oracleCh := make(chan *servicecommunication.Message, 3)
 	mySQLCh := make(chan *servicecommunication.Message, 3)
 	redisCh := make(chan *servicecommunication.Message, 3)
@@ -128,13 +128,13 @@ func DefaultServiceFactory(ctx context.Context, d *Daemon, wlmClient workloadman
 		"mongodb":   mongoCh,
 	}
 	services := []Service{
-		&oracle.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: oracleCh},
-		&mysql.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: mySQLCh, WLMClient: wlmClient, DBcenterClient: dbcenterClient},
-		&redis.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: redisCh, WLMClient: wlmClient, OSData: d.osData},
-		&sqlserver.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: sqlserverCh, DBcenterClient: dbcenterClient},
-		&postgres.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: postgresCh, WLMClient: wlmClient, DBcenterClient: dbcenterClient},
-		&openshift.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: openshiftCh, WLMClient: wlmClient},
-		&mongodb.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: mongoCh, WLMClient: wlmClient},
+		&oracle.Service{Config: config, CloudProps: cloudProps, CommonCh: oracleCh},
+		&mysql.Service{Config: config, CloudProps: cloudProps, CommonCh: mySQLCh, WLMClient: wlmClient, DBcenterClient: dbcenterClient},
+		&redis.Service{Config: config, CloudProps: cloudProps, CommonCh: redisCh, WLMClient: wlmClient, OSData: osData},
+		&sqlserver.Service{Config: config, CloudProps: cloudProps, CommonCh: sqlserverCh, DBcenterClient: dbcenterClient},
+		&postgres.Service{Config: config, CloudProps: cloudProps, CommonCh: postgresCh, WLMClient: wlmClient, DBcenterClient: dbcenterClient},
+		&openshift.Service{Config: config, CloudProps: cloudProps, CommonCh: openshiftCh, WLMClient: wlmClient},
+		&mongodb.Service{Config: config, CloudProps: cloudProps, CommonCh: mongoCh, WLMClient: wlmClient},
 	}
 	return ServiceSet{Services: services, Channels: scChs}
 }
@@ -285,7 +285,7 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, restarting bool) error 
 	dbcenterClient := databasecenter.NewClient(d.config, nil)
 
 	log.Logger.Info("Starting common discovery")
-	serviceSet := d.serviceFactory(ctx, d, wlmClient, dbcenterClient)
+	serviceSet := d.serviceFactory(ctx, d.config, d.cloudProps, d.osData, wlmClient, dbcenterClient)
 	scChs := serviceSet.Channels
 	commondiscovery := discovery.Service{
 		ProcessLister: discovery.DefaultProcessLister{},
