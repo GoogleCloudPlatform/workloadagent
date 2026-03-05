@@ -75,7 +75,7 @@ func main() {
 	rootCmd.AddCommand(migrate.NewCommand())
 	rootCmd.AddCommand(configure.NewCommand(lp))
 	rootCmd.AddCommand(status.NewCommand(cloudProps))
-	d := daemon.NewDaemon(lp, cloudProps)
+	d := daemon.NewDaemon(lp, cloudProps, daemon.DefaultServiceFactory)
 	daemonCmd := daemon.NewDaemonSubCommand(d)
 
 	// When running on windows, the daemon is started using the winservice subcommand.

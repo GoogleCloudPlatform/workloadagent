@@ -25,7 +25,10 @@ import (
 	"time"
 
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/databasecenter"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/parametermanager"
 )
 
@@ -200,5 +203,34 @@ func TestCheckForPMUpdate(t *testing.T) {
 				t.Errorf("checkForPMUpdate() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestNewDaemon(t *testing.T) {
+	lp := log.Parameters{OSType: "linux"}
+	cp := &cpb.CloudProperties{ProjectId: "p"}
+	sf := func(ctx context.Context, d *Daemon, wlmClient workloadmanager.WLMWriter, dbcenterClient databasecenter.Client) ServiceSet {
+		return ServiceSet{}
+	}
+	d := NewDaemon(lp, cp, sf)
+	if d.lp.OSType != "linux" {
+		t.Errorf("NewDaemon() lp.OSType = %v, want linux", d.lp.OSType)
+	}
+	if d.cloudProps.GetProjectId() != "p" {
+		t.Errorf("NewDaemon() cloudProps.ProjectId = %v, want p", d.cloudProps.GetProjectId())
+	}
+}
+
+func TestDefaultServiceFactory(t *testing.T) {
+	d := &Daemon{
+		config:     &cpb.Configuration{},
+		cloudProps: &cpb.CloudProperties{},
+	}
+	ss := DefaultServiceFactory(context.Background(), d, nil, nil)
+	if len(ss.Services) == 0 {
+		t.Error("DefaultServiceFactory() returned no services")
+	}
+	if len(ss.Channels) == 0 {
+		t.Error("DefaultServiceFactory() returned no channels")
 	}
 }

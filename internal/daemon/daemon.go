@@ -62,7 +62,17 @@ type Daemon struct {
 	pmClient       *parametermanager.Client
 	pmVersion      string
 	pmPollInterval time.Duration
+	serviceFactory ServiceFactoryFunc
 }
+
+// ServiceSet groups services and their communication channels.
+type ServiceSet struct {
+	Services []Service
+	Channels map[string]chan<- *servicecommunication.Message
+}
+
+// ServiceFactoryFunc is a function that creates a ServiceSet.
+type ServiceFactoryFunc func(ctx context.Context, d *Daemon, wlmClient workloadmanager.WLMWriter, dbcenterClient databasecenter.Client) ServiceSet
 
 type (
 	// Service defines the common interface for workload services.
@@ -91,11 +101,42 @@ var (
 )
 
 // NewDaemon creates a new Daemon.
-func NewDaemon(lp log.Parameters, cloudProps *cpb.CloudProperties) *Daemon {
+func NewDaemon(lp log.Parameters, cloudProps *cpb.CloudProperties, serviceFactory ServiceFactoryFunc) *Daemon {
 	return &Daemon{
-		lp:         lp,
-		cloudProps: cloudProps,
+		lp:             lp,
+		cloudProps:     cloudProps,
+		serviceFactory: serviceFactory,
 	}
+}
+
+// DefaultServiceFactory is the default service factory for the agent.
+func DefaultServiceFactory(ctx context.Context, d *Daemon, wlmClient workloadmanager.WLMWriter, dbcenterClient databasecenter.Client) ServiceSet {
+	oracleCh := make(chan *servicecommunication.Message, 3)
+	mySQLCh := make(chan *servicecommunication.Message, 3)
+	redisCh := make(chan *servicecommunication.Message, 3)
+	sqlserverCh := make(chan *servicecommunication.Message, 3)
+	postgresCh := make(chan *servicecommunication.Message, 3)
+	openshiftCh := make(chan *servicecommunication.Message, 3)
+	mongoCh := make(chan *servicecommunication.Message, 3)
+	scChs := map[string]chan<- *servicecommunication.Message{
+		"mysql":     mySQLCh,
+		"oracle":    oracleCh,
+		"redis":     redisCh,
+		"sqlserver": sqlserverCh,
+		"postgres":  postgresCh,
+		"openshift": openshiftCh,
+		"mongodb":   mongoCh,
+	}
+	services := []Service{
+		&oracle.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: oracleCh},
+		&mysql.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: mySQLCh, WLMClient: wlmClient, DBcenterClient: dbcenterClient},
+		&redis.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: redisCh, WLMClient: wlmClient, OSData: d.osData},
+		&sqlserver.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: sqlserverCh, DBcenterClient: dbcenterClient},
+		&postgres.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: postgresCh, WLMClient: wlmClient, DBcenterClient: dbcenterClient},
+		&openshift.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: openshiftCh, WLMClient: wlmClient},
+		&mongodb.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: mongoCh, WLMClient: wlmClient},
+	}
+	return ServiceSet{Services: services, Channels: scChs}
 }
 
 // NewDaemonSubCommand creates a new startdaemon subcommand.
@@ -240,23 +281,12 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, restarting bool) error 
 		return nil
 	}
 
+	// Create a new databasecenter client.
+	dbcenterClient := databasecenter.NewClient(d.config, nil)
+
 	log.Logger.Info("Starting common discovery")
-	oracleCh := make(chan *servicecommunication.Message, 3)
-	mySQLCh := make(chan *servicecommunication.Message, 3)
-	redisCh := make(chan *servicecommunication.Message, 3)
-	sqlserverCh := make(chan *servicecommunication.Message, 3)
-	postgresCh := make(chan *servicecommunication.Message, 3)
-	openshiftCh := make(chan *servicecommunication.Message, 3)
-	mongoCh := make(chan *servicecommunication.Message, 3)
-	scChs := map[string]chan<- *servicecommunication.Message{
-		"mysql":     mySQLCh,
-		"oracle":    oracleCh,
-		"redis":     redisCh,
-		"sqlserver": sqlserverCh,
-		"postgres":  postgresCh,
-		"openshift": openshiftCh,
-		"mongodb":   mongoCh,
-	}
+	serviceSet := d.serviceFactory(ctx, d, wlmClient, dbcenterClient)
+	scChs := serviceSet.Channels
 	commondiscovery := discovery.Service{
 		ProcessLister: discovery.DefaultProcessLister{},
 		ReadFile:      os.ReadFile,
@@ -282,19 +312,8 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, restarting bool) error 
 	}
 	recoverableStart.StartRoutine(ctx)
 
-	// Create a new databasecenter client.
-	dbcenterClient := databasecenter.NewClient(d.config, nil)
-
 	// Add any additional services here.
-	d.services = []Service{
-		&oracle.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: oracleCh},
-		&mysql.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: mySQLCh, WLMClient: wlmClient, DBcenterClient: dbcenterClient},
-		&redis.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: redisCh, WLMClient: wlmClient, OSData: d.osData},
-		&sqlserver.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: sqlserverCh, DBcenterClient: dbcenterClient},
-		&postgres.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: postgresCh, WLMClient: wlmClient, DBcenterClient: dbcenterClient},
-		&openshift.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: openshiftCh, WLMClient: wlmClient},
-		&mongodb.Service{Config: d.config, CloudProps: d.cloudProps, CommonCh: mongoCh, WLMClient: wlmClient},
-	}
+	d.services = serviceSet.Services
 	for _, service := range d.services {
 		log.Logger.Infof("Starting %s", service.String())
 		recoverableStart := &recovery.RecoverableRoutine{
