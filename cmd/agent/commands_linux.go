@@ -14,15 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package agent
 
 import (
 	"context"
 
 	"github.com/spf13/cobra"
-	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime"
 )
 
 func additionalSubcommands(ctx context.Context, d *cobra.Command) []*cobra.Command {
-	return []*cobra.Command{onetime.NewWinServiceCommand(ctx, d)}
+	return nil
 }
