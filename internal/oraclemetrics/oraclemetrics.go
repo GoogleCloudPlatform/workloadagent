@@ -141,6 +141,29 @@ type (
 	}
 )
 
+// PingDB checks connectivity for all configured Oracle databases.
+func PingDB(ctx context.Context, gceService gceInterface, config *configpb.Configuration) error {
+	conParams, err := readConnectionParameters(ctx, gceService, config)
+	if err != nil {
+		return err
+	}
+	for _, params := range conParams {
+		urlOptions := map[string]string{
+			"dba privilege": "sysdg", // sysdg system privilege is required to connect to a closed standby.
+		}
+		connStr := go_ora.BuildUrl(params.Host, params.Port, params.ServiceName, params.Username, params.Password.SecretValue(), urlOptions)
+		db, err := sql.Open("oracle", connStr)
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+		if err := db.PingContext(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // openConnections connects to all the databases specified in the connection parameters.
 func openConnections(ctx context.Context, conParams []connectionParameters) map[string]*sql.DB {
 	connections := make(map[string]*sql.DB)

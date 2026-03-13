@@ -156,7 +156,7 @@ func (f *fakeIAMService) CheckIAMPermissionsOnSecret(ctx context.Context, projec
 }
 
 func TestNewARClient(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	// Force the client to fail by pointing to a non-existent credentials file.
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "non-existent-file")
 
@@ -783,7 +783,7 @@ func TestAgentStatus(t *testing.T) {
 					},
 					{
 						Name:         "redis",
-						State:        spb.State_FAILURE_STATE,
+						State:        spb.State_ERROR_STATE,
 						ErrorMessage: "could not read OS info: file does not exist",
 					},
 				},
@@ -861,7 +861,7 @@ func TestAgentStatus(t *testing.T) {
 					},
 					{
 						Name:         "redis",
-						State:        spb.State_FAILURE_STATE,
+						State:        spb.State_ERROR_STATE,
 						ErrorMessage: "could not read OS info: file does not exist",
 					},
 				},
@@ -930,7 +930,7 @@ func TestAgentStatus(t *testing.T) {
 					},
 					{
 						Name:         "mysql",
-						State:        spb.State_FAILURE_STATE,
+						State:        spb.State_ERROR_STATE,
 						ErrorMessage: "failed to ping MySQL connection: dial tcp 127.0.0.1:3306: connect: connection refused",
 					},
 				},
@@ -948,7 +948,7 @@ func TestAgentStatus(t *testing.T) {
 				t.Skipf("Skipping linux test on non-linux OS: %s", runtime.GOOS)
 			}
 
-			ctx := context.Background()
+			ctx := t.Context()
 			got := agentStatus(ctx, tc.arClient, tc.iamClient, tc.exec, tc.cloudProps, "", tc.readFile)
 			got.ConfigurationErrorMessage = strings.ReplaceAll(got.ConfigurationErrorMessage, "\u00a0", " ")
 
@@ -977,7 +977,7 @@ func TestAgentStatus_GCEClientError(t *testing.T) {
 	}
 	t.Cleanup(func() { newGCEClient = oldNewGCEClient })
 
-	ctx := context.Background()
+	ctx := t.Context()
 	arClient := newFakeARClient(nil, nil, nil)
 	iamClient := &fakeIAMService{}
 	exec := func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
@@ -1028,7 +1028,7 @@ func TestCheckAndSetStatus(t *testing.T) {
 		s := checkAndSetStatus("test-service", func() error {
 			return errors.New("test error")
 		})
-		if s.State != spb.State_FAILURE_STATE {
+		if s.State != spb.State_ERROR_STATE {
 			t.Errorf("checkAndSetStatus failure case failed: got state %v, want ERROR", s.State)
 		}
 		if s.ErrorMessage != "test error" {
@@ -1038,7 +1038,7 @@ func TestCheckAndSetStatus(t *testing.T) {
 }
 
 func TestCheckIAMPermissions(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	services := map[string]string{"SECRET_MANAGER": "Secret Manager"}
 	cloudProps := &cpb.CloudProperties{ProjectId: "test-project"}
 
@@ -1152,7 +1152,7 @@ func TestCheckIAMPermissions(t *testing.T) {
 }
 
 func TestCheckAPIEnablement(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	apis := map[string]string{"workloadmanager.googleapis.com": "Workload Manager API"}
 	cloudProps := &cpb.CloudProperties{ProjectId: "test-project"}
 
@@ -1291,7 +1291,7 @@ func TestCheckDatabaseConnectivity(t *testing.T) {
 			wantStatus: []*spb.ServiceStatus{
 				{
 					Name:         "mysql",
-					State:        spb.State_FAILURE_STATE,
+					State:        spb.State_ERROR_STATE,
 					ErrorMessage: "failed to ping MySQL connection: dial tcp 127.0.0.1:3306: connect: connection refused",
 				},
 			},
@@ -1311,7 +1311,7 @@ func TestCheckDatabaseConnectivity(t *testing.T) {
 			wantStatus: []*spb.ServiceStatus{
 				{
 					Name:         "postgres",
-					State:        spb.State_FAILURE_STATE,
+					State:        spb.State_ERROR_STATE,
 					ErrorMessage: "failed to ping Postgres connection: dial tcp [::1]:5432: connect: connection refused",
 				},
 			},
@@ -1331,7 +1331,7 @@ func TestCheckDatabaseConnectivity(t *testing.T) {
 			wantStatus: []*spb.ServiceStatus{
 				{
 					Name:         "mongodb",
-					State:        spb.State_FAILURE_STATE,
+					State:        spb.State_ERROR_STATE,
 					ErrorMessage: "failed to connect to MongoDB: error validating uri: username required if URI contains user info",
 				},
 			},
@@ -1351,7 +1351,7 @@ func TestCheckDatabaseConnectivity(t *testing.T) {
 			wantStatus: []*spb.ServiceStatus{
 				{
 					Name:         "redis",
-					State:        spb.State_FAILURE_STATE,
+					State:        spb.State_ERROR_STATE,
 					ErrorMessage: "could not read OS info: file does not exist",
 				},
 			},
@@ -1378,7 +1378,7 @@ func TestCheckDatabaseConnectivity(t *testing.T) {
 			wantStatus: []*spb.ServiceStatus{
 				{
 					Name:         "sqlserver",
-					State:        spb.State_FAILURE_STATE,
+					State:        spb.State_ERROR_STATE,
 					ErrorMessage: "invalid value for \"secret_name\" for host: sql-1-vm",
 				},
 			},
@@ -1407,7 +1407,7 @@ func TestCheckDatabaseConnectivity(t *testing.T) {
 			wantStatus: []*spb.ServiceStatus{
 				{
 					Name:         "sqlserver",
-					State:        spb.State_FAILURE_STATE,
+					State:        spb.State_ERROR_STATE,
 					ErrorMessage: "invalid value for \"user_name\" for host: sql-1-vm",
 				},
 			},
@@ -1436,22 +1436,22 @@ func TestCheckDatabaseConnectivity(t *testing.T) {
 			wantStatus: []*spb.ServiceStatus{
 				{
 					Name:         "mysql",
-					State:        spb.State_FAILURE_STATE,
+					State:        spb.State_ERROR_STATE,
 					ErrorMessage: "failed to ping MySQL connection: dial tcp 127.0.0.1:3306: connect: connection refused",
 				},
 				{
 					Name:         "postgres",
-					State:        spb.State_FAILURE_STATE,
+					State:        spb.State_ERROR_STATE,
 					ErrorMessage: "failed to ping Postgres connection: dial tcp [::1]:5432: connect: connection refused",
 				},
 				{
 					Name:         "mongodb",
-					State:        spb.State_FAILURE_STATE,
+					State:        spb.State_ERROR_STATE,
 					ErrorMessage: "failed to connect to MongoDB: error validating uri: username required if URI contains user info",
 				},
 				{
 					Name:         "redis",
-					State:        spb.State_FAILURE_STATE,
+					State:        spb.State_ERROR_STATE,
 					ErrorMessage: "could not read OS info: file does not exist",
 				},
 			},
@@ -1466,10 +1466,45 @@ func TestCheckDatabaseConnectivity(t *testing.T) {
 			gce:        &fakeGCEClient{},
 			wantStatus: nil,
 		},
+		{
+			name: "OracleFailure",
+			config: &cpb.Configuration{
+				OracleConfiguration: &cpb.OracleConfiguration{
+					Enabled: proto.Bool(true),
+					OracleMetrics: &cpb.OracleMetrics{
+						Enabled: proto.Bool(true),
+						ConnectionParameters: []*cpb.ConnectionParameters{
+							{
+								Username: "user",
+								Host:     "127.0.0.1",
+								Port:     1521,
+								Secret: &cpb.SecretRef{
+									ProjectId:  "project-id",
+									SecretName: "secret-name",
+								},
+								ServiceName: "orcl",
+							},
+						},
+					},
+				},
+			},
+			gce: &fakeGCEClient{
+				getSecret: func(ctx context.Context, projectID, secretName string) (string, error) {
+					return "password", nil
+				},
+			},
+			wantStatus: []*spb.ServiceStatus{
+				{
+					Name:         "oracle",
+					State:        spb.State_ERROR_STATE,
+					ErrorMessage: "dial tcp 127.0.0.1:1521: connect: connection refused",
+				},
+			},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 			gotStatus := checkDatabaseConnectivity(ctx, tc.config, tc.gce, &cpb.CloudProperties{ProjectId: "test-project"})
 			if diff := cmp.Diff(tc.wantStatus, gotStatus, protocmp.Transform()); diff != "" {
 				t.Errorf("checkDatabaseConnectivity(%v) returned unexpected diff (-want +got):\n%s", tc.config, diff)
@@ -1479,7 +1514,7 @@ func TestCheckDatabaseConnectivity(t *testing.T) {
 }
 
 func TestAgentStatus_ValidConfig(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	arClient := newFakeARClient(nil, nil, nil)
 	iamClient := &fakeIAMService{}
 	exec := func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
@@ -1504,7 +1539,7 @@ func TestAgentStatus_ValidConfig(t *testing.T) {
 }
 
 func TestAgentStatus_ConfigurationValidity(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	arClient := newFakeARClient(nil, nil, nil)
 	iamClient := &fakeIAMService{}
 	exec := func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {

@@ -17,7 +17,6 @@ limitations under the License.
 package oraclemetrics
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -242,7 +241,7 @@ func TestReadConnectionParameters(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := readConnectionParameters(context.Background(), tc.gceService, tc.config)
+			got, err := readConnectionParameters(t.Context(), tc.gceService, tc.config)
 			if err != nil && !tc.wantErr {
 				t.Errorf("readConnectionParameters() returned unexpected error: %v", err)
 			}
@@ -288,7 +287,7 @@ func TestCreateMetricsForRow(t *testing.T) {
 	defaultLabels := map[string]string{"defaultLabel1": "test1", "defaultLabel2": "test2"}
 
 	wantMetrics := 4
-	got := createMetricsForRow(context.Background(), opts, cols, defaultLabels)
+	got := createMetricsForRow(t.Context(), opts, cols, defaultLabels)
 	gotMetrics := len(got)
 	if gotMetrics != wantMetrics {
 		t.Errorf("createMetricsForRow(%#v) = %d, want metrics length: %d", query, gotMetrics, wantMetrics)
@@ -497,7 +496,7 @@ func TestCreateCumulativeMetric(t *testing.T) {
 				collector:   &defaultCollector,
 				runningSum:  test.runningSum,
 			}
-			got, _ := createCumulativeMetric(context.Background(), test.column, test.val, map[string]string{"abc": "def"}, opts, defaultTimestamp)
+			got, _ := createCumulativeMetric(t.Context(), test.column, test.val, map[string]string{"abc": "def"}, opts, defaultTimestamp)
 			if diff := cmp.Diff(test.want, got, protocmp.Transform()); diff != "" {
 				t.Errorf("createCumulativeMetric(%#v) unexpected diff: (-want +got):\n%s", test.column, diff)
 			}
@@ -707,7 +706,7 @@ func TestFetchDatabaseInfo(t *testing.T) {
 	}
 	defer db.Close()
 
-	got, err := fetchDatabaseInfo(context.Background(), db)
+	got, err := fetchDatabaseInfo(t.Context(), db)
 	if err != nil {
 		t.Errorf("fetchDatabaseInfo() returned an unexpected error: %v", err)
 	}
@@ -887,7 +886,7 @@ func TestSendDefaultMetricsToCloudMonitoring(t *testing.T) {
 				connections:       tc.connections,
 			}
 
-			got := collector.SendDefaultMetricsToCloudMonitoring(context.Background())
+			got := collector.SendDefaultMetricsToCloudMonitoring(t.Context())
 
 			if diff := cmp.Diff(tc.want, got, protocmp.Transform(), protocmp.IgnoreFields(&mrpb.Point{}, "interval")); diff != "" {
 				t.Errorf("SendDefaultMetricsToCloudMonitoring() returned an unexpected diff (-want +got): %v", diff)
@@ -925,7 +924,7 @@ func TestShouldSkipQuery(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 			c := &MetricCollector{
 				failCount:     map[string]int{"test:query1": tc.failCount},
 				skipMsgLogged: tc.skipMsgLogged,
@@ -1046,7 +1045,7 @@ func TestExecuteQueryAndSendMetrics(t *testing.T) {
 				defaultLabels: map[string]string{"dbid": "1", "db_unique_name": "test_db_unique_name", "pdb_name": "test_pdb_name"},
 			}
 
-			got := executeQueryAndSendMetrics(context.Background(), opts)
+			got := executeQueryAndSendMetrics(t.Context(), opts)
 
 			if diff := cmp.Diff(tc.want, got, protocmp.Transform(), protocmp.IgnoreFields(&mrpb.Point{}, "interval")); diff != "" {
 				t.Errorf("executeQueryAndSendMetrics() returned an unexpected diff (-want +got): %v", diff)
@@ -1123,7 +1122,7 @@ func TestCreateHealthMetrics(t *testing.T) {
 		},
 	}
 
-	got := createHealthMetrics(context.Background(), statusData, cfg)
+	got := createHealthMetrics(t.Context(), statusData, cfg)
 
 	opts := []cmp.Option{
 		protocmp.Transform(),
@@ -1178,7 +1177,7 @@ func TestDatabaseHealth(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := checkDatabaseHealth(context.Background(), tc.connections)
+			got := checkDatabaseHealth(t.Context(), tc.connections)
 
 			opts := []cmp.Option{cmpopts.IgnoreFields(ServiceHealth{}, "LastChecked")}
 			if diff := cmp.Diff(tc.want, got, opts...); diff != "" {
@@ -1288,10 +1287,89 @@ func TestSendHealthMetricsToCloudMonitoring(t *testing.T) {
 				connections:       tc.connections,
 			}
 
-			got := collector.SendHealthMetricsToCloudMonitoring(context.Background())
+			got := collector.SendHealthMetricsToCloudMonitoring(t.Context())
 
 			if diff := cmp.Diff(tc.want, got, protocmp.Transform(), protocmp.IgnoreFields(&mrpb.Point{}, "interval")); diff != "" {
 				t.Errorf("SendHealthMetricsToCloudMonitoring() returned diff (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestPingDB(t *testing.T) {
+	db, err := setupSQLiteDB(t)
+	if err != nil {
+		t.Fatalf("Failed to setup testing SQLite DB: %v", err)
+	}
+	defer db.Close()
+
+	tests := []struct {
+		name       string
+		config     *configpb.Configuration
+		gceService gceInterface
+		wantErr    bool
+	}{
+		{
+			name: "ConnectionRefused",
+			config: &configpb.Configuration{
+				OracleConfiguration: &configpb.OracleConfiguration{
+					OracleMetrics: &configpb.OracleMetrics{
+						Enabled: proto.Bool(true),
+						ConnectionParameters: []*configpb.ConnectionParameters{
+							{
+								Username:    "user",
+								ServiceName: "orcl",
+								Host:        "127.0.0.1",
+								Port:        1521,
+								Secret: &configpb.SecretRef{
+									ProjectId:  "my-project",
+									SecretName: "my-secret",
+								},
+							},
+						},
+					},
+				},
+			},
+			gceService: &gcefake.TestGCE{
+				GetSecretResp: []string{"password"},
+				GetSecretErr:  []error{nil},
+			},
+			wantErr: true,
+		},
+		{
+			name: "SecretNotFound",
+			config: &configpb.Configuration{
+				OracleConfiguration: &configpb.OracleConfiguration{
+					OracleMetrics: &configpb.OracleMetrics{
+						Enabled: proto.Bool(true),
+						ConnectionParameters: []*configpb.ConnectionParameters{
+							{
+								Username:    "user",
+								ServiceName: "orcl",
+								Host:        "localhost",
+								Port:        1521,
+								Secret: &configpb.SecretRef{
+									ProjectId:  "my-project",
+									SecretName: "my-secret",
+								},
+							},
+						},
+					},
+				},
+			},
+			gceService: &gcefake.TestGCE{
+				GetSecretResp: []string{""},
+				GetSecretErr:  []error{errors.New("secret not found")},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := PingDB(t.Context(), tc.gceService, tc.config)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("PingDB() error = %v, wantErr %v", err, tc.wantErr)
 			}
 		})
 	}

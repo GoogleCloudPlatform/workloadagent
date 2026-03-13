@@ -36,6 +36,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/mongodbmetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/mysqlmetrics"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/oraclemetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/postgresmetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/redismetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/sqlservermetrics"
@@ -361,7 +362,7 @@ type gceInterface interface {
 func checkAndSetStatus(name string, checkFn func() error) *spb.ServiceStatus {
 	s := &spb.ServiceStatus{Name: name}
 	if err := checkFn(); err != nil {
-		s.State = spb.State_FAILURE_STATE
+		s.State = spb.State_ERROR_STATE
 		s.ErrorMessage = err.Error()
 	} else {
 		s.State = spb.State_SUCCESS_STATE
@@ -418,6 +419,13 @@ func checkDatabaseConnectivity(ctx context.Context, cfg *cpb.Configuration, gceS
 		statuses = append(statuses, checkAndSetStatus("sqlserver", func() error {
 			metrics := &sqlservermetrics.SQLServerMetrics{Config: cfg.GetSqlserverConfiguration()}
 			return metrics.PingDB(ctx, gceService, cloudProps)
+		}))
+	}
+
+	// Database Connectivity Checks for Oracle
+	if cfg.GetOracleConfiguration().GetEnabled() {
+		statuses = append(statuses, checkAndSetStatus("oracle", func() error {
+			return oraclemetrics.PingDB(ctx, gceService, cfg)
 		}))
 	}
 	return statuses
