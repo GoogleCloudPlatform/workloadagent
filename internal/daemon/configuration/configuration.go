@@ -430,3 +430,20 @@ func mergePMConfig(ctx context.Context, pmClient *parametermanager.Client, confi
 	log.Logger.Info("Configuration successfully merged with Parameter Manager payload")
 	return config, resource.Version
 }
+
+// ValidateParameterManagerConfiguration checks if the required fields for Parameter Manager are present.
+func ValidateParameterManagerConfiguration(config *cpb.ParameterManagerConfig) error {
+	if config == nil {
+		return nil
+	}
+	if config.GetProject() == "" {
+		return errors.New("project is required")
+	}
+	if config.GetLocation() == "" {
+		return errors.New("location is required")
+	}
+	if config.GetParameterName() == "" {
+		return errors.New("parameter_name is required")
+	}
+	return nil
+}

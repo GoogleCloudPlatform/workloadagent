@@ -45,6 +45,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/iam"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/osinfo"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/parametermanager"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/permissions"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/statushelper"
 
@@ -70,6 +71,12 @@ var newGCEClient = func(ctx context.Context) (gceInterface, error) {
 
 var osOpen = func(name string) (io.ReadCloser, error) {
 	return os.Open(name)
+}
+
+var fetchParameter = parametermanager.FetchParameter
+
+func compareServiceStatus(a, b *spb.ServiceStatus) int {
+	return strings.Compare(a.Name, b.Name)
 }
 
 // NewCommand creates a new status command.
@@ -188,11 +195,17 @@ func agentStatus(ctx context.Context, arClient statushelper.ARClientInterface, i
 	iamServices := map[string]string{
 		"SECRET_MANAGER": "Secret Manager",
 	}
+	if configProto.GetParameterManagerConfig() != nil {
+		iamServices["PARAMETER_MANAGER"] = "Parameter Manager"
+	}
 	agentStatus.Services = append(agentStatus.Services, checkIAMPermissions(ctx, iamClient, cloudProps, iamServices, iamPermissionsYAML)...)
 
 	// Check if configured APIs are enabled
 	apis := map[string]string{
 		"workloadmanager.googleapis.com": "Workload Manager API",
+	}
+	if configProto.GetParameterManagerConfig() != nil {
+		apis["parametermanager.googleapis.com"] = "Parameter Manager API"
 	}
 	agentStatus.Services = append(agentStatus.Services, checkAPIEnablement(ctx, cloudProps, apis)...)
 
@@ -203,13 +216,37 @@ func agentStatus(ctx context.Context, arClient statushelper.ARClientInterface, i
 			log.CtxLogger(ctx).Errorw("Could not create GCE client, skipping database connectivity checks.", "error", err)
 			agentStatus.Services = append(agentStatus.Services, &spb.ServiceStatus{
 				Name:         "GCE Connectivity",
-				State:        spb.State_FAILURE_STATE,
+				State:        spb.State_ERROR_STATE,
 				ErrorMessage: "could not create GCE client",
 			})
 		} else {
 			agentStatus.Services = append(agentStatus.Services, checkDatabaseConnectivity(ctx, configProto, gceService, cloudProps)...)
 		}
+
+		if configProto.GetParameterManagerConfig() != nil {
+			pmLocalStatus := &spb.ServiceStatus{
+				Name: "Parameter Manager Local Configuration",
+			}
+			err := configuration.ValidateParameterManagerConfiguration(configProto.GetParameterManagerConfig())
+			if err != nil {
+				pmLocalStatus.State = spb.State_ERROR_STATE
+				pmLocalStatus.ErrorMessage = fmt.Sprintf("invalid configuration: %v", err)
+				pmLocalStatus.FullyFunctional = spb.State_FAILURE_STATE
+			} else {
+				pmLocalStatus.State = spb.State_SUCCESS_STATE
+				pmLocalStatus.FullyFunctional = spb.State_SUCCESS_STATE
+			}
+			agentStatus.Services = append(agentStatus.Services, pmLocalStatus)
+
+			// Check retrieved PM config validity only if local config is valid.
+			if err == nil {
+				pmStatus := checkRetrievedPMConfigValidity(ctx, configProto)
+				agentStatus.Services = append(agentStatus.Services, pmStatus)
+			}
+		}
 	}
+
+	slices.SortFunc(agentStatus.Services, compareServiceStatus)
 
 	agentStatus.KernelVersion, err = statushelper.KernelVersion(ctx, runtime.GOOS, exec)
 	if err != nil && runtime.GOOS == "linux" {
@@ -222,14 +259,19 @@ func agentStatus(ctx context.Context, arClient statushelper.ARClientInterface, i
 func checkIAMPermissions(ctx context.Context, iamClient permissions.IAMService, cloudProps *cpb.CloudProperties, services map[string]string, permissionsYAML []byte) []*spb.ServiceStatus {
 	var statuses []*spb.ServiceStatus
 	if cloudProps == nil {
-		for _, displayName := range services {
+		keys := make([]string, 0, len(services))
+		for k := range services {
+			keys = append(keys, k)
+		}
+		for _, service := range keys {
 			statuses = append(statuses, &spb.ServiceStatus{
-				Name:            displayName,
+				Name:            services[service],
 				State:           spb.State_FAILURE_STATE,
 				ErrorMessage:    "Cloud properties not available",
 				FullyFunctional: spb.State_FAILURE_STATE,
 			})
 		}
+		slices.SortFunc(statuses, compareServiceStatus)
 		return statuses
 	}
 
@@ -239,11 +281,12 @@ func checkIAMPermissions(ctx context.Context, iamClient permissions.IAMService, 
 		for _, displayName := range services {
 			statuses = append(statuses, &spb.ServiceStatus{
 				Name:            displayName,
-				State:           spb.State_FAILURE_STATE,
+				State:           spb.State_ERROR_STATE,
 				ErrorMessage:    fmt.Sprintf("IAM permission configuration error: %v", parseErr),
 				FullyFunctional: spb.State_FAILURE_STATE,
 			})
 		}
+		slices.SortFunc(statuses, compareServiceStatus)
 		return statuses
 	}
 
@@ -257,7 +300,7 @@ func checkIAMPermissions(ctx context.Context, iamClient permissions.IAMService, 
 		grantedPermissions, err := checker.FetchServicePermissionsStatus(ctx, iamClient, serviceName, resource)
 		if err != nil {
 			log.CtxLogger(ctx).Warnw("Failed to check IAM permissions", "service", serviceName, "error", err)
-			status.State = spb.State_FAILURE_STATE
+			status.State = spb.State_ERROR_STATE
 			status.ErrorMessage = err.Error()
 			status.FullyFunctional = spb.State_FAILURE_STATE
 		} else {
@@ -268,6 +311,8 @@ func checkIAMPermissions(ctx context.Context, iamClient permissions.IAMService, 
 				state := spb.State_FAILURE_STATE
 				if granted {
 					state = spb.State_SUCCESS_STATE
+				} else {
+					status.FullyFunctional = spb.State_FAILURE_STATE
 				}
 				status.IamPermissions = append(status.IamPermissions, &spb.IAMPermission{
 					Name:    permission,
@@ -282,9 +327,7 @@ func checkIAMPermissions(ctx context.Context, iamClient permissions.IAMService, 
 		statuses = append(statuses, status)
 	}
 	// Sort statuses by name for deterministic output
-	slices.SortFunc(statuses, func(a, b *spb.ServiceStatus) int {
-		return strings.Compare(a.Name, b.Name)
-	})
+	slices.SortFunc(statuses, compareServiceStatus)
 	return statuses
 }
 
@@ -300,6 +343,7 @@ func checkAPIEnablement(ctx context.Context, cloudProps *cpb.CloudProperties, ap
 				FullyFunctional: spb.State_FAILURE_STATE,
 			})
 		}
+		slices.SortFunc(statuses, compareServiceStatus)
 		return statuses
 	}
 	usageService, err := serviceUsageNewService(ctx)
@@ -308,11 +352,12 @@ func checkAPIEnablement(ctx context.Context, cloudProps *cpb.CloudProperties, ap
 		for _, name := range apis {
 			statuses = append(statuses, &spb.ServiceStatus{
 				Name:            name,
-				State:           spb.State_FAILURE_STATE,
+				State:           spb.State_ERROR_STATE,
 				ErrorMessage:    fmt.Sprintf("failed to create Service Usage client: %v", err),
 				FullyFunctional: spb.State_FAILURE_STATE,
 			})
 		}
+		slices.SortFunc(statuses, compareServiceStatus)
 		return statuses
 	}
 
@@ -333,7 +378,7 @@ func checkAPIEnablement(ctx context.Context, cloudProps *cpb.CloudProperties, ap
 				err = fmt.Errorf("failed to get service %s: %v", serviceName, err)
 			}
 			log.CtxLogger(ctx).Warnw("Failed to check API status", "service", serviceName, "error", err)
-			status.State = spb.State_FAILURE_STATE
+			status.State = spb.State_ERROR_STATE
 			status.ErrorMessage = err.Error()
 			status.FullyFunctional = spb.State_FAILURE_STATE
 		} else {
@@ -349,9 +394,7 @@ func checkAPIEnablement(ctx context.Context, cloudProps *cpb.CloudProperties, ap
 		statuses = append(statuses, status)
 	}
 	// Sort statuses by name for deterministic output
-	slices.SortFunc(statuses, func(a, b *spb.ServiceStatus) int {
-		return strings.Compare(a.Name, b.Name)
-	})
+	slices.SortFunc(statuses, compareServiceStatus)
 	return statuses
 }
 
@@ -452,4 +495,34 @@ func getRepositoryLocation(cp *cpb.CloudProperties) string {
 		return "asia"
 	}
 	return region
+}
+
+// checkRetrievedPMConfigValidity checks if the configuration retrieved from Parameter Manager is valid.
+func checkRetrievedPMConfigValidity(ctx context.Context, config *cpb.Configuration) *spb.ServiceStatus {
+	status := &spb.ServiceStatus{
+		Name: "Parameter Manager Remote Configuration",
+	}
+
+	pmConfig := config.GetParameterManagerConfig()
+	resource, err := fetchParameter(ctx, nil, pmConfig.GetProject(), pmConfig.GetLocation(), pmConfig.GetParameterName(), pmConfig.GetParameterVersion())
+	if err != nil {
+		log.CtxLogger(ctx).Errorw("Failed to fetch configuration from Parameter Manager", "error", err)
+		status.State = spb.State_ERROR_STATE
+		status.ErrorMessage = fmt.Sprintf("failed to fetch from Parameter Manager: %v", err)
+		status.FullyFunctional = spb.State_FAILURE_STATE
+		return status
+	}
+
+	remoteConfig := &cpb.Configuration{}
+	if err := protojson.Unmarshal([]byte(resource.Data), remoteConfig); err != nil {
+		log.CtxLogger(ctx).Errorw("Failed to unmarshal Parameter Manager payload", "error", err)
+		status.State = spb.State_ERROR_STATE
+		status.ErrorMessage = fmt.Sprintf("failed to parse retrieved configuration: %v", err)
+		status.FullyFunctional = spb.State_FAILURE_STATE
+		return status
+	}
+
+	status.State = spb.State_SUCCESS_STATE
+	status.FullyFunctional = spb.State_SUCCESS_STATE
+	return status
 }

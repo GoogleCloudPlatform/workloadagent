@@ -27,3 +27,12 @@ features:
         type: Project
         permissions:
           - secretmanager.versions.access
+  -
+    name: PARAMETER_MANAGER
+    permissionsList:
+      -
+        type: Project
+        permissions:
+          - parametermanager.parameterVersions.get
+          - parametermanager.parameterVersions.list
+          - parametermanager.parameterVersions.render

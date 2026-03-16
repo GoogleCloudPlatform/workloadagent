@@ -40,6 +40,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon/configuration"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/parametermanager"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/permissions"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/statushelper"
 
@@ -192,6 +193,11 @@ func TestAgentStatus(t *testing.T) {
 	osOpen = func(name string) (io.ReadCloser, error) {
 		return nil, os.ErrNotExist
 	}
+	oldFetchParameter := fetchParameter
+	t.Cleanup(func() { fetchParameter = oldFetchParameter })
+	fetchParameter = func(ctx context.Context, client *parametermanager.Client, projectID, location, parameterName, version string) (*parametermanager.Resource, error) {
+		return &parametermanager.Resource{Data: `{}`}, nil
+	}
 
 	tests := []struct {
 		name       string
@@ -257,7 +263,7 @@ func TestAgentStatus(t *testing.T) {
 					},
 					{
 						Name:            "Workload Manager API",
-						State:           spb.State_FAILURE_STATE,
+						State:           spb.State_ERROR_STATE,
 						ErrorMessage:    "failed to create Service Usage client",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
@@ -313,14 +319,14 @@ func TestAgentStatus(t *testing.T) {
 					{
 						Name:            "Secret Manager",
 						State:           spb.State_SUCCESS_STATE,
-						FullyFunctional: spb.State_SUCCESS_STATE,
+						FullyFunctional: spb.State_FAILURE_STATE,
 						IamPermissions: []*spb.IAMPermission{
 							{Name: "secretmanager.versions.access", Granted: spb.State_FAILURE_STATE},
 						},
 					},
 					{
 						Name:            "Workload Manager API",
-						State:           spb.State_FAILURE_STATE,
+						State:           spb.State_ERROR_STATE,
 						ErrorMessage:    "failed to create Service Usage client",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
@@ -371,14 +377,14 @@ func TestAgentStatus(t *testing.T) {
 					{
 						Name:            "Secret Manager",
 						State:           spb.State_SUCCESS_STATE,
-						FullyFunctional: spb.State_SUCCESS_STATE,
+						FullyFunctional: spb.State_FAILURE_STATE,
 						IamPermissions: []*spb.IAMPermission{
 							{Name: "secretmanager.versions.access", Granted: spb.State_FAILURE_STATE},
 						},
 					},
 					{
 						Name:            "Workload Manager API",
-						State:           spb.State_FAILURE_STATE,
+						State:           spb.State_ERROR_STATE,
 						ErrorMessage:    "failed to create Service Usage client",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
@@ -471,13 +477,13 @@ func TestAgentStatus(t *testing.T) {
 				Services: []*spb.ServiceStatus{
 					{
 						Name:            "Secret Manager",
-						State:           spb.State_FAILURE_STATE,
+						State:           spb.State_ERROR_STATE,
 						ErrorMessage:    "failed to check permissions for service SECRET_MANAGER on entity Project: IAM check failed",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
 					{
 						Name:            "Workload Manager API",
-						State:           spb.State_FAILURE_STATE,
+						State:           spb.State_ERROR_STATE,
 						ErrorMessage:    "failed to create Service Usage client",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
@@ -524,14 +530,14 @@ func TestAgentStatus(t *testing.T) {
 					{
 						Name:            "Secret Manager",
 						State:           spb.State_SUCCESS_STATE,
-						FullyFunctional: spb.State_SUCCESS_STATE,
+						FullyFunctional: spb.State_FAILURE_STATE,
 						IamPermissions: []*spb.IAMPermission{
 							{Name: "secretmanager.versions.access", Granted: spb.State_FAILURE_STATE},
 						},
 					},
 					{
 						Name:            "Workload Manager API",
-						State:           spb.State_FAILURE_STATE,
+						State:           spb.State_ERROR_STATE,
 						ErrorMessage:    "failed to create Service Usage client",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
@@ -583,14 +589,14 @@ func TestAgentStatus(t *testing.T) {
 					{
 						Name:            "Secret Manager",
 						State:           spb.State_SUCCESS_STATE,
-						FullyFunctional: spb.State_SUCCESS_STATE,
+						FullyFunctional: spb.State_FAILURE_STATE,
 						IamPermissions: []*spb.IAMPermission{
 							{Name: "secretmanager.versions.access", Granted: spb.State_FAILURE_STATE},
 						},
 					},
 					{
 						Name:            "Workload Manager API",
-						State:           spb.State_FAILURE_STATE,
+						State:           spb.State_ERROR_STATE,
 						ErrorMessage:    "failed to create Service Usage client",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
@@ -641,14 +647,14 @@ func TestAgentStatus(t *testing.T) {
 					{
 						Name:            "Secret Manager",
 						State:           spb.State_SUCCESS_STATE,
-						FullyFunctional: spb.State_SUCCESS_STATE,
+						FullyFunctional: spb.State_FAILURE_STATE,
 						IamPermissions: []*spb.IAMPermission{
 							{Name: "secretmanager.versions.access", Granted: spb.State_FAILURE_STATE},
 						},
 					},
 					{
 						Name:            "Workload Manager API",
-						State:           spb.State_FAILURE_STATE,
+						State:           spb.State_ERROR_STATE,
 						ErrorMessage:    "failed to create Service Usage client",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
@@ -696,14 +702,14 @@ func TestAgentStatus(t *testing.T) {
 					{
 						Name:            "Secret Manager",
 						State:           spb.State_SUCCESS_STATE,
-						FullyFunctional: spb.State_SUCCESS_STATE,
+						FullyFunctional: spb.State_FAILURE_STATE,
 						IamPermissions: []*spb.IAMPermission{
 							{Name: "secretmanager.versions.access", Granted: spb.State_FAILURE_STATE},
 						},
 					},
 					{
 						Name:            "Workload Manager API",
-						State:           spb.State_FAILURE_STATE,
+						State:           spb.State_ERROR_STATE,
 						ErrorMessage:    "failed to create Service Usage client",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
@@ -770,14 +776,14 @@ func TestAgentStatus(t *testing.T) {
 					{
 						Name:            "Secret Manager",
 						State:           spb.State_SUCCESS_STATE,
-						FullyFunctional: spb.State_SUCCESS_STATE,
+						FullyFunctional: spb.State_FAILURE_STATE,
 						IamPermissions: []*spb.IAMPermission{
 							{Name: "secretmanager.versions.access", Granted: spb.State_FAILURE_STATE},
 						},
 					},
 					{
 						Name:            "Workload Manager API",
-						State:           spb.State_FAILURE_STATE,
+						State:           spb.State_ERROR_STATE,
 						ErrorMessage:    "failed to create Service Usage client",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
@@ -855,7 +861,7 @@ func TestAgentStatus(t *testing.T) {
 					},
 					{
 						Name:            "Workload Manager API",
-						State:           spb.State_FAILURE_STATE,
+						State:           spb.State_ERROR_STATE,
 						ErrorMessage:    "failed to create Service Usage client",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
@@ -917,14 +923,14 @@ func TestAgentStatus(t *testing.T) {
 					{
 						Name:            "Secret Manager",
 						State:           spb.State_SUCCESS_STATE,
-						FullyFunctional: spb.State_SUCCESS_STATE,
+						FullyFunctional: spb.State_FAILURE_STATE,
 						IamPermissions: []*spb.IAMPermission{
 							{Name: "secretmanager.versions.access", Granted: spb.State_FAILURE_STATE},
 						},
 					},
 					{
 						Name:            "Workload Manager API",
-						State:           spb.State_FAILURE_STATE,
+						State:           spb.State_ERROR_STATE,
 						ErrorMessage:    "failed to create Service Usage client",
 						FullyFunctional: spb.State_FAILURE_STATE,
 					},
@@ -932,6 +938,98 @@ func TestAgentStatus(t *testing.T) {
 						Name:         "mysql",
 						State:        spb.State_ERROR_STATE,
 						ErrorMessage: "failed to ping MySQL connection: dial tcp 127.0.0.1:3306: connect: connection refused",
+					},
+				},
+			},
+		},
+		{
+			name: "ParameterManagerEnabled",
+			exec: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				if strings.Contains(params.ArgsToSplit, "is-enabled") {
+					return commandlineexecutor.Result{StdOut: "enabled", ExitCode: 0}
+				}
+				if strings.Contains(params.ArgsToSplit, "is-active") {
+					return commandlineexecutor.Result{StdOut: "active", ExitCode: 0}
+				}
+				if params.Executable == "uname" {
+					return commandlineexecutor.Result{StdOut: "5.10.0", ExitCode: 0}
+				}
+				return commandlineexecutor.Result{}
+			},
+			arClient: newFakeARClient(
+				[]*arpb.Package{{Name: "projects/workload-agent-products/locations/us/repositories/google-cloud-workload-agent-x86-64/packages/google-cloud-workload-agent"}},
+				[]*arpb.Version{{Name: "1.2.3"}},
+				nil,
+			),
+			iamClient: &fakeIAMService{
+				projectPermissions: map[string][]string{
+					"test-project": []string{"secretmanager.versions.access", "parametermanager.parameterVersions.get", "parametermanager.parameterVersions.list", "parametermanager.parameterVersions.render"},
+				},
+			},
+			readFile: func(string) ([]byte, error) {
+				return []byte(`{"parameter_manager_config": {"project": "test-project", "location": "us-central1", "parameter_name": "test-parameter"}}`), nil
+			},
+			cloudProps: &cpb.CloudProperties{
+				ProjectId:  "test-project",
+				Zone:       "test-zone",
+				InstanceId: "test-instance",
+				Scopes:     []string{requiredScope},
+			},
+			want: &spb.AgentStatus{
+				AgentName:                       agentPackageName,
+				InstalledVersion:                fmt.Sprintf("%s-%s", configuration.AgentVersion, configuration.AgentBuildChange),
+				AvailableVersion:                "1.2.3",
+				SystemdServiceEnabled:           spb.State_SUCCESS_STATE,
+				SystemdServiceRunning:           spb.State_SUCCESS_STATE,
+				CloudApiAccessFullScopesGranted: spb.State_SUCCESS_STATE,
+				ConfigurationFilePath:           configuration.LinuxConfigPath,
+				ConfigurationValid:              spb.State_SUCCESS_STATE,
+				InstanceUri:                     "projects/test-project/zones/test-zone/instances/test-instance",
+				KernelVersion:                   &spb.KernelVersion{RawString: "5.10.0"},
+				Services: []*spb.ServiceStatus{
+					{
+						Name:            "Parameter Manager",
+						State:           spb.State_SUCCESS_STATE,
+						FullyFunctional: spb.State_SUCCESS_STATE,
+						IamPermissions: []*spb.IAMPermission{
+							{Name: "parametermanager.parameterVersions.get", Granted: spb.State_SUCCESS_STATE},
+							{Name: "parametermanager.parameterVersions.list", Granted: spb.State_SUCCESS_STATE},
+							{Name: "parametermanager.parameterVersions.render", Granted: spb.State_SUCCESS_STATE},
+							{Name: "secretmanager.versions.access", Granted: spb.State_SUCCESS_STATE},
+						},
+					},
+					{
+						Name:            "Parameter Manager API",
+						State:           spb.State_ERROR_STATE,
+						ErrorMessage:    "failed to create Service Usage client: credentials: could not find default credentials. See https://cloud.google.com/docs/authentication/external/set-up-adc for more information",
+						FullyFunctional: spb.State_FAILURE_STATE,
+					},
+					{
+						Name:            "Parameter Manager Local Configuration",
+						State:           spb.State_SUCCESS_STATE,
+						FullyFunctional: spb.State_SUCCESS_STATE,
+					},
+					{
+						Name:            "Parameter Manager Remote Configuration",
+						State:           spb.State_SUCCESS_STATE,
+						FullyFunctional: spb.State_SUCCESS_STATE,
+					},
+					{
+						Name:            "Secret Manager",
+						State:           spb.State_SUCCESS_STATE,
+						FullyFunctional: spb.State_SUCCESS_STATE,
+						IamPermissions: []*spb.IAMPermission{
+							{Name: "parametermanager.parameterVersions.get", Granted: spb.State_SUCCESS_STATE},
+							{Name: "parametermanager.parameterVersions.list", Granted: spb.State_SUCCESS_STATE},
+							{Name: "parametermanager.parameterVersions.render", Granted: spb.State_SUCCESS_STATE},
+							{Name: "secretmanager.versions.access", Granted: spb.State_SUCCESS_STATE},
+						},
+					},
+					{
+						Name:            "Workload Manager API",
+						State:           spb.State_ERROR_STATE,
+						ErrorMessage:    "failed to create Service Usage client",
+						FullyFunctional: spb.State_FAILURE_STATE,
 					},
 				},
 			},
@@ -964,7 +1062,7 @@ func TestAgentStatus(t *testing.T) {
 			}
 
 			if diff := cmp.Diff(tc.want, got, protocmp.Transform()); diff != "" {
-				t.Errorf("agentStatus() returned unexpected diff (-want +got):\n%s", diff)
+				t.Errorf("agentStatus(%s) returned unexpected diff (-want +got):\n%s", tc.name, diff)
 			}
 		})
 	}
@@ -997,8 +1095,8 @@ func TestAgentStatus_GCEClientError(t *testing.T) {
 	for _, s := range status.Services {
 		if s.Name == "GCE Connectivity" {
 			found = true
-			if s.State != spb.State_FAILURE_STATE {
-				t.Errorf("GCE Connectivity state = %v, want %v", s.State, spb.State_FAILURE_STATE)
+			if s.State != spb.State_ERROR_STATE {
+				t.Errorf("GCE Connectivity state = %v, want %v", s.State, spb.State_ERROR_STATE)
 			}
 			expectedMsg := "could not create GCE client"
 			if s.ErrorMessage != expectedMsg {
@@ -1072,7 +1170,7 @@ func TestCheckIAMPermissions(t *testing.T) {
 			want: []*spb.ServiceStatus{
 				{
 					Name:            "Secret Manager",
-					State:           spb.State_FAILURE_STATE,
+					State:           spb.State_ERROR_STATE,
 					FullyFunctional: spb.State_FAILURE_STATE,
 				},
 			},
@@ -1088,7 +1186,7 @@ func TestCheckIAMPermissions(t *testing.T) {
 			want: []*spb.ServiceStatus{
 				{
 					Name:            "Secret Manager",
-					State:           spb.State_FAILURE_STATE,
+					State:           spb.State_ERROR_STATE,
 					ErrorMessage:    "failed to check permissions for service SECRET_MANAGER on entity Project: IAM check failed",
 					FullyFunctional: spb.State_FAILURE_STATE,
 				},
@@ -1127,7 +1225,7 @@ func TestCheckIAMPermissions(t *testing.T) {
 				{
 					Name:            "Secret Manager",
 					State:           spb.State_SUCCESS_STATE,
-					FullyFunctional: spb.State_SUCCESS_STATE,
+					FullyFunctional: spb.State_FAILURE_STATE,
 					IamPermissions: []*spb.IAMPermission{
 						{Name: "secretmanager.versions.access", Granted: spb.State_FAILURE_STATE},
 					},
@@ -1158,12 +1256,26 @@ func TestCheckAPIEnablement(t *testing.T) {
 
 	tests := []struct {
 		name       string
+		cloudProps *cpb.CloudProperties
 		handler    http.HandlerFunc
 		want       []*spb.ServiceStatus
 		wantErrMsg string
 	}{
 		{
-			name: "APIEnabled",
+			name:       "NilCloudProps",
+			cloudProps: nil,
+			want: []*spb.ServiceStatus{
+				{
+					Name:            "Workload Manager API",
+					State:           spb.State_FAILURE_STATE,
+					ErrorMessage:    "Cloud properties not available",
+					FullyFunctional: spb.State_FAILURE_STATE,
+				},
+			},
+		},
+		{
+			name:       "APIEnabled",
+			cloudProps: cloudProps,
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				if strings.Contains(r.URL.Path, "workloadmanager.googleapis.com") {
 					fmt.Fprintln(w, `{"state": "ENABLED"}`)
@@ -1180,7 +1292,8 @@ func TestCheckAPIEnablement(t *testing.T) {
 			},
 		},
 		{
-			name: "APIDisabled",
+			name:       "APIDisabled",
+			cloudProps: cloudProps,
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				if strings.Contains(r.URL.Path, "workloadmanager.googleapis.com") {
 					fmt.Fprintln(w, `{"state": "DISABLED"}`)
@@ -1198,28 +1311,30 @@ func TestCheckAPIEnablement(t *testing.T) {
 			},
 		},
 		{
-			name: "APIPermissionDenied",
+			name:       "APIPermissionDenied",
+			cloudProps: cloudProps,
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "permission denied", http.StatusForbidden)
 			},
 			want: []*spb.ServiceStatus{
 				{
 					Name:            "Workload Manager API",
-					State:           spb.State_FAILURE_STATE,
+					State:           spb.State_ERROR_STATE,
 					FullyFunctional: spb.State_FAILURE_STATE,
 				},
 			},
 			wantErrMsg: "permission denied or service not found",
 		},
 		{
-			name: "APIOtherError",
+			name:       "APIOtherError",
+			cloudProps: cloudProps,
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 			},
 			want: []*spb.ServiceStatus{
 				{
 					Name:            "Workload Manager API",
-					State:           spb.State_FAILURE_STATE,
+					State:           spb.State_ERROR_STATE,
 					FullyFunctional: spb.State_FAILURE_STATE,
 				},
 			},
@@ -1238,7 +1353,7 @@ func TestCheckAPIEnablement(t *testing.T) {
 				return serviceusage.NewService(ctx, option.WithHTTPClient(server.Client()), option.WithEndpoint(server.URL))
 			}
 
-			got := checkAPIEnablement(ctx, cloudProps, apis)
+			got := checkAPIEnablement(ctx, tc.cloudProps, apis)
 			if tc.wantErrMsg != "" {
 				if diff := cmp.Diff(tc.want[0], got[0], protocmp.Transform(), protocmp.IgnoreFields(&spb.ServiceStatus{}, "error_message")); diff != "" || !strings.Contains(got[0].ErrorMessage, tc.wantErrMsg) {
 					t.Errorf("checkAPIEnablement() returned unexpected diff (-want +got):\n%s\nErrorMessage: %s", diff, got[0].ErrorMessage)
@@ -1638,6 +1753,82 @@ func TestGetRepositoryLocation(t *testing.T) {
 			got := getRepositoryLocation(tc.cp)
 			if got != tc.want {
 				t.Errorf("getRepositoryLocation(%v) = %q, want %q", tc.cp, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCheckRetrievedPMConfigValidity(t *testing.T) {
+	oldFetchParameter := fetchParameter
+	t.Cleanup(func() { fetchParameter = oldFetchParameter })
+
+	tests := []struct {
+		name                string
+		config              *cpb.Configuration
+		pmRes               *parametermanager.Resource
+		pmErr               error
+		want                spb.State
+		wantFullyFunctional spb.State
+		wantErr             string
+	}{
+		{
+			name: "ReturnsSuccessIfConfigurationIsSuccessfullyFetchedAndParsed",
+			config: &cpb.Configuration{
+				ParameterManagerConfig: &cpb.ParameterManagerConfig{
+					Project:       "p",
+					Location:      "l",
+					ParameterName: "n",
+				},
+			},
+			pmRes:               &parametermanager.Resource{Data: `{"log_level": "DEBUG"}`},
+			want:                spb.State_SUCCESS_STATE,
+			wantFullyFunctional: spb.State_SUCCESS_STATE,
+		},
+		{
+			name: "ReturnsFailureIfFetchingParameterFromParameterManagerFails",
+			config: &cpb.Configuration{
+				ParameterManagerConfig: &cpb.ParameterManagerConfig{
+					Project:       "p",
+					Location:      "l",
+					ParameterName: "n",
+				},
+			},
+			pmErr:               errors.New("fetch error"),
+			want:                spb.State_ERROR_STATE,
+			wantFullyFunctional: spb.State_FAILURE_STATE,
+			wantErr:             "failed to fetch from Parameter Manager: fetch error",
+		},
+		{
+			name: "ReturnsFailureIfFetchedConfigurationDataIsMalformedJSON",
+			config: &cpb.Configuration{
+				ParameterManagerConfig: &cpb.ParameterManagerConfig{
+					Project:       "p",
+					Location:      "l",
+					ParameterName: "n",
+				},
+			},
+			pmRes:               &parametermanager.Resource{Data: `invalid json`},
+			want:                spb.State_ERROR_STATE,
+			wantFullyFunctional: spb.State_FAILURE_STATE,
+			wantErr:             "failed to parse retrieved configuration: proto: syntax error",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fetchParameter = func(ctx context.Context, client *parametermanager.Client, projectID, location, parameterName, version string) (*parametermanager.Resource, error) {
+				return tc.pmRes, tc.pmErr
+			}
+			got := checkRetrievedPMConfigValidity(t.Context(), tc.config)
+			got.ErrorMessage = strings.ReplaceAll(got.ErrorMessage, "\u00a0", " ")
+			if got.State != tc.want {
+				t.Errorf("checkRetrievedPMConfigValidity(%s) state = %v, want %v", tc.name, got.State, tc.want)
+			}
+			if got.FullyFunctional != tc.wantFullyFunctional {
+				t.Errorf("checkRetrievedPMConfigValidity(%s) fullyFunctional = %v, want %v", tc.name, got.FullyFunctional, tc.wantFullyFunctional)
+			}
+			if tc.wantErr != "" && !strings.Contains(got.ErrorMessage, tc.wantErr) {
+				t.Errorf("checkRetrievedPMConfigValidity(%s) error message = %q, want containing %q", tc.name, got.ErrorMessage, tc.wantErr)
 			}
 		})
 	}

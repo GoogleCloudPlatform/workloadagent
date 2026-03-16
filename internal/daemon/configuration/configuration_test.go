@@ -1371,3 +1371,59 @@ func TestMergePMConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateParameterManagerConfiguration(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  *cpb.ParameterManagerConfig
+		wantErr bool
+	}{
+		{
+			name:    "NilConfigPassesValidation",
+			config:  nil,
+			wantErr: false,
+		},
+		{
+			name: "ValidConfigPassesValidation",
+			config: &cpb.ParameterManagerConfig{
+				Project:       "p",
+				Location:      "l",
+				ParameterName: "n",
+			},
+			wantErr: false,
+		},
+		{
+			name: "MissingProjectFailsValidation",
+			config: &cpb.ParameterManagerConfig{
+				Location:      "l",
+				ParameterName: "n",
+			},
+			wantErr: true,
+		},
+		{
+			name: "MissingLocationFailsValidation",
+			config: &cpb.ParameterManagerConfig{
+				Project:       "p",
+				ParameterName: "n",
+			},
+			wantErr: true,
+		},
+		{
+			name: "MissingParameterNameFailsValidation",
+			config: &cpb.ParameterManagerConfig{
+				Project:  "p",
+				Location: "l",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateParameterManagerConfiguration(tc.config)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("ValidateParameterManagerConfiguration() error = %v, wantErr %v", err, tc.wantErr)
+			}
+		})
+	}
+}
