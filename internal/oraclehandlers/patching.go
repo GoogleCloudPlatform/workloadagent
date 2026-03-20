@@ -17,6 +17,7 @@ limitations under the License.
 package oraclehandlers
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -224,15 +225,209 @@ func enableAutostart(ctx context.Context, logger *zap.SugaredLogger, params map[
 	return nil
 }
 
+type pdbState struct {
+	name     string
+	openMode string
+}
+
+func restorePDBState(ctx context.Context, logger *zap.SugaredLogger, params map[string]string, state pdbState) {
+	if state.name == "PDB$SEED" {
+		return
+	}
+	logger.Infow("Restoring PDB state", "pdb", state.name, "original_state", state.openMode)
+	var err error
+	var sout, serr string
+	// We set failOnSQLError to false in runSQL calls below because restoring PDB state
+	// is a best-effort operation. A failure here should not fail the overall
+	// patching guest action if datapatch itself succeeded.
+	switch state.openMode {
+	case "READ ONLY":
+		// If original state was READ ONLY, close it and open it in READ ONLY.
+		csout, cserr, cerr := runSQL(ctx, params, fmt.Sprintf("ALTER PLUGGABLE DATABASE %s CLOSE IMMEDIATE;", state.name), 120, false)
+		if cerr != nil {
+			err = fmt.Errorf("failed to close pdb %s: %w", state.name, cerr)
+			sout = csout
+			serr = cserr
+			break
+		}
+		sout, serr, err = runSQL(ctx, params, fmt.Sprintf("ALTER PLUGGABLE DATABASE %s OPEN READ ONLY;", state.name), 120, false)
+	case "MOUNTED":
+		sout, serr, err = runSQL(ctx, params, fmt.Sprintf("ALTER PLUGGABLE DATABASE %s CLOSE IMMEDIATE;", state.name), 120, false)
+	case "READ WRITE":
+		return
+	default:
+		logger.Warnw("Unknown PDB open mode, skipping restore for PDB", "pdb", state.name, "open_mode", state.openMode)
+		return
+	}
+
+	if err != nil {
+		logger.Warnw("Failed to restore PDB state", "pdb", state.name, "state", state.openMode, "stdout", sout, "stderr", serr, "error", err)
+		return
+	}
+
+	logger.Infow("Successfully restored PDB state", "pdb", state.name, "state", state.openMode)
+}
+
+func isCDB(ctx context.Context, logger *zap.SugaredLogger, params map[string]string) (bool, error) {
+	stdout, stderr, err := runSQL(ctx, params, "SELECT cdb FROM v$database;", 60, true)
+	if err != nil {
+		logger.Errorw("Failed to query v$database for CDB status", "stdout", stdout, "stderr", stderr, "error", err)
+		return false, err
+	}
+	return strings.TrimSpace(stdout) == "YES", nil
+}
+
+func fetchPDBStates(ctx context.Context, logger *zap.SugaredLogger, params map[string]string) ([]pdbState, error) {
+	pdbStatesSQL := "SELECT name, open_mode FROM v$pdbs;"
+	pdbStatesStdout, pdbStatesStderr, err := runSQL(ctx, params, pdbStatesSQL, 60, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query PDB states from v$pdbs: %w; stdout: %s, stderr: %s", err, pdbStatesStdout, pdbStatesStderr)
+	}
+
+	if pdbStatesStdout == "" {
+		return nil, nil
+	}
+
+	var pdbStates []pdbState
+	scanner := bufio.NewScanner(strings.NewReader(pdbStatesStdout))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			logger.Warnw("Failed to parse PDB state line", "line", line)
+			continue
+		}
+		pdbStates = append(pdbStates, pdbState{name: parts[0], openMode: strings.Join(parts[1:], " ")})
+	}
+
+	return pdbStates, nil
+}
+
 // RunDatapatch implements the oracle_run_datapatch guest action.
 func RunDatapatch(ctx context.Context, command *gpb.Command, cloudProperties *metadataserver.CloudProperties) *gpb.CommandResult {
-	log.CtxLogger(ctx).Info("oracle_run_datapatch handler called")
-	// TODO: Implement oracle_run_datapatch handler.
-	return &gpb.CommandResult{
-		Command:  command,
-		ExitCode: 1,
-		Stdout:   "oracle_run_datapatch not implemented.",
+	params := command.GetAgentCommand().GetParameters()
+	logger := log.CtxLogger(ctx)
+	if result := validateParams(ctx, logger, command, params, []string{"oracle_sid", "oracle_home", "oracle_user"}); result != nil {
+		return result
 	}
+
+	logger = logger.With("oracle_sid", params["oracle_sid"], "oracle_home", params["oracle_home"], "oracle_user", params["oracle_user"])
+	logger.Info("oracle_run_datapatch handler called")
+
+	err := runDatapatch(ctx, logger, params)
+	if err != nil {
+		logger.Warnw("RunDatapatch failed", "error", err)
+		return commandResult(ctx, logger, command, "", "", codepb.Code_INTERNAL, err.Error(), err)
+	}
+
+	return commandResult(ctx, logger, command, "Datapatch execution completed successfully", "", codepb.Code_OK, "Datapatch execution completed successfully", nil)
+}
+
+func preparePDBsForPatching(ctx context.Context, logger *zap.SugaredLogger, params map[string]string) (func(), error) {
+	logger.Info("Database is a CDB, performing PDB setup for datapatch...")
+	pdbStates, err := fetchPDBStates(ctx, logger, params)
+	if err != nil {
+		logger.Warnw("Failed to get PDB states, PDB state restoration will be skipped.", "error", err)
+	}
+
+	restoreFunc := func() {
+		if len(pdbStates) == 0 {
+			return
+		}
+		logger.Info("Restoring PDB states...")
+		for _, state := range pdbStates {
+			restorePDBState(ctx, logger, params, state)
+		}
+		logger.Info("PDB state restoration finished.")
+	}
+
+	if len(pdbStates) > 0 {
+		logger.Infow("PDB states captured", "pdb_states", pdbStates)
+	}
+
+	// Open all PDBs in read-write mode to ensure datapatch can patch all of them.
+	// The FORCE option terminates existing sessions, which is necessary if PDBs are in read-only mode.
+	logger.Info("Opening all PDBs in read-write mode...")
+	pdbStdout, pdbStderr, pdbErr := runSQL(ctx, params, "ALTER PLUGGABLE DATABASE ALL OPEN READ WRITE FORCE;", 120, true)
+	if pdbErr != nil {
+		logger.Errorw("Failed to open all PDBs in read-write mode", "stdout", pdbStdout, "stderr", pdbStderr, "error", pdbErr)
+		return nil, fmt.Errorf("failed to open all PDBs for patching: %w", pdbErr)
+	}
+	logger.Infow("Opened all PDBs", "stdout", pdbStdout)
+
+	return restoreFunc, nil
+}
+
+func runDatapatch(ctx context.Context, logger *zap.SugaredLogger, params map[string]string) error {
+	cdb, err := isCDB(ctx, logger, params)
+	if err != nil {
+		return fmt.Errorf("failed to determine if database is CDB: %w", err)
+	}
+
+	if cdb {
+		restorePDBs, err := preparePDBsForPatching(ctx, logger, params)
+		if err != nil {
+			return err
+		}
+		defer restorePDBs()
+	} else {
+		logger.Info("Database is not a CDB, skipping PDB-specific steps.")
+	}
+
+	// Run datapatch.
+	oracleHome := params["oracle_home"]
+	oracleUser := params["oracle_user"]
+	oracleSID := params["oracle_sid"]
+	datapatchPath := filepath.Join(oracleHome, "OPatch", "datapatch")
+
+	// datapatch can take a significant amount of time.
+	logger.Info("Executing datapatch...")
+	datapatchRes := executeCommand(ctx, commandlineexecutor.Params{
+		Executable: datapatchPath,
+		Args:       []string{"-verbose"},
+		User:       oracleUser,
+		Env:        []string{"ORACLE_HOME=" + oracleHome, "ORACLE_SID=" + oracleSID, "LD_LIBRARY_PATH=" + filepath.Join(oracleHome, "lib")},
+		Timeout:    3600, // 1 hour timeout
+	})
+
+	logger.Infow("Datapatch execution result", "stdout", datapatchRes.StdOut, "stderr", datapatchRes.StdErr, "exit_code", datapatchRes.ExitCode)
+
+	if datapatchRes.ExitCode != 0 {
+		return fmt.Errorf("datapatch failed with exit code %d: %s", datapatchRes.ExitCode, datapatchRes.StdErr)
+	}
+
+	// Recompile invalid objects (utlrp.sql).
+	logger.Info("Executing utlrp.sql...")
+	utlrpStdout, utlrpStderr, utlrpErr := runSQL(ctx, params, "@?/rdbms/admin/utlrp", 3600, true)
+	if utlrpErr != nil {
+		return fmt.Errorf("utlrp execution failed: %w", utlrpErr)
+	}
+	logger.Infow("utlrp execution result", "stdout", utlrpStdout, "stderr", utlrpStderr)
+
+	// Log patch registry for debugging.
+	regStdout, regStderr, regErr := runSQL(ctx, params, "SELECT action_time, action, status, patch_id FROM dba_registry_sqlpatch ORDER BY action_time;", 60, false)
+	if regErr != nil {
+		logger.Warnw("Failed to query dba_registry_sqlpatch", "stdout", regStdout, "stderr", regStderr, "error", regErr)
+		return fmt.Errorf("failed to query dba_registry_sqlpatch to validate patch status: %w", regErr)
+	}
+	logger.Infow("Patch registry status", "stdout", regStdout)
+
+	scanner := bufio.NewScanner(strings.NewReader(regStdout))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, "SUCCESS") {
+			continue
+		}
+		// If a line contains APPLY or ROLLBACK but not SUCCESS, we assume it's a failed patch.
+		if strings.Contains(line, "APPLY") || strings.Contains(line, "ROLLBACK") {
+			return fmt.Errorf("found non-SUCCESS status in dba_registry_sqlpatch: %s", line)
+		}
+	}
+
+	return nil
 }
 
 // DisableRestrictedSession implements the oracle_disable_restricted_mode guest action.
