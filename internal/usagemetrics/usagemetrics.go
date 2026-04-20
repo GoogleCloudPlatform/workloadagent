@@ -72,6 +72,8 @@ const (
 	MongoDBDiscoveryFailure               = 34
 	StartDaemonFailure                    = 35
 	GuestActionsFailure                   = 36
+	OpenShiftGenericMetricsFailure        = 37
+	OpenShiftWLMRequestFailure            = 38
 )
 
 // Agent wide action mappings.

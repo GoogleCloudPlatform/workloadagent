@@ -26,6 +26,7 @@ import (
 	"k8s.io/client-go/rest"
 	"google.golang.org/protobuf/encoding/protojson"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/openshiftmetrics/clients/openshift"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/usagemetrics"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 
@@ -113,44 +114,54 @@ func (o *OpenShiftMetrics) CollectMetrics(ctx context.Context, versionData Metri
 	// not fail the entire collection process.
 	if err := o.collectCusterVersionData(ctx, payload); err != nil {
 		logger.Warnw("Failed to collect cluster version data", "error", err)
+		usagemetrics.Error(usagemetrics.OpenShiftMetricCollectionFailure)
 	}
 
 	namespaces, err := o.collectNamespaceData(ctx, payload)
 	if err != nil {
 		logger.Warnw("Failed to collect namespace data", "error", err)
+		usagemetrics.Error(usagemetrics.OpenShiftMetricCollectionFailure)
 	}
 
 	if err := o.collectDeploymentData(ctx, namespaces, payload); err != nil {
 		logger.Warnw("Failed to collect deployment data", "error", err)
+		usagemetrics.Error(usagemetrics.OpenShiftMetricCollectionFailure)
 	}
 
 	if err := o.collectPersistentVolumeClaims(ctx, namespaces, payload); err != nil {
 		logger.Warnw("Failed to collect persistent volume claims data", "error", err)
+		usagemetrics.Error(usagemetrics.OpenShiftMetricCollectionFailure)
 	}
 
 	if err := o.collectStorageClasses(ctx, payload); err != nil {
 		logger.Warnw("Failed to collect storage classes data", "error", err)
+		usagemetrics.Error(usagemetrics.OpenShiftMetricCollectionFailure)
 	}
 
 	// TODO: Clean this up once we have a better way to handle config map we need.
 	if err := o.collectConfigMaps(ctx, []string{WLMNamespace}, payload); err != nil {
 		logger.Warnw("Failed to collect config maps data", "error", err)
+		usagemetrics.Error(usagemetrics.OpenShiftMetricCollectionFailure)
 	}
 
 	if err := o.collectCSIDrivers(ctx, payload); err != nil {
 		logger.Warnw("Failed to collect CSI drivers data", "error", err)
+		usagemetrics.Error(usagemetrics.OpenShiftMetricCollectionFailure)
 	}
 
 	if err := o.collectCloudCredentialConfig(ctx, payload); err != nil {
 		logger.Warnw("Failed to collect cloud credential config data", "error", err)
+		usagemetrics.Error(usagemetrics.OpenShiftMetricCollectionFailure)
 	}
 
 	if err := o.collectCustomResourceDefinitions(ctx, payload); err != nil {
 		logger.Warnw("Failed to collect custom resource definitions data", "error", err)
+		usagemetrics.Error(usagemetrics.OpenShiftMetricCollectionFailure)
 	}
 
 	if err := o.collectNodes(ctx, payload); err != nil {
 		logger.Warnw("Failed to collect nodes data", "error", err)
+		usagemetrics.Error(usagemetrics.OpenShiftMetricCollectionFailure)
 	}
 
 	logger.Debugw("Metric payload after collection", "payload", payload)
@@ -308,8 +319,8 @@ func (o *OpenShiftMetrics) collectDeploymentData(ctx context.Context, namespaces
 					})
 				}
 				containers = append(containers, &ompb.Container{
-					Env:     env,
-					EnvFrom: envFrom,
+					Env:          env,
+					EnvFrom:      envFrom,
 					VolumeMounts: volumeMounts,
 				})
 			}
@@ -349,8 +360,8 @@ func (o *OpenShiftMetrics) collectDeploymentData(ctx context.Context, namespaces
 					})
 				}
 				initContainers = append(initContainers, &ompb.Container{
-					Env:     env,
-					EnvFrom: envFrom,
+					Env:          env,
+					EnvFrom:      envFrom,
 					VolumeMounts: volumeMounts,
 				})
 			}

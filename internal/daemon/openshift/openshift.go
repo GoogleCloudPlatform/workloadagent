@@ -63,7 +63,7 @@ func (s *Service) Start(ctx context.Context, a any) {
 	metricCollectionRoutine := &recovery.RecoverableRoutine{
 		Routine:             runMetricCollection,
 		RoutineArg:          runMetricCollectionArgs{s},
-		ErrorCode:           usagemetrics.OpenShiftMetricCollectionFailure,
+		ErrorCode:           usagemetrics.OpenShiftGenericMetricsFailure,
 		UsageLogger:         *usagemetrics.UsageLogger,
 		ExpectedMinDuration: s.Config.GetOpenshiftConfiguration().GetCollectionFrequency().AsDuration(),
 	}
@@ -130,6 +130,7 @@ func collectMetrics(ctx context.Context, args runMetricCollectionArgs) {
 	if err := metricClient.SendMetricsToWLM(ctx, args.s.Config, metrics); err != nil {
 		// This fails silently so that the loop keeps running.
 		log.CtxLogger(ctx).Errorw("failed to write metrics to WLM", "error", err)
+		usagemetrics.Error(usagemetrics.OpenShiftWLMRequestFailure)
 		return
 	}
 	log.CtxLogger(ctx).Debug("Metrics successfully sent to WLM")
