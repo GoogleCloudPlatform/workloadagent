@@ -298,6 +298,8 @@ func (o *OpenShiftMetrics) collectDeploymentData(ctx context.Context, namespaces
 						}
 					}
 					env = append(env, &ompb.Env{
+						Name:      e.Name,
+						Value:     e.Value,
 						ValueFrom: valueFrom,
 					})
 				}
@@ -373,9 +375,16 @@ func (o *OpenShiftMetrics) collectDeploymentData(ctx context.Context, namespaces
 						SecretName: volume.Secret.SecretName,
 					}
 				}
+				var projected *ompb.Volume_Projected
+				if volume.Projected != nil {
+					projected = &ompb.Volume_Projected{
+						Sources: true,
+					}
+				}
 				volumes = append(volumes, &ompb.Volume{
 					Name:   volume.Name,
 					Secret: secret,
+					Projected: projected,
 				})
 			}
 

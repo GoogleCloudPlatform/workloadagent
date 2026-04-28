@@ -295,8 +295,13 @@ message Container {
 message Volume {
   Secret secret = 1;
   string name = 2;
+  Projected projected = 3;
+
   message Secret {
     string secret_name = 1;
+  }
+  message Projected {
+    bool sources = 1;
   }
 }
 
@@ -304,6 +309,9 @@ message Volume {
 // https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#envvar-v1-core
 message Env {
   ValueFrom value_from = 1;
+  string name = 2;
+  string value = 3;
+
   message ValueFrom {
     SecretKeyRef secret_key_ref = 1;
     message SecretKeyRef {
