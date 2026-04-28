@@ -55,3 +55,21 @@ type CloudCredentialConfigResponse struct {
 		CredentialsMode string `json:"credentialsMode"`
 	} `json:"spec"`
 }
+
+
+
+// APIServerResponse is the response from the Openshift APIServer API for a single resource.
+type APIServerResponse struct {
+	APIVersion string `json:"apiVersion"`
+	Kind       string `json:"kind"`
+	Metadata   struct {
+		Name            string `json:"name"`
+		UID             string `json:"uid"`
+		ResourceVersion string `json:"resourceVersion"`
+	} `json:"metadata"`
+	Spec struct {
+		Encryption struct {
+			Type string `json:"type"`
+		} `json:"encryption"`
+	} `json:"spec"`
+}

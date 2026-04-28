@@ -27,6 +27,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -63,6 +64,14 @@ func (f *fakeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			"kind": "CloudCredential",
 			"metadata": {"creationTimestamp": "2025-05-14T06:33:06Z", "generation": 1, "name": "cluster", "resourceVersion": "508", "uid": "4f896355-45cd-403a-9953-2b4c9dab04e6"},
 			"spec": {"credentialsMode": "Mint"}
+		}`)
+	}
+	if req.URL.Path == "/apis/config.openshift.io/v1/apiservers/cluster" {
+		return jsonResponse(`{
+			"apiVersion": "config.openshift.io/v1",
+			"kind": "APIServer",
+			"metadata": {"name": "cluster", "uid": "cluster-uid", "resourceVersion": "1"},
+			"spec": {"encryption": {"type": "aescbc"}}
 		}`)
 	}
 
@@ -123,6 +132,55 @@ func (f *fakeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		obj = &corev1.NodeList{
 			Items: []corev1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "test-node", UID: "node-uid", ResourceVersion: "8", CreationTimestamp: metav1.NewTime(f.now)}}},
 		}
+	case "/apis/apps/v1/namespaces/default/daemonsets":
+		obj = &appsv1.DaemonSetList{
+			Items: []appsv1.DaemonSet{{
+				ObjectMeta: metav1.ObjectMeta{Name: "csi-secrets-store-provider-gcp", Namespace: "default", UID: "ds-uid", ResourceVersion: "9", CreationTimestamp: metav1.NewTime(f.now)},
+				Spec: appsv1.DaemonSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "gcp-provider", Env: []corev1.EnvVar{{Name: "TARGET_ENV", Value: "prod"}}}},
+						},
+					},
+				},
+			}},
+		}
+	case "/apis/secrets-store.csi.x-k8s.io/v1/namespaces/default/secretproviderclasses":
+		return jsonResponse(`{
+			"apiVersion": "secrets-store.csi.x-k8s.io/v1",
+			"kind": "SecretProviderClassList",
+			"metadata": {"resourceVersion": "10"},
+			"items": [{
+				"apiVersion": "secrets-store.csi.x-k8s.io/v1",
+				"kind": "SecretProviderClass",
+				"metadata": {"name": "test-spc", "uid": "spc-uid", "resourceVersion": "10", "creationTimestamp": "2025-05-14T06:33:06Z"},
+				"spec": {"provider": "gcp", "secretObjects": [{}, {}]}
+			}]
+		}`)
+	case "/apis/external-secrets.io/v1/namespaces/default/secretstores":
+		return jsonResponse(`{
+			"apiVersion": "external-secrets.io/v1",
+			"kind": "SecretStoreList",
+			"metadata": {"resourceVersion": "11"},
+			"items": [{
+				"apiVersion": "external-secrets.io/v1",
+				"kind": "SecretStore",
+				"metadata": {"name": "test-ss", "uid": "ss-uid", "resourceVersion": "11", "creationTimestamp": "2025-05-14T06:33:06Z"},
+				"spec": {"provider": {"gcpsm": {}}}
+			}]
+		}`)
+	case "/apis/external-secrets.io/v1/namespaces/default/externalsecrets":
+		return jsonResponse(`{
+			"apiVersion": "external-secrets.io/v1",
+			"kind": "ExternalSecretList",
+			"metadata": {"resourceVersion": "12"},
+			"items": [{
+				"apiVersion": "external-secrets.io/v1",
+				"kind": "ExternalSecret",
+				"metadata": {"name": "test-es", "uid": "es-uid", "resourceVersion": "12", "creationTimestamp": "2025-05-14T06:33:06Z"},
+				"spec": {"secretStoreRef": {"name": "test-ss", "kind": "SecretStore"}}
+			}]
+		}`)
 	default:
 		// Fallback for list requests that shouldn't return data in this test
 		if strings.Contains(req.URL.Path, "/deployments") {
@@ -160,11 +218,13 @@ func TestCollectMetrics(t *testing.T) {
 	k8sClient, _ := kubernetes.NewForConfig(cfg)
 	ocpClient, _ := openshift.New(cfg)
 	apiExtClient, _ := apiextensions.NewForConfig(cfg)
+	dynamicClient, _ := dynamic.NewForConfig(cfg)
 
 	om := &OpenShiftMetrics{
 		K8sClient:           k8sClient,
 		OpenShiftClient:     ocpClient,
 		APIExtensionsClient: apiExtClient,
+		DynamicClient:       dynamicClient,
 	}
 
 	// Single Action: Collect the payload
@@ -250,6 +310,31 @@ func TestCollectMetrics(t *testing.T) {
 			name: "Nodes",
 			got:  payload.GetNodes().GetNodes(),
 			want: &ompb.NodeList{Items: []*ompb.Node{{Metadata: &ompb.ResourceMetadata{Name: "test-node", Uid: "node-uid", ResourceVersion: "8", CreationTimestamp: nowProto}}}},
+		},
+		{
+			name: "DaemonSets",
+			got:  payload.GetDaemonSets().GetDaemonSets(),
+			want: &ompb.DaemonSetList{Items: []*ompb.DaemonSet{{Metadata: &ompb.ResourceMetadata{Name: "csi-secrets-store-provider-gcp", Uid: "ds-uid", ResourceVersion: "9", CreationTimestamp: nowProto, Namespace: "default"}, Spec: &ompb.DaemonSet_Spec{PodTemplate: &ompb.PodTemplate{Metadata: &ompb.ResourceMetadata{CreationTimestamp: tspb.New(time.Time{})}, Spec: &ompb.PodSpec{Containers: []*ompb.Container{{Env: []*ompb.Env{{Name: "TARGET_ENV", Value: "prod"}}}}}}}}}},
+		},
+		{
+			name: "SecretProviderClasses",
+			got:  payload.GetSecretProviderClasses().GetSecretProviderClasses(),
+			want: &ompb.SecretProviderClassList{Items: []*ompb.SecretProviderClass{{Metadata: &ompb.ResourceMetadata{Name: "test-spc", Uid: "spc-uid", ResourceVersion: "10", CreationTimestamp: tspb.New(time.Date(2025, time.May, 14, 6, 33, 6, 0, time.UTC)), Namespace: "default"}, Spec: &ompb.SecretProviderClass_Spec{Provider: "gcp", SecretObjects: []*ompb.SecretProviderClass_SecretObject{{}, {}}}}}},
+		},
+		{
+			name: "ApiServers",
+			got:  payload.GetApiServers().GetApiServers(),
+			want: &ompb.APIServerList{Items: []*ompb.APIServer{{Metadata: &ompb.ResourceMetadata{Name: "cluster", Uid: "cluster-uid"}, Spec: &ompb.APIServer_Spec{Encryption: &ompb.APIServer_Encryption{Type: "aescbc"}}}}},
+		},
+		{
+			name: "SecretStores",
+			got:  payload.GetSecretStores().GetSecretStores(),
+			want: &ompb.SecretStoreList{Items: []*ompb.SecretStore{{Metadata: &ompb.ResourceMetadata{Name: "test-ss", Uid: "ss-uid", ResourceVersion: "11", CreationTimestamp: tspb.New(time.Date(2025, time.May, 14, 6, 33, 6, 0, time.UTC)), Namespace: "default"}, Spec: &ompb.SecretStore_Spec{Provider: &ompb.SecretStore_Provider{Gcpsm: &ompb.SecretStore_GcpSm{}}}}}},
+		},
+		{
+			name: "ExternalSecrets",
+			got:  payload.GetExternalSecrets().GetExternalSecrets(),
+			want: &ompb.ExternalSecretList{Items: []*ompb.ExternalSecret{{Metadata: &ompb.ResourceMetadata{Name: "test-es", Uid: "es-uid", ResourceVersion: "12", CreationTimestamp: tspb.New(time.Date(2025, time.May, 14, 6, 33, 6, 0, time.UTC)), Namespace: "default"}, Spec: &ompb.ExternalSecret_Spec{SecretStoreRef: &ompb.ExternalSecret_SecretStoreRef{Name: "test-ss", Kind: "SecretStore"}}}}},
 		},
 	}
 
