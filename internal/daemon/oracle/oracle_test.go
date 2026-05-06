@@ -824,3 +824,12 @@ func TestStart_InitializesDependencies(t *testing.T) {
 		t.Errorf("Start() did not initialize newMetricCollector")
 	}
 }
+
+func TestCheckServiceCommunication_NilMessage(t *testing.T) {
+	ch := make(chan *servicecommunication.Message, 1)
+	ch <- nil
+	s := &Service{CommonCh: ch}
+
+	// If s.checkServiceCommunication panics, the test will fail.
+	s.checkServiceCommunication(t.Context())
+}

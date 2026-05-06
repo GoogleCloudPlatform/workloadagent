@@ -19,6 +19,7 @@ package sqlserver
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -65,7 +66,11 @@ func (s *Service) Start(ctx context.Context, a any) {
 		log.CtxLogger(ctx).Info("SQL Server service enabled field is not set, will check for workload presence to determine if service should be enabled.")
 		go (func() {
 			for {
-				s.checkServiceCommunication(ctx)
+				err := s.checkServiceCommunication(ctx)
+				if err != nil {
+					log.CtxLogger(ctx).Infow("SQL Server stopping checks for service communication", "error", err)
+					return
+				}
 			}
 		})()
 		// If the workload is present, proceed with starting the service even if it is not enabled.
@@ -196,16 +201,24 @@ func dbcenterMetricCollectionFrequency(args runDBCenterMetricCollectionArgs) tim
 }
 
 // checkServiceCommunication listens to the common channel for messages and processes them.
-func (s *Service) checkServiceCommunication(ctx context.Context) {
+// Returns an error if the context is done or the channel is closed.
+func (s *Service) checkServiceCommunication(ctx context.Context) error {
 	// Effectively give ctx.Done() priority over the channel.
 	if ctx.Err() != nil {
-		return
+		return ctx.Err()
 	}
 
 	select {
 	case <-ctx.Done():
-		return
-	case msg := <-s.CommonCh:
+		return ctx.Err()
+	case msg, ok := <-s.CommonCh:
+		if !ok {
+			return fmt.Errorf("common channel is closed")
+		}
+		if msg == nil {
+			log.CtxLogger(ctx).Debug("SQL Server workload agent service received nil message on the common channel")
+			return nil
+		}
 		log.CtxLogger(ctx).Debugw("SQL Server workload agent service received a message on the common channel", "message", msg)
 		switch msg.Origin {
 		case servicecommunication.Discovery:
@@ -224,4 +237,5 @@ func (s *Service) checkServiceCommunication(ctx context.Context) {
 			log.CtxLogger(ctx).Debugw("SQL Server workload agent service received a message with an unexpected origin", "origin", msg.Origin)
 		}
 	}
+	return nil
 }

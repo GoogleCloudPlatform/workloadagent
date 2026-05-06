@@ -21,6 +21,7 @@ import (
 	"time"
 
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/servicecommunication"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
 
@@ -117,4 +118,13 @@ func TestDBCenterMetricCollectionFrequency(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCheckServiceCommunication_NilMessage(t *testing.T) {
+	ch := make(chan *servicecommunication.Message, 1)
+	ch <- nil
+	s := &Service{CommonCh: ch}
+
+	// If s.checkServiceCommunication panics, the test will fail.
+	s.checkServiceCommunication(t.Context())
 }

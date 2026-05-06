@@ -774,3 +774,12 @@ func TestRunWlmMetricCollection_InitDBError(t *testing.T) {
 		// This is the expected case, CollectWlmMetricsOnce should not be called.
 	}
 }
+
+func TestCheckServiceCommunication_NilMessage(t *testing.T) {
+	ch := make(chan *servicecommunication.Message, 1)
+	ch <- nil
+	s := &Service{CommonCh: ch}
+
+	// If s.checkServiceCommunication panics, the test will fail.
+	s.checkServiceCommunication(t.Context())
+}

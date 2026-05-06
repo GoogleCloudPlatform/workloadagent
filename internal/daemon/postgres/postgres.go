@@ -19,6 +19,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -93,10 +94,11 @@ func (s *Service) Start(ctx context.Context, a any) {
 
 	go (func() {
 		for {
-			if ctx.Err() != nil {
+			err := s.checkServiceCommunication(ctx)
+			if err != nil {
+				log.CtxLogger(ctx).Infow("Postgres stopping checks for service communication", "error", err)
 				return
 			}
-			s.checkServiceCommunication(ctx)
 		}
 	})()
 	ticker := time.NewTicker(5 * time.Second)
@@ -275,16 +277,24 @@ func runDBCenterMetricCollection(ctx context.Context, a any) {
 }
 
 // checkServiceCommunication listens to the common channel for messages and processes them.
-func (s *Service) checkServiceCommunication(ctx context.Context) {
+// Returns an error if the context is done or the channel is closed.
+func (s *Service) checkServiceCommunication(ctx context.Context) error {
 	// Effectively give ctx.Done() priority over the channel.
 	if ctx.Err() != nil {
-		return
+		return ctx.Err()
 	}
 
 	select {
 	case <-ctx.Done():
-		return
-	case msg := <-s.CommonCh:
+		return ctx.Err()
+	case msg, ok := <-s.CommonCh:
+		if !ok {
+			return fmt.Errorf("common channel is closed")
+		}
+		if msg == nil {
+			log.CtxLogger(ctx).Debug("Postgres workload agent service received nil message on the common channel")
+			return nil
+		}
 		log.CtxLogger(ctx).Debugw("Postgres workload agent service received a message on the common channel", "message", msg)
 		switch msg.Origin {
 		case servicecommunication.Discovery:
@@ -296,6 +306,7 @@ func (s *Service) checkServiceCommunication(ctx context.Context) {
 			log.CtxLogger(ctx).Debugw("Postgres workload agent service received a message with an unexpected origin", "origin", msg.Origin)
 		}
 	}
+	return nil
 }
 
 func (s *Service) identifyPostgresProcesses(ctx context.Context) {

@@ -19,6 +19,7 @@ package redis
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"go.uber.org/zap/zapcore"
@@ -70,7 +71,11 @@ func (s *Service) Start(ctx context.Context, a any) {
 
 	go (func() {
 		for {
-			s.checkServiceCommunication(ctx)
+			err := s.checkServiceCommunication(ctx)
+			if err != nil {
+				log.CtxLogger(ctx).Infow("Redis stopping checks for service communication", "error", err)
+				return
+			}
 		}
 	})()
 	ticker := time.NewTicker(5 * time.Second)
@@ -180,16 +185,25 @@ func runMetricCollection(ctx context.Context, a any) {
 }
 
 // checkServiceCommunication listens to the common channel for messages and processes them.
-func (s *Service) checkServiceCommunication(ctx context.Context) {
+// checkServiceCommunication listens to the common channel for messages and processes them.
+// Returns an error if the context is done or the channel is closed.
+func (s *Service) checkServiceCommunication(ctx context.Context) error {
 	// Effectively give ctx.Done() priority over the channel.
 	if ctx.Err() != nil {
-		return
+		return ctx.Err()
 	}
 
 	select {
 	case <-ctx.Done():
-		return
-	case msg := <-s.CommonCh:
+		return ctx.Err()
+	case msg, ok := <-s.CommonCh:
+		if !ok {
+			return fmt.Errorf("common channel is closed")
+		}
+		if msg == nil {
+			log.CtxLogger(ctx).Debug("Redis workload agent service received nil message on the common channel")
+			return nil
+		}
 		log.CtxLogger(ctx).Debugw("Redis workload agent service received a message on the common channel", "message", msg)
 		switch msg.Origin {
 		case servicecommunication.Discovery:
@@ -201,6 +215,7 @@ func (s *Service) checkServiceCommunication(ctx context.Context) {
 			log.CtxLogger(ctx).Debugw("Redis workload agent service received a message with an unexpected origin", "origin", msg.Origin)
 		}
 	}
+	return nil
 }
 
 func (s *Service) identifyRedisProcesses(ctx context.Context) {

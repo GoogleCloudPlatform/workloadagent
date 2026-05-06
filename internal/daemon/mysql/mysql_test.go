@@ -587,53 +587,53 @@ func TestRunDBCenterMetricCollection_Success(t *testing.T) {
 }
 
 func TestRunDBCenterMetricCollection_InitDBError(t *testing.T) {
-    // Save original functions
-    origNewTicker := newTicker
-    origNewMySQLMetrics := newMySQLMetrics
-    origNewGCEClient := newGCEClient
+	// Save original functions
+	origNewTicker := newTicker
+	origNewMySQLMetrics := newMySQLMetrics
+	origNewGCEClient := newGCEClient
 
-    // Defer restoration
-    defer func() {
-        newTicker = origNewTicker
-        newMySQLMetrics = origNewMySQLMetrics
-        newGCEClient = origNewGCEClient
-    }()
-    fakeClock := clockwork.NewFakeClock()
-    // Stub functions
-    newTicker = func(d time.Duration) *time.Ticker {
-        return &time.Ticker{C: fakeClock.NewTicker(d).Chan()}
-    }
+	// Defer restoration
+	defer func() {
+		newTicker = origNewTicker
+		newMySQLMetrics = origNewMySQLMetrics
+		newGCEClient = origNewGCEClient
+	}()
+	fakeClock := clockwork.NewFakeClock()
+	// Stub functions
+	newTicker = func(d time.Duration) *time.Ticker {
+		return &time.Ticker{C: fakeClock.NewTicker(d).Chan()}
+	}
 
-    mockMetrics := newFakeMetrics()
-    mockMetrics.InitDBErr = errors.New("InitDB error")
-    newMySQLMetrics = func(ctx context.Context, config *pb.Configuration, wlmClient workloadmanager.WLMWriter, dbcenterClient databasecenter.Client) MetricsInterface {
-        return mockMetrics
-    }
-    newGCEClient = func(ctx context.Context) (*gce.GCE, error) { return nil, nil }
+	mockMetrics := newFakeMetrics()
+	mockMetrics.InitDBErr = errors.New("InitDB error")
+	newMySQLMetrics = func(ctx context.Context, config *pb.Configuration, wlmClient workloadmanager.WLMWriter, dbcenterClient databasecenter.Client) MetricsInterface {
+		return mockMetrics
+	}
+	newGCEClient = func(ctx context.Context) (*gce.GCE, error) { return nil, nil }
 
-    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-    defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-    done := make(chan struct{})
-    go func() {
-        runDBCenterMetricCollection(ctx, runDBCenterMetricCollectionArgs{s: &Service{Config: &pb.Configuration{}}})
-        close(done)
-    }()
+	done := make(chan struct{})
+	go func() {
+		runDBCenterMetricCollection(ctx, runDBCenterMetricCollectionArgs{s: &Service{Config: &pb.Configuration{}}})
+		close(done)
+	}()
 
-    // Wait for InitDB to be called
-    select {
-    case <-mockMetrics.InitDBCalled:
-    case <-ctx.Done():
-        t.Fatalf("runDBCenterMetricCollection: InitDB not called within timeout: %v", ctx.Err())
-    }
-    // Advance the clock to make sure that CollectDBCenterMetricsOnce is never called.
-    fakeClock.Advance(dbCenterMetricCollectionFrequencyDefault + 1*time.Second)
-    select {
-    case <-mockMetrics.CollectDBCenterCalled:
-        t.Fatalf("runDBCenterMetricCollection: CollectDBCenterMetricsOnce should not be called if InitDB fails")
-    case <-time.After(100 * time.Millisecond):
-        // This is the expected case, CollectDBCenterMetricsOnce should not be called.
-    }
+	// Wait for InitDB to be called
+	select {
+	case <-mockMetrics.InitDBCalled:
+	case <-ctx.Done():
+		t.Fatalf("runDBCenterMetricCollection: InitDB not called within timeout: %v", ctx.Err())
+	}
+	// Advance the clock to make sure that CollectDBCenterMetricsOnce is never called.
+	fakeClock.Advance(dbCenterMetricCollectionFrequencyDefault + 1*time.Second)
+	select {
+	case <-mockMetrics.CollectDBCenterCalled:
+		t.Fatalf("runDBCenterMetricCollection: CollectDBCenterMetricsOnce should not be called if InitDB fails")
+	case <-time.After(100 * time.Millisecond):
+		// This is the expected case, CollectDBCenterMetricsOnce should not be called.
+	}
 }
 
 // TestRunWlmMetricCollection_Success tests the happy path where metrics are collected periodically.
@@ -743,4 +743,13 @@ func TestRunWlmMetricCollection_InitDBError(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		// This is the expected case, CollectWlmMetricsOnce should not be called.
 	}
+}
+
+func TestCheckServiceCommunication_NilMessage(t *testing.T) {
+	ch := make(chan *servicecommunication.Message, 1)
+	ch <- nil
+	s := &Service{CommonCh: ch}
+
+	// If s.checkServiceCommunication panics, the test will fail.
+	s.checkServiceCommunication(t.Context())
 }

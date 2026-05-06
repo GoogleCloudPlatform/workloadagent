@@ -385,3 +385,12 @@ func TestExpectedMinDuration(t *testing.T) {
 		t.Errorf("ExpectedMinDuration() = %v, want %v", got, want)
 	}
 }
+
+func TestCheckServiceCommunication_NilMessage(t *testing.T) {
+	ch := make(chan *servicecommunication.Message, 1)
+	ch <- nil
+	s := &Service{CommonCh: ch}
+
+	// If s.checkServiceCommunication panics, the test will fail.
+	s.checkServiceCommunication(t.Context())
+}
