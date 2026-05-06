@@ -603,3 +603,78 @@ func TestCommonDiscovery(t *testing.T) {
 		}
 	}
 }
+
+func TestProcessSnapshotThreadSafety(t *testing.T) {
+	snapshot := ProcessSnapshot{
+		pid:          42,
+		name:         "postgres",
+		username:     "postgres_user",
+		cmdlineSlice: []string{"postgres", "-D", "/var/lib/postgresql"},
+	}
+
+	// Launch multiple readers concurrently calling Name() to verify data races are eliminated.
+	errCh := make(chan error, 10)
+	for i := 0; i < 10; i++ {
+		go func() {
+			name, _ := snapshot.Name()
+			if name != "postgres" {
+				errCh <- fmt.Errorf("got name %s, want postgres", name)
+				return
+			}
+			errCh <- nil
+		}()
+	}
+
+	for i := 0; i < 10; i++ {
+		if err := <-errCh; err != nil {
+			t.Error(err)
+		}
+	}
+}
+
+func TestProcessSnapshotImmutability(t *testing.T) {
+	snapshot := ProcessSnapshot{
+		pid:          42,
+		name:         "postgres",
+		username:     "postgres_user",
+		cmdlineSlice: []string{"postgres", "-D", "/var/lib/postgresql"},
+		environ:      []string{"PGDATA=/var/lib/postgresql"},
+	}
+
+	// Verify all basic fields return exactly what was stored
+	if pid := snapshot.Pid(); pid != 42 {
+		t.Errorf("Pid() = %d, want 42", pid)
+	}
+	if name, _ := snapshot.Name(); name != "postgres" {
+		t.Errorf("Name() = %q, want postgres", name)
+	}
+	if username, _ := snapshot.Name(); username != "postgres" { // Check Name/Username separately
+		t.Errorf("Name() = %q, want postgres", username)
+	}
+	if user, _ := snapshot.Username(); user != "postgres_user" {
+		t.Errorf("Username() = %q, want postgres_user", user)
+	}
+
+	// Verify slice deep copying and immutability
+	cmd, _ := snapshot.CmdlineSlice()
+	if len(cmd) == 0 || cmd[0] != "postgres" {
+		t.Errorf("CmdlineSlice() returned unexpected slice: %v", cmd)
+	}
+	cmd[0] = "mutated" // Attempt mutation
+
+	cmdAfter, _ := snapshot.CmdlineSlice()
+	if cmdAfter[0] != "postgres" {
+		t.Errorf("CmdlineSlice() was modified by external caller; expected 'postgres', got %q", cmdAfter[0])
+	}
+
+	env, _ := snapshot.Environ()
+	if len(env) == 0 || env[0] != "PGDATA=/var/lib/postgresql" {
+		t.Errorf("Environ() returned unexpected slice: %v", env)
+	}
+	env[0] = "mutated" // Attempt mutation
+
+	envAfter, _ := snapshot.Environ()
+	if envAfter[0] != "PGDATA=/var/lib/postgresql" {
+		t.Errorf("Environ() was modified by external caller; expected original string, got %q", envAfter[0])
+	}
+}

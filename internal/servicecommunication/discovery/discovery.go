@@ -113,6 +113,39 @@ func (p gopsProcess) String() string {
 	return fmt.Sprintf("process{username: %s, pid: %d, name: %s, args: %+v}", username, pid, name, args)
 }
 
+// ProcessSnapshot is an immutable, read-only snapshot of a process to avoid shared state and data races.
+type ProcessSnapshot struct {
+	pid          int32
+	name         string
+	username     string
+	cmdlineSlice []string
+	environ      []string
+}
+
+// Username returns the username under which the process is running.
+func (p ProcessSnapshot) Username() (string, error) { return p.username, nil }
+
+// Pid returns the unique process ID.
+func (p ProcessSnapshot) Pid() int32 { return p.pid }
+
+// Name returns the name of the process.
+func (p ProcessSnapshot) Name() (string, error) { return p.name, nil }
+
+// CmdlineSlice returns a deep copy of the command line arguments used to start the process.
+func (p ProcessSnapshot) CmdlineSlice() ([]string, error) {
+	return append([]string(nil), p.cmdlineSlice...), nil
+}
+
+// Environ returns a deep copy of the environment variables set for the process.
+func (p ProcessSnapshot) Environ() ([]string, error) {
+	return append([]string(nil), p.environ...), nil
+}
+
+// String returns the string representation of the process.
+func (p ProcessSnapshot) String() string {
+	return fmt.Sprintf("process{username: %s, pid: %d, name: %s, args: %+v}", p.username, p.pid, p.name, p.cmdlineSlice)
+}
+
 // setupBackoff sets up the backoff policy for discovery. Upon startup we want to check more
 // frequently as changes are more likely to occur. Each time this runs, it will double the interval
 // until it reaches the max interval.
@@ -130,14 +163,30 @@ func setupBackoff(initialInterval, maxInterval time.Duration) backoff.BackOff {
 }
 
 func (d Service) commonDiscoveryLoop(ctx context.Context) (servicecommunication.DiscoveryResult, error) {
-	processes, err := d.ProcessLister.listAllProcesses()
+	rawProcesses, err := d.ProcessLister.listAllProcesses()
 	if err != nil {
 		return servicecommunication.DiscoveryResult{}, err
 	}
-	if len(processes) < 1 {
+	if len(rawProcesses) < 1 {
 		return servicecommunication.DiscoveryResult{}, errors.New("no processes found")
 	}
-	return servicecommunication.DiscoveryResult{Processes: processes}, nil
+
+	snapshots := make([]servicecommunication.ProcessWrapper, len(rawProcesses))
+	for i, p := range rawProcesses {
+		name, _ := p.Name()
+		username, _ := p.Username()
+		cmdlineSlice, _ := p.CmdlineSlice()
+		environ, _ := p.Environ()
+
+		snapshots[i] = ProcessSnapshot{
+			pid:          p.Pid(),
+			name:         name,
+			username:     username,
+			cmdlineSlice: cmdlineSlice,
+			environ:      environ,
+		}
+	}
+	return servicecommunication.DiscoveryResult{Processes: snapshots}, nil
 }
 
 // CommonDiscovery returns a CommonDiscoveryResult and any errors encountered during the discovery process.
