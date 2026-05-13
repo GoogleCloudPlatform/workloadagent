@@ -53,6 +53,16 @@ message OpenshiftMetricsPayload {
   ResourceListContainer nodes = 13;
   // The cloud credential config of the Openshift cluster.
   CloudCredentialConfig cloud_credential_config = 14;
+  // The specific DaemonSets in the Openshift cluster.
+  ResourceListContainer daemon_sets = 16;
+  // The SecretProviderClass resources in the Openshift cluster.
+  ResourceListContainer secret_provider_classes = 17;
+  // The APIServer resources in the Openshift cluster.
+  ResourceListContainer api_servers = 18;
+  // The SecretStore resources in the Openshift cluster.
+  ResourceListContainer secret_stores = 19;
+  // The ExternalSecret resources in the Openshift cluster.
+  ResourceListContainer external_secrets = 20;
   // The UTC timestamp when the metric payload was generated.
   google.protobuf.Timestamp scan_timestamp = 15;
 }
@@ -76,6 +86,11 @@ message ResourceListContainer {
     DeploymentList deployments = 10;
     CustomResourceDefinitionList custom_resource_definitions = 11;
     NodeList nodes = 12;
+    DaemonSetList daemon_sets = 13;
+    SecretProviderClassList secret_provider_classes = 14;
+    APIServerList api_servers = 15;
+    SecretStoreList secret_stores = 16;
+    ExternalSecretList external_secrets = 17;
   }
   // The K8 resource metadata.
   message Metadata {
@@ -267,6 +282,19 @@ message Deployment {
   }
 }
 
+message DaemonSetList {
+  repeated DaemonSet items = 1;
+}
+
+message DaemonSet {
+  ResourceMetadata metadata = 1;
+  Spec spec = 2;
+
+  message Spec {
+    PodTemplate pod_template = 1;
+  }
+}
+
 message PodTemplate {
   ResourceMetadata metadata = 1;
   PodSpec spec = 2;
@@ -369,5 +397,75 @@ message CloudCredentialConfig {
 
   message Spec {
     string credentials_mode = 1;
+  }
+}
+
+message SecretProviderClassList {
+  repeated SecretProviderClass items = 1;
+}
+
+message SecretProviderClass {
+  ResourceMetadata metadata = 1;
+  Spec spec = 2;
+
+  message Spec {
+    repeated SecretObject secret_objects = 1;
+    string provider = 2;
+  }
+
+  message SecretObject {}
+}
+
+message APIServerList {
+  repeated APIServer items = 1;
+}
+
+message APIServer {
+  ResourceMetadata metadata = 1;
+  Spec spec = 2;
+
+  message Spec {
+    Encryption encryption = 1;
+  }
+
+  message Encryption {
+    string type = 1;
+  }
+}
+
+message SecretStoreList {
+  repeated SecretStore items = 1;
+}
+
+message SecretStore {
+  ResourceMetadata metadata = 1;
+  Spec spec = 2;
+
+  message Spec {
+    Provider provider = 1;
+  }
+
+  message Provider {
+    GcpSm gcpsm = 1;
+  }
+
+  message GcpSm {}
+}
+
+message ExternalSecretList {
+  repeated ExternalSecret items = 1;
+}
+
+message ExternalSecret {
+  ResourceMetadata metadata = 1;
+  Spec spec = 2;
+
+  message Spec {
+    SecretStoreRef secret_store_ref = 1;
+  }
+
+  message SecretStoreRef {
+    string name = 1;
+    string kind = 2;  // SecretStore or ClusterSecretStore
   }
 }

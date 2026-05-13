@@ -102,3 +102,30 @@ func (c *Client) GetCloudCredentialConfig() (*CloudCredentialConfigResponse, err
 	}
 	return &cloudCredentialConfigResponse, nil
 }
+
+// GetAPIServer returns the specific APIServer resource of the Openshift cluster.
+func (c *Client) GetAPIServer() (*APIServerResponse, error) {
+	uri := "/apis/config.openshift.io/v1/apiservers/cluster"
+	url := fmt.Sprintf("%s%s", c.config.Host, uri)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get api server cluster: %v", string(body))
+	}
+	var apiServerResponse APIServerResponse
+	if err := json.Unmarshal(body, &apiServerResponse); err != nil {
+		return nil, err
+	}
+	return &apiServerResponse, nil
+}
