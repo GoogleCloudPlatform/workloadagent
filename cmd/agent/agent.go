@@ -22,6 +22,7 @@ import (
 	"os"
 	"runtime"
 
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -50,6 +51,12 @@ type Options struct {
 
 // Run executes the agent with the provided options.
 func Run(opts Options) {
+	// Trim space from arguments to avoid issues with parsing. We have seen cases where the arguments
+	// have leading or trailing spaces (e.g. when running as an extension).
+	for i := range os.Args {
+		os.Args[i] = strings.TrimSpace(os.Args[i])
+	}
+
 	ctx := context.Background()
 	lp := log.Parameters{
 		OSType:     runtime.GOOS,
