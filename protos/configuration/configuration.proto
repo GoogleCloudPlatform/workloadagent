@@ -21,6 +21,7 @@ import "google/protobuf/duration.proto";
 
 option go_package = "github.com/GoogleCloudPlatform/workloadagent/protos/configuration";
 
+// temp comment for copying
 message Configuration {
   enum LogLevel {
     UNDEFINED = 0;
