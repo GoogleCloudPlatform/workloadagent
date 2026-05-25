@@ -181,6 +181,17 @@ message SQLServerConfiguration {
   google.protobuf.Duration retry_frequency = 6;
   // default remote collection is false
   bool remote_collection = 7;
+
+  // The ACS channel this agent should connect to.
+  enum Channel {
+    CHANNEL_UNSPECIFIED = 0;
+    PROD = 1;
+    STAGING = 2;
+    AUTOPUSH = 3;
+    SANDBOX = 4;
+  }
+  // Optional. If not specified, defaults to SANDBOX for now.
+  Channel channel = 8;
 }
 
 message ConnectionParameters {
