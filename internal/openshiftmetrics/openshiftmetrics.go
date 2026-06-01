@@ -357,6 +357,7 @@ func (o *OpenShiftMetrics) collectDeploymentData(ctx context.Context, namespaces
 					})
 				}
 				containers = append(containers, &ompb.Container{
+					Name:         container.Name,
 					Env:          env,
 					EnvFrom:      envFrom,
 					VolumeMounts: volumeMounts,
@@ -398,6 +399,7 @@ func (o *OpenShiftMetrics) collectDeploymentData(ctx context.Context, namespaces
 					})
 				}
 				initContainers = append(initContainers, &ompb.Container{
+					Name:         container.Name,
 					Env:          env,
 					EnvFrom:      envFrom,
 					VolumeMounts: volumeMounts,
@@ -839,6 +841,7 @@ func (o *OpenShiftMetrics) collectDaemonSets(ctx context.Context, namespaces []s
 					})
 				}
 				containers = append(containers, &ompb.Container{
+					Name: container.Name,
 					Env: env,
 				})
 			}

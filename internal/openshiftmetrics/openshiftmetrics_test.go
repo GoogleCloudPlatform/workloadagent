@@ -266,10 +266,13 @@ func TestCollectMetrics(t *testing.T) {
 							Metadata: &ompb.ResourceMetadata{CreationTimestamp: tspb.New(time.Time{})},
 							Spec: &ompb.PodSpec{
 								Containers: []*ompb.Container{{
+									Name:         "main-container",
 									Env:          []*ompb.Env{{Name: "GOOGLE_APPLICATION_CREDENTIALS", Value: "/var/run/secrets/wif/config.json"}},
 									VolumeMounts: []*ompb.VolumeMount{{Name: "test-volume", MountPath: "/var/lib/test"}, {Name: "wif-token", MountPath: "/var/run/secrets/wif"}},
 								}},
-								InitContainers: []*ompb.Container{{VolumeMounts: []*ompb.VolumeMount{{Name: "test-volume2", MountPath: "/usr/lib/test2"}}}},
+								InitContainers: []*ompb.Container{{
+									Name:         "init-container",
+									VolumeMounts: []*ompb.VolumeMount{{Name: "test-volume2", MountPath: "/usr/lib/test2"}}}},
 								Volumes:        []*ompb.Volume{{Name: "test-volume"}, {Name: "test-volume2"}, {Name: "wif-token", Projected: &ompb.Volume_Projected{Sources: true}}},
 								Affinity:       &ompb.Affinity{PodAntiAffinity: &ompb.Affinity_PodAntiAffinity{}},
 							},
@@ -314,7 +317,9 @@ func TestCollectMetrics(t *testing.T) {
 		{
 			name: "DaemonSets",
 			got:  payload.GetDaemonSets().GetDaemonSets(),
-			want: &ompb.DaemonSetList{Items: []*ompb.DaemonSet{{Metadata: &ompb.ResourceMetadata{Name: "csi-secrets-store-provider-gcp", Uid: "ds-uid", ResourceVersion: "9", CreationTimestamp: nowProto, Namespace: "default"}, Spec: &ompb.DaemonSet_Spec{PodTemplate: &ompb.PodTemplate{Metadata: &ompb.ResourceMetadata{CreationTimestamp: tspb.New(time.Time{})}, Spec: &ompb.PodSpec{Containers: []*ompb.Container{{Env: []*ompb.Env{{Name: "TARGET_ENV", Value: "prod"}}}}}}}}}},
+			want: &ompb.DaemonSetList{Items: []*ompb.DaemonSet{{Metadata: &ompb.ResourceMetadata{Name: "csi-secrets-store-provider-gcp", Uid: "ds-uid", ResourceVersion: "9", CreationTimestamp: nowProto, Namespace: "default"}, Spec: &ompb.DaemonSet_Spec{PodTemplate: &ompb.PodTemplate{Metadata: &ompb.ResourceMetadata{CreationTimestamp: tspb.New(time.Time{})}, Spec: &ompb.PodSpec{Containers: []*ompb.Container{{
+					Name: "gcp-provider",
+					Env: []*ompb.Env{{Name: "TARGET_ENV", Value: "prod"}}}}}}}}}},
 		},
 		{
 			name: "SecretProviderClasses",

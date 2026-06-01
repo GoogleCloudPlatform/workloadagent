@@ -316,6 +316,7 @@ message Container {
   repeated Env env = 1;
   repeated EnvFrom env_from = 2;
   repeated VolumeMount volume_mounts = 3;
+  string name = 4;
 }
 
 // Derived from
