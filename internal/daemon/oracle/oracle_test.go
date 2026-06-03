@@ -560,7 +560,8 @@ func TestRunDiscovery(t *testing.T) {
 				},
 			},
 		},
-		processes: []servicecommunication.ProcessWrapper{fakeProcess{name: "ora_pmon_"}},
+		processes:        []servicecommunication.ProcessWrapper{fakeProcess{name: "ora_pmon_"}},
+		isProcessPresent: true,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -602,8 +603,9 @@ func TestStartDiscoveryRoutine(t *testing.T) {
 						},
 					},
 				},
-				discovery: &fakeDiscoveryClient{},
-				processes: []servicecommunication.ProcessWrapper{fakeProcess{name: "ora_pmon_"}},
+				discovery:        &fakeDiscoveryClient{},
+				processes:        []servicecommunication.ProcessWrapper{fakeProcess{name: "ora_pmon_"}},
+				isProcessPresent: true,
 			}
 			ctx, cancel := context.WithCancel(context.Background())
 			s.startDiscoveryRoutine(ctx)
@@ -778,7 +780,8 @@ func TestStart(t *testing.T) {
 				newMetricCollector: func(context.Context, *cpb.Configuration) (MetricCollector, error) {
 					return &fakeMetricCollector{}, nil
 				},
-				processes: []servicecommunication.ProcessWrapper{fakeProcess{name: "ora_pmon_"}},
+				isProcessPresent: true,
+				processes:        []servicecommunication.ProcessWrapper{fakeProcess{name: "ora_pmon_"}},
 			}
 
 			ctx, cancel := context.WithCancel(context.Background())

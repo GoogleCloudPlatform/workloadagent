@@ -316,9 +316,10 @@ func runDiscovery(ctx context.Context, a any) {
 		// Discovery data is not used yet.
 		s.processesMutex.Lock()
 		processes := s.processes
+		isPresent := s.isProcessPresent
 		s.processesMutex.Unlock()
-		// Don't start discovery until processes are populated.
-		for processes == nil {
+		// Don't start discovery until Oracle processes are detected.
+		for !isPresent {
 			select {
 			case <-ctx.Done():
 				log.CtxLogger(ctx).Info("Oracle Discovery cancellation requested")
@@ -327,6 +328,7 @@ func runDiscovery(ctx context.Context, a any) {
 			}
 			s.processesMutex.Lock()
 			processes = s.processes
+			isPresent = s.isProcessPresent
 			s.processesMutex.Unlock()
 		}
 		_, err := ds.Discover(ctx, s.CloudProps, processes)
