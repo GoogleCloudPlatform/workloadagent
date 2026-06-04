@@ -28,6 +28,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap/zapcore"
+	"k8s.io/client-go/rest"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/configure"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/logusage"
@@ -35,6 +36,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/status"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/version"
+	"github.com/GoogleCloudPlatform/workloadagent/internal/openshiftmetrics/clients/openshift"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/metadataserver"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 
@@ -65,7 +67,22 @@ func Run(opts Options) {
 	}
 
 	cloudProps := &cpb.CloudProperties{}
-	if cp := metadataserver.FetchCloudProperties(); cp != nil {
+	//TODO - Move OpenShift-specific Run logic to a separate main file.
+	if os.Getenv("WLA_WORKLOAD") == "OPENSHIFT" {
+		if cp := fetchCloudPropertiesFromOpenShift(); cp != nil {
+			cloudProps = &cpb.CloudProperties{
+				ProjectId:    cp.ProjectID,
+				Region:       cp.Region,
+				InstanceName: cp.InstanceName,
+			}
+
+			log.Logger.Infow("Cloud Properties for OpenShift",
+				"projectid", cloudProps.GetProjectId(),
+				"region", cloudProps.GetRegion(),
+				"instancename", cloudProps.GetInstanceName(),
+			)
+		}
+	} else if cp := metadataserver.FetchCloudProperties(); cp != nil {
 		cloudProps = &cpb.CloudProperties{
 			ProjectId:           cp.ProjectID,
 			InstanceId:          cp.InstanceID,
@@ -130,4 +147,28 @@ func Run(opts Options) {
 		}
 	}()
 	os.Exit(rc)
+}
+
+func fetchCloudPropertiesFromOpenShift() *metadataserver.CloudProperties {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		log.Logger.Errorw("Failed to get in-cluster config", "error", err)
+		return nil
+	}
+	client, err := openshift.New(config)
+	if err != nil {
+		log.Logger.Errorw("Failed to create openshift client", "error", err)
+		return nil
+	}
+	infra, err := client.GetInfrastructure()
+	if err != nil {
+		log.Logger.Errorw("Failed to get infrastructure from OpenShift API", "error", err)
+		return nil
+	}
+
+	return &metadataserver.CloudProperties{
+		ProjectID:    infra.Status.PlatformStatus.GCP.ProjectID,
+		Region:       infra.Status.PlatformStatus.GCP.Region,
+		InstanceName: infra.Status.InfrastructureName,
+	}
 }

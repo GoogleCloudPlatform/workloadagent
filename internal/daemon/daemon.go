@@ -211,21 +211,23 @@ func (d *Daemon) startdaemonHandler(ctx context.Context, restarting bool) error 
 	}
 	log.SetupLogging(d.lp)
 
-	// Get vCPU count and memory size from GCE and add to cloudProps.
-	gceClient, err := gce.NewGCEClient(ctx)
-	if err != nil {
-		log.Logger.Errorw("creating GCE client", "error", err)
-		usagemetrics.Error(usagemetrics.StartDaemonFailure)
-		return err
+	// Get vCPU count and memory size from GCE and add to cloudProps. This is not required for OpenShift.
+	if !d.config.GetOpenshiftConfiguration().GetEnabled() {
+		gceClient, err := gce.NewGCEClient(ctx)
+		if err != nil {
+			log.Logger.Errorw("Creating GCE client", "error", err)
+			usagemetrics.Error(usagemetrics.StartDaemonFailure)
+			return err
+		}
+		vCPU, memorySize, err := gceClient.GetInstanceCPUAndMemorySize(ctx, d.cloudProps.GetProjectId(), d.cloudProps.GetZone(), d.cloudProps.GetInstanceName())
+		if err != nil {
+			log.Logger.Errorw("Getting vCPU and memory size from GCE", "error", err)
+			usagemetrics.Error(usagemetrics.StartDaemonFailure)
+			return err
+		}
+		d.cloudProps.VcpuCount = vCPU
+		d.cloudProps.MemorySizeMb = memorySize
 	}
-	vCPU, memorySize, err := gceClient.GetInstanceCPUAndMemorySize(ctx, d.cloudProps.GetProjectId(), d.cloudProps.GetZone(), d.cloudProps.GetInstanceName())
-	if err != nil {
-		log.Logger.Errorw("getting vCPU and memory size from GCE", "error", err)
-		usagemetrics.Error(usagemetrics.StartDaemonFailure)
-		return err
-	}
-	d.cloudProps.VcpuCount = vCPU
-	d.cloudProps.MemorySizeMb = memorySize
 
 	log.Logger.Infow("Starting daemon mode", "agent_name", configuration.AgentName, "agent_version", configuration.AgentVersion)
 	log.Logger.Infow("Cloud Properties",

@@ -56,6 +56,20 @@ type CloudCredentialConfigResponse struct {
 	} `json:"spec"`
 }
 
+// InfrastructureResponse is the response from the Openshift infrastructure API.
+type InfrastructureResponse struct {
+	Status struct {
+		InfrastructureName string `json:"infrastructureName"`
+		PlatformStatus     struct {
+			GCP struct {
+				ProjectID string `json:"projectID"`
+				Region    string `json:"region"`
+			} `json:"gcp"`
+			Type string `json:"type"`
+		} `json:"platformStatus"`
+	} `json:"status"`
+}
+
 // APIServerResponse is the response from the Openshift APIServer API for a single resource.
 type APIServerResponse struct {
 	APIVersion string `json:"apiVersion"`

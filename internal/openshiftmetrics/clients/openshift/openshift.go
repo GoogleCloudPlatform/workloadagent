@@ -103,6 +103,34 @@ func (c *Client) GetCloudCredentialConfig() (*CloudCredentialConfigResponse, err
 	return &cloudCredentialConfigResponse, nil
 }
 
+// GetInfrastructure returns the infrastructure data of the Openshift cluster.
+func (c *Client) GetInfrastructure() (*InfrastructureResponse, error) {
+	uri := "/apis/config.openshift.io/v1/infrastructures/cluster"
+	url := fmt.Sprintf("%s%s", c.config.Host, uri)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	// TODO: implement retry logic.
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get infrastructure: %q", string(body))
+	}
+	var infrastructureResponse InfrastructureResponse
+	if err := json.Unmarshal(body, &infrastructureResponse); err != nil {
+		return nil, err
+	}
+	return &infrastructureResponse, nil
+}
+
 // GetAPIServer returns the specific APIServer resource of the Openshift cluster.
 func (c *Client) GetAPIServer() (*APIServerResponse, error) {
 	uri := "/apis/config.openshift.io/v1/apiservers/cluster"

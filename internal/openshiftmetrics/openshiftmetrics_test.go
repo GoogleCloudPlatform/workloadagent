@@ -273,8 +273,8 @@ func TestCollectMetrics(t *testing.T) {
 								InitContainers: []*ompb.Container{{
 									Name:         "init-container",
 									VolumeMounts: []*ompb.VolumeMount{{Name: "test-volume2", MountPath: "/usr/lib/test2"}}}},
-								Volumes:        []*ompb.Volume{{Name: "test-volume"}, {Name: "test-volume2"}, {Name: "wif-token", Projected: &ompb.Volume_Projected{Sources: true}}},
-								Affinity:       &ompb.Affinity{PodAntiAffinity: &ompb.Affinity_PodAntiAffinity{}},
+								Volumes:  []*ompb.Volume{{Name: "test-volume"}, {Name: "test-volume2"}, {Name: "wif-token", Projected: &ompb.Volume_Projected{Sources: true}}},
+								Affinity: &ompb.Affinity{PodAntiAffinity: &ompb.Affinity_PodAntiAffinity{}},
 							},
 						},
 					},
@@ -318,8 +318,8 @@ func TestCollectMetrics(t *testing.T) {
 			name: "DaemonSets",
 			got:  payload.GetDaemonSets().GetDaemonSets(),
 			want: &ompb.DaemonSetList{Items: []*ompb.DaemonSet{{Metadata: &ompb.ResourceMetadata{Name: "csi-secrets-store-provider-gcp", Uid: "ds-uid", ResourceVersion: "9", CreationTimestamp: nowProto, Namespace: "default"}, Spec: &ompb.DaemonSet_Spec{PodTemplate: &ompb.PodTemplate{Metadata: &ompb.ResourceMetadata{CreationTimestamp: tspb.New(time.Time{})}, Spec: &ompb.PodSpec{Containers: []*ompb.Container{{
-					Name: "gcp-provider",
-					Env: []*ompb.Env{{Name: "TARGET_ENV", Value: "prod"}}}}}}}}}},
+				Name: "gcp-provider",
+				Env:  []*ompb.Env{{Name: "TARGET_ENV", Value: "prod"}}}}}}}}}},
 		},
 		{
 			name: "SecretProviderClasses",
