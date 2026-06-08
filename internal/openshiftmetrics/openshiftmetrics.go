@@ -200,6 +200,16 @@ func (o *OpenShiftMetrics) CollectMetrics(ctx context.Context, versionData Metri
 		usagemetrics.Error(usagemetrics.OpenShiftMetricCollectionFailure)
 	}
 
+	if err := o.collectPodMonitorings(ctx, namespaces, payload); err != nil {
+		logger.Warnw("Failed to collect pod monitorings data", "error", err)
+		usagemetrics.Error(usagemetrics.OpenShiftMetricCollectionFailure)
+	}
+
+	if err := o.collectClusterPodMonitorings(ctx, payload); err != nil {
+		logger.Warnw("Failed to collect cluster pod monitorings data", "error", err)
+		usagemetrics.Error(usagemetrics.OpenShiftMetricCollectionFailure)
+	}
+
 	logger.Debugw("Metric payload after collection", "payload", payload)
 
 	return payload, nil
@@ -1095,4 +1105,129 @@ func (o *OpenShiftMetrics) collectExternalSecrets(ctx context.Context, namespace
 	}
 
 	return nil
+}
+
+// convertToPodMonitoring extracts metadata and specs from an unstructured item into the proto format.
+func convertToPodMonitoring(item unstructured.Unstructured, namespace string) *ompb.PodMonitoring {
+	return &ompb.PodMonitoring{
+		Metadata: &ompb.ResourceMetadata{
+			Name:              item.GetName(),
+			Uid:               string(item.GetUID()),
+			ResourceVersion:   item.GetResourceVersion(),
+			Generation:        item.GetGeneration(),
+			CreationTimestamp: tspb.New(item.GetCreationTimestamp().Time),
+			Labels:            item.GetLabels(),
+			Annotations:       item.GetAnnotations(),
+			Namespace:         namespace, // will be empty for cluster-scoped resources
+		},
+		Spec: &ompb.PodMonitoring_Spec{
+			Selector: extractSelector(item.Object),
+		},
+	}
+}
+
+// collectPodMonitorings collects PodMonitoring resources from the cluster.
+func (o *OpenShiftMetrics) collectPodMonitorings(ctx context.Context, namespaces []string, payload *ompb.OpenshiftMetricsPayload) error {
+	var podMonitorings []*ompb.PodMonitoring
+	var kind, apiVersion, resourceVersion string
+
+	gvr := schema.GroupVersionResource{Group: "monitoring.googleapis.com", Version: "v1", Resource: "podmonitorings"}
+
+	for _, ns := range namespaces {
+		list, err := o.DynamicClient.Resource(gvr).Namespace(ns).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			log.CtxLogger(ctx).Warnw("Skipping PodMonitorings for namespace", "namespace", ns, "error", err)
+			continue
+		}
+
+		kind = list.GetKind()
+		apiVersion = list.GetAPIVersion()
+		resourceVersion = list.GetResourceVersion()
+
+		for _, item := range list.Items {
+			podMonitorings = append(podMonitorings, convertToPodMonitoring(item, ns))
+		}
+	}
+
+	if len(podMonitorings) > 0 {
+		payload.PodMonitorings = &ompb.ResourceListContainer{
+			Kind:           kind,
+			ApiVersion:     apiVersion,
+			Metadata:       &ompb.ResourceListContainer_Metadata{ResourceVersion: resourceVersion},
+			ContainerItems: &ompb.ResourceListContainer_PodMonitorings{PodMonitorings: &ompb.PodMonitoringList{Items: podMonitorings}},
+		}
+	}
+
+	return nil
+}
+
+// collectClusterPodMonitorings collects ClusterPodMonitoring resources from the cluster.
+func (o *OpenShiftMetrics) collectClusterPodMonitorings(ctx context.Context, payload *ompb.OpenshiftMetricsPayload) error {
+	var cpms []*ompb.PodMonitoring
+
+	gvr := schema.GroupVersionResource{Group: "monitoring.googleapis.com", Version: "v1", Resource: "clusterpodmonitorings"}
+
+	// ClusterPodMonitorings are cluster-scoped, so we query without a namespace
+	list, err := o.DynamicClient.Resource(gvr).Namespace("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
+
+	for _, item := range list.Items {
+		cpms = append(cpms, convertToPodMonitoring(item, ""))
+	}
+
+	if len(cpms) > 0 {
+		payload.ClusterPodMonitorings = &ompb.ResourceListContainer{
+			Kind:           list.GetKind(),
+			ApiVersion:     list.GetAPIVersion(),
+			Metadata:       &ompb.ResourceListContainer_Metadata{ResourceVersion: list.GetResourceVersion()},
+			ContainerItems: &ompb.ResourceListContainer_ClusterPodMonitorings{ClusterPodMonitorings: &ompb.ClusterPodMonitoringList{Items: cpms}},
+		}
+	}
+
+	return nil
+}
+
+// extractSelector is a helper function to safely extract the spec.selector field from an unstructured object.
+func extractSelector(obj map[string]any) *ompb.PodMonitoring_Selector {
+	selectorMap, found, err := unstructured.NestedMap(obj, "spec", "selector")
+	if err != nil || !found {
+		return nil
+	}
+
+	selector := &ompb.PodMonitoring_Selector{
+		MatchLabels: make(map[string]string),
+	}
+
+	if ml, ok := selectorMap["matchLabels"].(map[string]any); ok {
+		for k, v := range ml {
+			if s, ok := v.(string); ok {
+				selector.MatchLabels[k] = s
+			}
+		}
+	}
+
+	if me, ok := selectorMap["matchExpressions"].([]any); ok {
+		for _, exprAny := range me {
+			if expr, ok := exprAny.(map[string]any); ok {
+				matchExpr := &ompb.PodMonitoring_MatchExpression{}
+				if key, ok := expr["key"].(string); ok {
+					matchExpr.Key = key
+				}
+				if op, ok := expr["operator"].(string); ok {
+					matchExpr.Op = op
+				}
+				if vals, ok := expr["values"].([]any); ok {
+					for _, vAny := range vals {
+						if vStr, ok := vAny.(string); ok {
+							matchExpr.Values = append(matchExpr.Values, vStr)
+						}
+					}
+				}
+				selector.MatchExpressions = append(selector.MatchExpressions, matchExpr)
+			}
+		}
+	}
+	return selector
 }

@@ -65,6 +65,11 @@ message OpenshiftMetricsPayload {
   ResourceListContainer external_secrets = 20;
   // The UTC timestamp when the metric payload was generated.
   google.protobuf.Timestamp scan_timestamp = 15;
+
+  // The PodMonitoring resources in the Openshift cluster.
+  ResourceListContainer pod_monitorings = 21;
+  // The ClusterPodMonitoring resources in the Openshift cluster.
+  ResourceListContainer cluster_pod_monitorings = 22;
 }
 
 // General container for K8 resources.
@@ -91,6 +96,8 @@ message ResourceListContainer {
     APIServerList api_servers = 15;
     SecretStoreList secret_stores = 16;
     ExternalSecretList external_secrets = 17;
+    PodMonitoringList pod_monitorings = 18;
+    ClusterPodMonitoringList cluster_pod_monitorings = 19;
   }
   // The K8 resource metadata.
   message Metadata {
@@ -468,5 +475,33 @@ message ExternalSecret {
   message SecretStoreRef {
     string name = 1;
     string kind = 2;  // SecretStore or ClusterSecretStore
+  }
+}
+
+message PodMonitoringList {
+  repeated PodMonitoring items = 1;
+}
+
+message ClusterPodMonitoringList {
+  repeated PodMonitoring items = 1;
+}
+
+message PodMonitoring {
+  ResourceMetadata metadata = 1;
+  Spec spec = 2;
+
+  message Spec {
+    Selector selector = 1;
+  }
+
+  message Selector {
+    map<string, string> match_labels = 1;
+    repeated MatchExpression match_expressions = 2;
+  }
+
+  message MatchExpression {
+    string key = 1;
+    string op = 2 [json_name = "operator"];
+    repeated string values = 3;
   }
 }

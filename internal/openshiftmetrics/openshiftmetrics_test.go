@@ -82,7 +82,7 @@ func (f *fakeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	case "/api/v1/namespaces":
 		obj = &corev1.NamespaceList{
 			Items: []corev1.Namespace{{ObjectMeta: metav1.ObjectMeta{Name: "default", UID: "ns-uid", ResourceVersion: "1", CreationTimestamp: metav1.NewTime(f.now)}}},
-		}
+	}
 	case "/apis/apps/v1/namespaces/default/deployments":
 		obj = &appsv1.DeploymentList{
 			Items: []appsv1.Deployment{{
@@ -181,6 +181,39 @@ func (f *fakeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 				"spec": {"secretStoreRef": {"name": "test-ss", "kind": "SecretStore"}}
 			}]
 		}`)
+		case "/apis/monitoring.googleapis.com/v1/namespaces/default/podmonitorings":
+		return jsonResponse(`{
+			"apiVersion": "monitoring.googleapis.com/v1",
+			"kind": "PodMonitoringList",
+			"metadata": {"resourceVersion": "13"},
+			"items": [{
+				"apiVersion": "monitoring.googleapis.com/v1",
+				"kind": "PodMonitoring",
+				"metadata": {"name": "test-pm", "uid": "pm-uid", "resourceVersion": "13", "creationTimestamp": "2025-05-14T06:33:06Z"},
+				"spec": {
+					"selector": {
+						"matchLabels": {"app": "my-app"},
+						"matchExpressions": [{"key": "env", "operator": "In", "values": ["prod", "staging"]}]
+					}
+				}
+			}]
+		}`)
+	case "/apis/monitoring.googleapis.com/v1/clusterpodmonitorings":
+		return jsonResponse(`{
+			"apiVersion": "monitoring.googleapis.com/v1",
+			"kind": "ClusterPodMonitoringList",
+			"metadata": {"resourceVersion": "14"},
+			"items": [{
+				"apiVersion": "monitoring.googleapis.com/v1",
+				"kind": "ClusterPodMonitoring",
+				"metadata": {"name": "test-cpm", "uid": "cpm-uid", "resourceVersion": "14", "creationTimestamp": "2025-05-14T06:33:06Z"},
+				"spec": {
+					"selector": {
+						"matchLabels": {"component": "database"}
+					}
+				}
+			}]
+		}`)
 	default:
 		// Fallback for list requests that shouldn't return data in this test
 		if strings.Contains(req.URL.Path, "/deployments") {
@@ -273,8 +306,8 @@ func TestCollectMetrics(t *testing.T) {
 								InitContainers: []*ompb.Container{{
 									Name:         "init-container",
 									VolumeMounts: []*ompb.VolumeMount{{Name: "test-volume2", MountPath: "/usr/lib/test2"}}}},
-								Volumes:  []*ompb.Volume{{Name: "test-volume"}, {Name: "test-volume2"}, {Name: "wif-token", Projected: &ompb.Volume_Projected{Sources: true}}},
-								Affinity: &ompb.Affinity{PodAntiAffinity: &ompb.Affinity_PodAntiAffinity{}},
+								Volumes:        []*ompb.Volume{{Name: "test-volume"}, {Name: "test-volume2"}, {Name: "wif-token", Projected: &ompb.Volume_Projected{Sources: true}}},
+								Affinity:       &ompb.Affinity{PodAntiAffinity: &ompb.Affinity_PodAntiAffinity{}},
 							},
 						},
 					},
@@ -318,8 +351,8 @@ func TestCollectMetrics(t *testing.T) {
 			name: "DaemonSets",
 			got:  payload.GetDaemonSets().GetDaemonSets(),
 			want: &ompb.DaemonSetList{Items: []*ompb.DaemonSet{{Metadata: &ompb.ResourceMetadata{Name: "csi-secrets-store-provider-gcp", Uid: "ds-uid", ResourceVersion: "9", CreationTimestamp: nowProto, Namespace: "default"}, Spec: &ompb.DaemonSet_Spec{PodTemplate: &ompb.PodTemplate{Metadata: &ompb.ResourceMetadata{CreationTimestamp: tspb.New(time.Time{})}, Spec: &ompb.PodSpec{Containers: []*ompb.Container{{
-				Name: "gcp-provider",
-				Env:  []*ompb.Env{{Name: "TARGET_ENV", Value: "prod"}}}}}}}}}},
+					Name: "gcp-provider",
+					Env: []*ompb.Env{{Name: "TARGET_ENV", Value: "prod"}}}}}}}}}},
 		},
 		{
 			name: "SecretProviderClasses",
@@ -340,6 +373,47 @@ func TestCollectMetrics(t *testing.T) {
 			name: "ExternalSecrets",
 			got:  payload.GetExternalSecrets().GetExternalSecrets(),
 			want: &ompb.ExternalSecretList{Items: []*ompb.ExternalSecret{{Metadata: &ompb.ResourceMetadata{Name: "test-es", Uid: "es-uid", ResourceVersion: "12", CreationTimestamp: tspb.New(time.Date(2025, time.May, 14, 6, 33, 6, 0, time.UTC)), Namespace: "default"}, Spec: &ompb.ExternalSecret_Spec{SecretStoreRef: &ompb.ExternalSecret_SecretStoreRef{Name: "test-ss", Kind: "SecretStore"}}}}},
+		},
+		{
+			name: "PodMonitorings",
+			got:  payload.GetPodMonitorings(),
+			want: &ompb.ResourceListContainer{
+				Kind:       "PodMonitoringList",
+				ApiVersion: "monitoring.googleapis.com/v1",
+				Metadata:   &ompb.ResourceListContainer_Metadata{ResourceVersion: "13"},
+				ContainerItems: &ompb.ResourceListContainer_PodMonitorings{
+					PodMonitorings: &ompb.PodMonitoringList{Items: []*ompb.PodMonitoring{{
+						Metadata: &ompb.ResourceMetadata{Name: "test-pm", Uid: "pm-uid", ResourceVersion: "13", CreationTimestamp: tspb.New(time.Date(2025, time.May, 14, 6, 33, 6, 0, time.UTC)), Namespace: "default"},
+						Spec: &ompb.PodMonitoring_Spec{
+							Selector: &ompb.PodMonitoring_Selector{
+								MatchLabels: map[string]string{"app": "my-app"},
+								MatchExpressions: []*ompb.PodMonitoring_MatchExpression{
+									{Key: "env", Op: "In", Values: []string{"prod", "staging"}},
+								},
+							},
+						},
+					}}},
+				},
+			},
+		},
+		{
+			name: "ClusterPodMonitorings",
+			got:  payload.GetClusterPodMonitorings(),
+			want: &ompb.ResourceListContainer{
+				Kind:       "ClusterPodMonitoringList",
+				ApiVersion: "monitoring.googleapis.com/v1",
+				Metadata:   &ompb.ResourceListContainer_Metadata{ResourceVersion: "14"},
+				ContainerItems: &ompb.ResourceListContainer_ClusterPodMonitorings{
+					ClusterPodMonitorings: &ompb.ClusterPodMonitoringList{Items: []*ompb.PodMonitoring{{
+						Metadata: &ompb.ResourceMetadata{Name: "test-cpm", Uid: "cpm-uid", ResourceVersion: "14", CreationTimestamp: tspb.New(time.Date(2025, time.May, 14, 6, 33, 6, 0, time.UTC))},
+						Spec: &ompb.PodMonitoring_Spec{
+							Selector: &ompb.PodMonitoring_Selector{
+								MatchLabels: map[string]string{"component": "database"},
+							},
+						},
+					}}},
+				},
+			},
 		},
 	}
 
