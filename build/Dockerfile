@@ -2,12 +2,12 @@ FROM ghcr.io/jqlang/jq:latest as jq
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 
 # TODO: Update the image version to a tag like 'latest'.
-LABEL name="workload-agent" \
+LABEL name="google-cloud-workload-agent" \
       vendor="Google Cloud" \
       version="0.0.1" \
       release="1" \
-      summary="Google Cloud Agent for Compute Workloads" \
-      description="The Agent for Compute Workloads lets you monitor and evaluate workloads running on Compute Engine. Once you install the agent on the compute instances that host your workload, the agent collects metrics from your workload and instances, and sends them to Google Cloud services. Currently, the agent only sends to Google Cloud Workload Manager where you can the evaluation service of Workload Manager to evaluate your workload against industry best practices and those recommended by Google Cloud." \
+      summary="Google Cloud Workload Agent for Compute Workloads" \
+      description="The agent for Compute Workloads lets you monitor and evaluate workloads running on Compute Engine. Once you install the agent on the compute instances that host your workload, the agent collects metrics from your workload and instances, and sends them to Google Cloud services. Currently, the agent only sends to Google Cloud Workload Manager where you can the evaluation service of Workload Manager to evaluate your workload against industry best practices and those recommended by Google Cloud." \
       maintainer="workload-agent-team@google.com"
 
 WORKDIR /
