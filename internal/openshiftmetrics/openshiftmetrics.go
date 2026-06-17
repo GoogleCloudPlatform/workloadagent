@@ -425,8 +425,25 @@ func (o *OpenShiftMetrics) collectDeploymentData(ctx context.Context, namespaces
 				}
 				var projected *ompb.Volume_Projected
 				if volume.Projected != nil {
+				var pbSources []*ompb.Volume_VolumeProjection
+					// Iterate through the projected sources
+					for _, src := range volume.Projected.Sources {
+						// Specifically looking for ServiceAccountToken sources
+						if src.ServiceAccountToken != nil {
+							saToken := &ompb.Volume_ServiceAccountTokenProjection{
+								Audience: src.ServiceAccountToken.Audience,
+								Path:     src.ServiceAccountToken.Path,
+							}
+							if src.ServiceAccountToken.ExpirationSeconds != nil {
+								saToken.ExpirationSeconds = *src.ServiceAccountToken.ExpirationSeconds
+							}
+							pbSources = append(pbSources, &ompb.Volume_VolumeProjection{
+								ServiceAccountToken: saToken,
+							})
+						}
+					}
 					projected = &ompb.Volume_Projected{
-						Sources: true,
+						ProjectedSources: pbSources,
 					}
 				}
 				volumes = append(volumes, &ompb.Volume{

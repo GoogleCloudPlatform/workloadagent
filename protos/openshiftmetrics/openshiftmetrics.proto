@@ -336,8 +336,20 @@ message Volume {
   message Secret {
     string secret_name = 1;
   }
-  message Projected {
-    bool sources = 1;
+ message Projected {
+  // DEPRECATED: Do not use. Replaced by projected_sources.
+    bool sources = 1 [deprecated = true];
+    repeated VolumeProjection projected_sources = 2;
+  }
+
+  message VolumeProjection {
+    ServiceAccountTokenProjection service_account_token = 1;
+  }
+
+  message ServiceAccountTokenProjection {
+    string audience = 1;
+    string path = 2;
+    int64 expiration_seconds = 3;
   }
 }
 

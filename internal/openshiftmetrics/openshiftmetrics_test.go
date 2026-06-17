@@ -306,7 +306,22 @@ func TestCollectMetrics(t *testing.T) {
 								InitContainers: []*ompb.Container{{
 									Name:         "init-container",
 									VolumeMounts: []*ompb.VolumeMount{{Name: "test-volume2", MountPath: "/usr/lib/test2"}}}},
-								Volumes:        []*ompb.Volume{{Name: "test-volume"}, {Name: "test-volume2"}, {Name: "wif-token", Projected: &ompb.Volume_Projected{Sources: true}}},
+								Volumes: []*ompb.Volume{
+									{Name: "test-volume"},
+									{Name: "test-volume2"},
+									{
+										Name: "wif-token",
+										Projected: &ompb.Volume_Projected{
+											ProjectedSources: []*ompb.Volume_VolumeProjection{
+												{
+													ServiceAccountToken: &ompb.Volume_ServiceAccountTokenProjection{
+														Path: "token",
+													},
+												},
+											},
+										},
+									},
+								},
 								Affinity:       &ompb.Affinity{PodAntiAffinity: &ompb.Affinity_PodAntiAffinity{}},
 							},
 						},
