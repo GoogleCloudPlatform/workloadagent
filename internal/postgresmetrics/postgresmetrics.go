@@ -20,6 +20,7 @@ package postgresmetrics
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -51,6 +52,7 @@ type rowsInterface interface {
 	Next() bool
 	Close() error
 	Scan(dest ...any) error
+	Err() error
 }
 
 type dbWrapper struct {
@@ -342,6 +344,200 @@ func (m *PostgresMetrics) exposedToPublicAccess(ctx context.Context) (bool, erro
 	return isExposed, nil
 }
 
+// notFailoverProtected returns true if the instance is NOT protected by automatic failover.
+// It returns false if it is protected, or if it is a standby node.
+func (m *PostgresMetrics) notFailoverProtected(ctx context.Context) (bool, error) {
+	isStandby, err := m.isStandbyNode(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if standby node: %w", err)
+	}
+	if isStandby {
+		log.CtxLogger(ctx).Debugw("Instance is a standby node, skipping failover protection check")
+		return false, nil // Return false (no issue) on standby nodes
+	}
+
+	haActive, err := m.isHAActive(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if HA daemons are active: %w", err)
+	}
+	if !haActive {
+		log.CtxLogger(ctx).Debugw("Failover protection status", "haActive", false, "replicationActive", false, "protected", false)
+		return true, nil
+	}
+
+	replicationActive, err := m.hasActiveReplication(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to check active replication standbys: %w", err)
+	}
+
+	log.CtxLogger(ctx).Debugw("Failover protection status", "haActive", haActive, "replicationActive", replicationActive, "protected", replicationActive)
+
+	return !replicationActive, nil
+}
+
+func (m *PostgresMetrics) isStandbyNode(ctx context.Context) (bool, error) {
+	rows, err := executeQuery(ctx, m.db, "SELECT pg_is_in_recovery()")
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	var isRecovery bool
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return false, fmt.Errorf("error iterating rows: %w", err)
+		}
+		return false, errors.New("no rows returned from pg_is_in_recovery query")
+	}
+	if err := rows.Scan(&isRecovery); err != nil {
+		return false, err
+	}
+	return isRecovery, nil
+}
+
+func (m *PostgresMetrics) isHAActive(ctx context.Context) (bool, error) {
+	patroniActive, err := m.isPatroniActive(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to check Patroni: %w", err)
+	}
+	if patroniActive {
+		return true, nil
+	}
+
+	pgAutoctlActive, err := m.isPgAutoFailoverActive(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to check pg_auto_failover: %w", err)
+	}
+	if pgAutoctlActive {
+		return true, nil
+	}
+
+	return false, nil
+}
+
+func (m *PostgresMetrics) isPatroniActive(ctx context.Context) (bool, error) {
+	patroniRunning, err := m.isProcessRunning(ctx, "patroni")
+	if err != nil {
+		return false, err
+	}
+	if patroniRunning {
+		log.CtxLogger(ctx).Debugw("Patroni process is running")
+		return true, nil
+	}
+	return false, nil
+}
+
+func (m *PostgresMetrics) isPgAutoFailoverActive(ctx context.Context) (bool, error) {
+	pgAutoctlRunning, err := m.isProcessRunning(ctx, "pg_autoctl")
+	if err != nil {
+		return false, err
+	}
+	if !pgAutoctlRunning {
+		return false, nil
+	}
+	log.CtxLogger(ctx).Debugw("pg_autoctl process is running, checking state")
+	healthy, err := m.checkPgAutoctlState(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to check pg_autoctl state: %w", err)
+	}
+	return healthy, nil
+}
+
+type pgAutoctlNode struct {
+	Name         string `json:"nodename"`
+	Host         string `json:"nodehost"`
+	Port         int    `json:"nodeport"`
+	CurrentState string `json:"current_group_state"`
+	Health       int    `json:"health"`
+}
+
+func (m *PostgresMetrics) checkPgAutoctlState(ctx context.Context) (bool, error) {
+	pgdata, err := m.getDataDirectory(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to get pgdata directory: %w", err)
+	}
+
+	result := m.execute(ctx, commandlineexecutor.Params{
+		Executable: "pg_autoctl",
+		Args:       []string{"show", "state", "--pgdata", pgdata, "--json"},
+		User:       "postgres",
+	})
+	if result.Error != nil {
+		return false, fmt.Errorf("failed to execute pg_autoctl: %w", result.Error)
+	}
+
+	var nodes []pgAutoctlNode
+	if err := json.Unmarshal([]byte(result.StdOut), &nodes); err != nil {
+		return false, fmt.Errorf("failed to unmarshal pg_autoctl output: %w, stdout: %s", err, result.StdOut)
+	}
+
+	// Look for a reachable secondary node
+	for _, node := range nodes {
+		if (node.CurrentState == "secondary" || node.CurrentState == "catchingup") && node.Health == 1 {
+			log.CtxLogger(ctx).Debugw("Found healthy pg_auto_failover standby node", "node", node.Name, "state", node.CurrentState)
+			return true, nil
+		}
+	}
+
+	log.CtxLogger(ctx).Debugw("No healthy pg_auto_failover standby node found")
+	return false, nil
+}
+
+func (m *PostgresMetrics) getDataDirectory(ctx context.Context) (string, error) {
+	rows, err := executeQuery(ctx, m.db, "SHOW data_directory")
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	var pgdata string
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return "", fmt.Errorf("error iterating rows: %w", err)
+		}
+		return "", errors.New("no rows returned from SHOW data_directory query")
+	}
+	if err := rows.Scan(&pgdata); err != nil {
+		return "", err
+	}
+	return pgdata, nil
+}
+
+func (m *PostgresMetrics) isProcessRunning(ctx context.Context, processName string) (bool, error) {
+	result := m.execute(ctx, commandlineexecutor.Params{
+		Executable: "pgrep",
+		Args:       []string{"-x", processName},
+	})
+	if result.Error != nil {
+		// If exit code is 1, it means process not found, which is a valid result (not running).
+		if result.ExitCode == 1 {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to run pgrep for %s: %w", processName, result.Error)
+	}
+	return true, nil
+}
+
+func (m *PostgresMetrics) hasActiveReplication(ctx context.Context) (bool, error) {
+	rows, err := executeQuery(ctx, m.db, "SELECT COUNT(*) FROM pg_stat_replication")
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	var count int
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return false, fmt.Errorf("error iterating rows: %w", err)
+		}
+		return false, errors.New("no rows returned from pg_stat_replication count query")
+	}
+	if err := rows.Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 // CollectWlmMetricsOnce collects metrics for Postgres databases running on the host.
 func (m *PostgresMetrics) CollectWlmMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
 	if !dwActivated {
@@ -396,14 +592,19 @@ func (m *PostgresMetrics) CollectDBCenterMetricsOnce(ctx context.Context) error 
 	if err != nil {
 		log.CtxLogger(ctx).Debugw("Failed to get exposed to public access", "err", err)
 	}
+	notFailoverProtected, err := m.notFailoverProtected(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("Failed to detect failover protection", "err", err)
+	}
 	// Send metadata details to database center
 	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.POSTGRES,
 		Metrics: map[string]string{
-			databasecenter.MajorVersionKey:             majorVersion,
-			databasecenter.MinorVersionKey:             minorVersion,
-			databasecenter.ExposedToPublicAccessKey:    strconv.FormatBool(exposedToPublicAccess),
-			databasecenter.UnencryptedConnectionsKey:   strconv.FormatBool(unencryptedConnectionsAllowed),
-			databasecenter.DatabaseAuditingDisabledKey: strconv.FormatBool(!auditingEnabled),
+			databasecenter.MajorVersionKey:                    majorVersion,
+			databasecenter.MinorVersionKey:                    minorVersion,
+			databasecenter.ExposedToPublicAccessKey:           strconv.FormatBool(exposedToPublicAccess),
+			databasecenter.UnencryptedConnectionsKey:          strconv.FormatBool(unencryptedConnectionsAllowed),
+			databasecenter.DatabaseAuditingDisabledKey:        strconv.FormatBool(!auditingEnabled),
+			databasecenter.NotProtectedByAutomaticFailoverKey: strconv.FormatBool(notFailoverProtected),
 		}})
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.

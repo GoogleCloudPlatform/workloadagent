@@ -30,23 +30,30 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/databasecenter"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
 	gcefake "github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/fake"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/wlm"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 )
 
 type testDB struct {
-	workMemRows    rowsInterface
-	workMemErr     error
-	versionRows    rowsInterface
-	versionErr     error
-	pingErr        error
-	pgauditLogRows rowsInterface
-	pgauditLogErr  error
-	sslRows        rowsInterface
-	sslErr         error
-	hbaRulesRows   rowsInterface
-	hbaRulesErr    error
+	workMemRows     rowsInterface
+	workMemErr      error
+	versionRows     rowsInterface
+	versionErr      error
+	pingErr         error
+	pgauditLogRows  rowsInterface
+	pgauditLogErr   error
+	sslRows         rowsInterface
+	sslErr          error
+	hbaRulesRows    rowsInterface
+	hbaRulesErr     error
+	isRecoveryRows  rowsInterface
+	isRecoveryErr   error
+	pgdataRows      rowsInterface
+	pgdataErr       error
+	replicationRows rowsInterface
+	replicationErr  error
 }
 
 var emptyDB = &testDB{}
@@ -66,6 +73,15 @@ func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (r
 	}
 	if strings.Contains(query, "FROM pg_hba_file_rules()") {
 		return t.hbaRulesRows, t.hbaRulesErr
+	}
+	if query == "SELECT pg_is_in_recovery()" {
+		return t.isRecoveryRows, t.isRecoveryErr
+	}
+	if query == "SHOW data_directory" {
+		return t.pgdataRows, t.pgdataErr
+	}
+	if query == "SELECT COUNT(*) FROM pg_stat_replication" {
+		return t.replicationRows, t.replicationErr
 	}
 	return nil, nil
 }
@@ -99,6 +115,10 @@ func (f *workMemRows) Close() error {
 	return nil
 }
 
+func (f *workMemRows) Err() error {
+	return nil
+}
+
 type versionRows struct {
 	count     int
 	size      int
@@ -121,6 +141,10 @@ func (f *versionRows) Next() bool {
 }
 
 func (f *versionRows) Close() error {
+	return nil
+}
+
+func (f *versionRows) Err() error {
 	return nil
 }
 
@@ -188,13 +212,77 @@ func (m *genericMockRows) Scan(dest ...any) error {
 func (m *genericMockRows) Close() error { return nil }
 func (m *genericMockRows) Err() error   { return m.rowsErr }
 
+type boolMockRows struct {
+	value   bool
+	read    bool
+	scanErr error
+	rowsErr error
+}
+
+func (m *boolMockRows) Next() bool {
+	if m.rowsErr != nil {
+		return false
+	}
+	if !m.read {
+		m.read = true
+		return true
+	}
+	return false
+}
+
+func (m *boolMockRows) Scan(dest ...any) error {
+	if m.scanErr != nil {
+		return m.scanErr
+	}
+	if len(dest) > 0 {
+		*(dest[0].(*bool)) = m.value
+	}
+	return nil
+}
+
+func (m *boolMockRows) Close() error { return nil }
+func (m *boolMockRows) Err() error   { return m.rowsErr }
+
+type intMockRows struct {
+	value   int
+	read    bool
+	scanErr error
+	rowsErr error
+}
+
+func (m *intMockRows) Next() bool {
+	if m.rowsErr != nil {
+		return false
+	}
+	if !m.read {
+		m.read = true
+		return true
+	}
+	return false
+}
+
+func (m *intMockRows) Scan(dest ...any) error {
+	if m.scanErr != nil {
+		return m.scanErr
+	}
+	if len(dest) > 0 {
+		*(dest[0].(*int)) = m.value
+	}
+	return nil
+}
+
+func (m *intMockRows) Close() error { return nil }
+func (m *intMockRows) Err() error   { return m.rowsErr }
+
 type MockDatabaseCenterClient struct {
 	sendMetadataCalled bool
 	sendMetadataErr    error
+	sentMetrics        databasecenter.DBCenterMetrics
 }
 
 func (m *MockDatabaseCenterClient) SendMetadataToDatabaseCenter(ctx context.Context, metrics databasecenter.DBCenterMetrics) error {
 	m.sendMetadataCalled = true
+	m.sentMetrics = metrics
 	return m.sendMetadataErr
 }
 
@@ -848,12 +936,15 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			name: "Send metadata success",
 			m: PostgresMetrics{
 				db: &testDB{
-					versionRows:    &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
-					versionErr:     nil,
-					pgauditLogRows: &genericMockRows{value: "all"},
-					sslRows:        &genericMockRows{value: "on"},
-					hbaRulesRows:   &hbaRulesRows{value: 0},
+					versionRows:     &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
+					versionErr:      nil,
+					pgauditLogRows:  &genericMockRows{value: "all"},
+					sslRows:         &genericMockRows{value: "on"},
+					hbaRulesRows:    &hbaRulesRows{value: 0},
+					isRecoveryRows:  &boolMockRows{value: false},
+					replicationRows: &intMockRows{value: 1},
 				},
+				execute: mockExecute(true, false, "", nil), // Patroni is running
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
 					WriteInsightResponses: []*wlm.WriteInsightResponse{
@@ -864,11 +955,12 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			},
 			sendMetadataErr: nil,
 			wantDBcenterMetrics: map[string]string{
-				databasecenter.MajorVersionKey:             "14",
-				databasecenter.MinorVersionKey:             "14.4",
-				databasecenter.ExposedToPublicAccessKey:    "false",
-				databasecenter.UnencryptedConnectionsKey:   "false",
-				databasecenter.DatabaseAuditingDisabledKey: "false",
+				databasecenter.MajorVersionKey:                    "14",
+				databasecenter.MinorVersionKey:                    "14.4",
+				databasecenter.ExposedToPublicAccessKey:           "false",
+				databasecenter.UnencryptedConnectionsKey:          "false",
+				databasecenter.DatabaseAuditingDisabledKey:        "false",
+				databasecenter.NotProtectedByAutomaticFailoverKey: "false",
 			},
 			wantSendMetadataCall: true,
 			wantErr:              false,
@@ -877,12 +969,15 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			name: "Send metadata failure, should not return error",
 			m: PostgresMetrics{
 				db: &testDB{
-					versionRows:    &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
-					versionErr:     nil,
-					pgauditLogRows: &genericMockRows{value: "none"},
-					sslRows:        &genericMockRows{value: "off"},
-					hbaRulesRows:   &hbaRulesRows{value: 1},
+					versionRows:     &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
+					versionErr:      nil,
+					pgauditLogRows:  &genericMockRows{value: "none"},
+					sslRows:         &genericMockRows{value: "off"},
+					hbaRulesRows:    &hbaRulesRows{value: 1},
+					isRecoveryRows:  &boolMockRows{value: false},
+					replicationRows: &intMockRows{value: 0},
 				},
+				execute: mockExecute(false, false, "", nil), // No HA running
 				WLMClient: &gcefake.TestWLM{
 					WriteInsightErrs: []error{nil},
 					WriteInsightResponses: []*wlm.WriteInsightResponse{
@@ -893,11 +988,12 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			},
 			sendMetadataErr: fmt.Errorf("db center error"),
 			wantDBcenterMetrics: map[string]string{
-				databasecenter.MajorVersionKey:             "14",
-				databasecenter.MinorVersionKey:             "14.4",
-				databasecenter.ExposedToPublicAccessKey:    "true",
-				databasecenter.UnencryptedConnectionsKey:   "true",
-				databasecenter.DatabaseAuditingDisabledKey: "true",
+				databasecenter.MajorVersionKey:                    "14",
+				databasecenter.MinorVersionKey:                    "14.4",
+				databasecenter.ExposedToPublicAccessKey:           "true",
+				databasecenter.UnencryptedConnectionsKey:          "true",
+				databasecenter.DatabaseAuditingDisabledKey:        "true",
+				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
 			},
 			wantSendMetadataCall: true,
 			wantErr:              false,
@@ -924,6 +1020,289 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			}
 			if mockClient.sendMetadataCalled != tc.wantSendMetadataCall {
 				t.Errorf("CollectMetricsOnce: sendMetadataCalled = %v, want %v", mockClient.sendMetadataCalled, tc.wantSendMetadataCall)
+			}
+			if tc.wantSendMetadataCall {
+				if diff := cmp.Diff(tc.wantDBcenterMetrics, mockClient.sentMetrics.Metrics); diff != "" {
+					t.Errorf("CollectMetricsOnce: sentMetrics mismatch (-want +got):\n%s", diff)
+				}
+			}
+		})
+	}
+}
+
+func TestNotFailoverProtected(t *testing.T) {
+	ctx := context.Background()
+
+	healthyPgAutoctlJSON := `[
+		{"nodename": "node_1", "health": 1, "current_group_state": "primary"},
+		{"nodename": "node_2", "health": 1, "current_group_state": "secondary"}
+	]`
+
+	unhealthyPgAutoctlJSON := `[
+		{"nodename": "node_1", "health": 1, "current_group_state": "single"}
+	]`
+
+	unreachablePgAutoctlJSON := `[
+		{"nodename": "node_1", "health": 1, "current_group_state": "primary"},
+		{"nodename": "node_2", "health": 0, "current_group_state": "secondary"}
+	]`
+
+	tests := []struct {
+		name         string
+		dbMock       *testDB
+		pgrepMock    commandlineexecutor.Execute
+		expectResult bool
+		expectErr    bool
+	}{
+		{
+			name: "standby_node_returns_false",
+			dbMock: &testDB{
+				isRecoveryRows: &boolMockRows{value: true},
+			},
+			pgrepMock:    mockExecute(false, false, "", nil),
+			expectResult: false,
+		},
+		{
+			name: "primary_patroni_active_and_has_replicas_returns_false",
+			dbMock: &testDB{
+				isRecoveryRows:  &boolMockRows{value: false},
+				replicationRows: &intMockRows{value: 1},
+			},
+			pgrepMock:    mockExecute(true, false, "", nil),
+			expectResult: false,
+		},
+		{
+			name: "primary_patroni_active_but_no_replicas_returns_true",
+			dbMock: &testDB{
+				isRecoveryRows:  &boolMockRows{value: false},
+				replicationRows: &intMockRows{value: 0},
+			},
+			pgrepMock:    mockExecute(true, false, "", nil),
+			expectResult: true,
+		},
+		{
+			name: "primary_pgautoctl_active_and_healthy_and_has_replicas_returns_false",
+			dbMock: &testDB{
+				isRecoveryRows:  &boolMockRows{value: false},
+				pgdataRows:      &genericMockRows{value: "/pgdata"},
+				replicationRows: &intMockRows{value: 1},
+			},
+			pgrepMock:    mockExecute(false, true, healthyPgAutoctlJSON, nil),
+			expectResult: false,
+		},
+		{
+			name: "primary_pgautoctl_active_and_healthy_but_no_replicas_returns_true",
+			dbMock: &testDB{
+				isRecoveryRows:  &boolMockRows{value: false},
+				pgdataRows:      &genericMockRows{value: "/pgdata"},
+				replicationRows: &intMockRows{value: 0},
+			},
+			pgrepMock:    mockExecute(false, true, healthyPgAutoctlJSON, nil),
+			expectResult: true,
+		},
+		{
+			name: "primary_pgautoctl_active_but_unhealthy_returns_true",
+			dbMock: &testDB{
+				isRecoveryRows:  &boolMockRows{value: false},
+				pgdataRows:      &genericMockRows{value: "/pgdata"},
+				replicationRows: &intMockRows{value: 1}, // Even with replica, HA is unhealthy
+			},
+			pgrepMock:    mockExecute(false, true, unhealthyPgAutoctlJSON, nil),
+			expectResult: true,
+		},
+		{
+			name: "primary_pgautoctl_active_but_unreachable_secondary_returns_true",
+			dbMock: &testDB{
+				isRecoveryRows:  &boolMockRows{value: false},
+				pgdataRows:      &genericMockRows{value: "/pgdata"},
+				replicationRows: &intMockRows{value: 1},
+			},
+			pgrepMock:    mockExecute(false, true, unreachablePgAutoctlJSON, nil),
+			expectResult: true,
+		},
+		{
+			name: "primary_pgautoctl_active_but_state_cmd_fails_returns_error",
+			dbMock: &testDB{
+				isRecoveryRows:  &boolMockRows{value: false},
+				pgdataRows:      &genericMockRows{value: "/pgdata"},
+				replicationRows: &intMockRows{value: 1},
+			},
+			pgrepMock:    mockExecute(false, true, "", errors.New("cmd failed")),
+			expectResult: false,
+			expectErr:    true,
+		},
+		{
+			name: "primary_pgautoctl_active_but_pgdata_fails_returns_error",
+			dbMock: &testDB{
+				isRecoveryRows:  &boolMockRows{value: false},
+				pgdataErr:       errors.New("db error"),
+				replicationRows: &intMockRows{value: 1},
+			},
+			pgrepMock:    mockExecute(false, true, healthyPgAutoctlJSON, nil),
+			expectResult: false,
+			expectErr:    true,
+		},
+		{
+			name: "primary_pgautoctl_active_but_pgdata_iteration_error_returns_error",
+			dbMock: &testDB{
+				isRecoveryRows:  &boolMockRows{value: false},
+				pgdataRows:      &genericMockRows{rowsErr: errors.New("iteration failed")},
+				replicationRows: &intMockRows{value: 1},
+			},
+			pgrepMock:    mockExecute(false, true, healthyPgAutoctlJSON, nil),
+			expectResult: false,
+			expectErr:    true,
+		},
+		{
+			name: "primary_no_ha_returns_true",
+			dbMock: &testDB{
+				isRecoveryRows:  &boolMockRows{value: false},
+				replicationRows: &intMockRows{value: 1},
+			},
+			pgrepMock:    mockExecute(false, false, "", nil),
+			expectResult: true,
+		},
+		{
+			name: "primary_no_ha_skips_replication_query_on_error",
+			dbMock: &testDB{
+				isRecoveryRows: &boolMockRows{value: false},
+				replicationErr: errors.New("replication query failed"),
+			},
+			pgrepMock:    mockExecute(false, false, "", nil),
+			expectResult: true,
+		},
+		{
+			name: "recovery_query_error_returns_error",
+			dbMock: &testDB{
+				isRecoveryErr: errors.New("query failed"),
+			},
+			pgrepMock:    mockExecute(false, false, "", nil),
+			expectResult: false,
+			expectErr:    true,
+		},
+		{
+			name: "recovery_query_iteration_error_returns_error",
+			dbMock: &testDB{
+				isRecoveryRows: &boolMockRows{rowsErr: errors.New("iteration failed")},
+			},
+			pgrepMock:    mockExecute(false, false, "", nil),
+			expectResult: false,
+			expectErr:    true,
+		},
+		{
+			name: "replication_query_error_returns_error",
+			dbMock: &testDB{
+				isRecoveryRows: &boolMockRows{value: false},
+				replicationErr: errors.New("replication query failed"),
+			},
+			pgrepMock:    mockExecute(true, false, "", nil), // HA is active, so it will check replication
+			expectResult: false,
+			expectErr:    true,
+		},
+		{
+			name: "replication_query_iteration_error_returns_error",
+			dbMock: &testDB{
+				isRecoveryRows:  &boolMockRows{value: false},
+				replicationRows: &intMockRows{rowsErr: errors.New("iteration failed")},
+			},
+			pgrepMock:    mockExecute(true, false, "", nil), // HA is active, so it will check replication
+			expectResult: false,
+			expectErr:    true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := PostgresMetrics{
+				db:      tc.dbMock,
+				execute: tc.pgrepMock,
+			}
+			result, err := m.notFailoverProtected(ctx)
+			if (err != nil) != tc.expectErr {
+				t.Errorf("notFailoverProtected() got error: %v, want error presence: %v", err, tc.expectErr)
+			}
+			if !tc.expectErr && result != tc.expectResult {
+				t.Errorf("notFailoverProtected() got result: %v, want result: %v", result, tc.expectResult)
+			}
+		})
+	}
+}
+
+func mockExecute(patroniRunning, pgAutoctlRunning bool, pgAutoctlJSON string, pgAutoctlErr error) commandlineexecutor.Execute {
+	return func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+		if params.Executable == "pgrep" {
+			if len(params.Args) < 2 {
+				return commandlineexecutor.Result{ExitCode: 2, Error: fmt.Errorf("invalid args")}
+			}
+			proc := params.Args[1] // Args: ["-x", "processName"]
+			var running bool
+			switch proc {
+			case "patroni":
+				running = patroniRunning
+			case "pg_autoctl":
+				running = pgAutoctlRunning
+			}
+			if running {
+				return commandlineexecutor.Result{ExitCode: 0, Error: nil}
+			}
+			return commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("exit status 1")}
+		}
+
+		if params.Executable == "pg_autoctl" {
+			if pgAutoctlErr != nil {
+				return commandlineexecutor.Result{ExitCode: 1, Error: pgAutoctlErr}
+			}
+			return commandlineexecutor.Result{StdOut: pgAutoctlJSON, ExitCode: 0, Error: nil}
+		}
+
+		return commandlineexecutor.Result{ExitCode: 127, Error: fmt.Errorf("unknown command: %s", params.Executable)}
+	}
+}
+
+func TestIsProcessRunning(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		execMock    commandlineexecutor.Execute
+		wantRunning bool
+		wantErr     bool
+	}{
+		{
+			name: "process_running_returns_true",
+			execMock: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				return commandlineexecutor.Result{ExitCode: 0, Error: nil}
+			},
+			wantRunning: true,
+		},
+		{
+			name: "process_not_running_returns_false",
+			execMock: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				return commandlineexecutor.Result{ExitCode: 1, Error: errors.New("exit status 1")}
+			},
+			wantRunning: false,
+		},
+		{
+			name: "pgrep_fails_returns_error",
+			execMock: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				return commandlineexecutor.Result{ExitCode: 2, Error: errors.New("pgrep failed")}
+			},
+			wantRunning: false,
+			wantErr:     true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			m := &PostgresMetrics{
+				execute: test.execMock,
+			}
+			running, err := m.isProcessRunning(ctx, "testproc")
+			if (err != nil) != test.wantErr {
+				t.Errorf("isProcessRunning() error = %v, wantErr %v", err, test.wantErr)
+			}
+			if running != test.wantRunning {
+				t.Errorf("isProcessRunning() running = %v, want %v", running, test.wantRunning)
 			}
 		})
 	}

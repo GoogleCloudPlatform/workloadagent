@@ -48,6 +48,8 @@ const (
 	UnencryptedConnectionsKey = "unencrypted_connections"
 	// DatabaseAuditingDisabledKey is the key for the database auditing disabled signal in metrics.
 	DatabaseAuditingDisabledKey = "database_auditing_disabled"
+	// NotProtectedByAutomaticFailoverKey is the key for the not protected by automatic failover signal in metrics.
+	NotProtectedByAutomaticFailoverKey = "not_protected_by_automatic_failover"
 )
 
 // EngineType is an enum for the type of database engine.
@@ -181,6 +183,8 @@ func (c *realClient) getSignalType(key string) dcpb.SignalType {
 		return dcpb.SignalType_SIGNAL_TYPE_UNENCRYPTED_CONNECTIONS
 	case DatabaseAuditingDisabledKey:
 		return dcpb.SignalType_SIGNAL_TYPE_DATABASE_AUDITING_DISABLED
+	case NotProtectedByAutomaticFailoverKey:
+		return dcpb.SignalType_SIGNAL_TYPE_NOT_PROTECTED_BY_AUTOMATIC_FAILOVER
 	default:
 		return dcpb.SignalType_SIGNAL_TYPE_UNSPECIFIED
 	}
