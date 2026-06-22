@@ -56,8 +56,24 @@ func (f *fakeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	// OpenShift specific endpoints
 	if req.URL.Path == "/apis/config.openshift.io/v1/clusterversions" {
-		return jsonResponse(`{"apiVersion": "config.openshift.io/v1", "items": [{"spec": {"clusterID": "fake-cluster-id"}}]}`)
+		return jsonResponse(`{"apiVersion": "config.openshift.io/v1", "items": [{"spec": {"clusterID": "fake-cluster-id"}, "status": {"history": [{"version": "4.18.7"}]}}]}`)
 	}
+	if req.URL.Path == "/apis/config.openshift.io/v1/infrastructures/cluster" {
+		return jsonResponse(`{
+			"status": {
+				"infrastructureName": "ose-e2e-cluster-zdxen-rvzr5",
+				"apiServerInternalURI": "https://api-int.ose-e2e-cluster-zdxen.openshift-dev.joonix.net:6443"
+			}
+		}`)
+	}
+	if req.URL.Path == "/apis/route.openshift.io/v1/namespaces/openshift-console/routes/console" {
+		return jsonResponse(`{
+			"spec": {
+				"host": "console-openshift-console.apps.ose-e2e-cluster-zdxen.openshift-dev.joonix.net"
+			}
+		}`)
+	}
+
 	if req.URL.Path == "/apis/operator.openshift.io/v1/cloudcredentials/cluster" {
 		return jsonResponse(`{
 			"apiVersion": "operator.openshift.io/v1",
@@ -82,7 +98,7 @@ func (f *fakeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	case "/api/v1/namespaces":
 		obj = &corev1.NamespaceList{
 			Items: []corev1.Namespace{{ObjectMeta: metav1.ObjectMeta{Name: "default", UID: "ns-uid", ResourceVersion: "1", CreationTimestamp: metav1.NewTime(f.now)}}},
-	}
+		}
 	case "/apis/apps/v1/namespaces/default/deployments":
 		obj = &appsv1.DeploymentList{
 			Items: []appsv1.Deployment{{
@@ -181,7 +197,7 @@ func (f *fakeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 				"spec": {"secretStoreRef": {"name": "test-ss", "kind": "SecretStore"}}
 			}]
 		}`)
-		case "/apis/monitoring.googleapis.com/v1/namespaces/default/podmonitorings":
+	case "/apis/monitoring.googleapis.com/v1/namespaces/default/podmonitorings":
 		return jsonResponse(`{
 			"apiVersion": "monitoring.googleapis.com/v1",
 			"kind": "PodMonitoringList",
@@ -284,6 +300,27 @@ func TestCollectMetrics(t *testing.T) {
 			want: "fake-cluster-id",
 		},
 		{
+			name: "ClusterName",
+			got:  payload.GetClusterName(),
+			want: "ose-e2e-cluster-zdxen-rvzr5",
+		},
+		{
+			name: "OpenshiftVersion",
+			got:  payload.GetOpenshiftVersion(),
+			want: "4.18.7",
+		},
+		{
+			name: "ApiEndpointUrl",
+			got:  payload.GetApiEndpointUrl(),
+			want: "https://api-int.ose-e2e-cluster-zdxen.openshift-dev.joonix.net:6443",
+		},
+		{
+			name: "ConsoleEndpointUrl",
+			got:  payload.GetConsoleEndpointUrl(),
+			want: "console-openshift-console.apps.ose-e2e-cluster-zdxen.openshift-dev.joonix.net",
+		},
+
+		{
 			name: "Namespaces",
 			got:  payload.GetNamespaces().GetNamespaces(),
 			want: &ompb.NamespaceList{Items: []*ompb.Namespace{{Metadata: &ompb.ResourceMetadata{Name: "default", Uid: "ns-uid", ResourceVersion: "1", CreationTimestamp: nowProto}}}},
@@ -322,7 +359,7 @@ func TestCollectMetrics(t *testing.T) {
 										},
 									},
 								},
-								Affinity:       &ompb.Affinity{PodAntiAffinity: &ompb.Affinity_PodAntiAffinity{}},
+								Affinity: &ompb.Affinity{PodAntiAffinity: &ompb.Affinity_PodAntiAffinity{}},
 							},
 						},
 					},
@@ -366,8 +403,8 @@ func TestCollectMetrics(t *testing.T) {
 			name: "DaemonSets",
 			got:  payload.GetDaemonSets().GetDaemonSets(),
 			want: &ompb.DaemonSetList{Items: []*ompb.DaemonSet{{Metadata: &ompb.ResourceMetadata{Name: "csi-secrets-store-provider-gcp", Uid: "ds-uid", ResourceVersion: "9", CreationTimestamp: nowProto, Namespace: "default"}, Spec: &ompb.DaemonSet_Spec{PodTemplate: &ompb.PodTemplate{Metadata: &ompb.ResourceMetadata{CreationTimestamp: tspb.New(time.Time{})}, Spec: &ompb.PodSpec{Containers: []*ompb.Container{{
-					Name: "gcp-provider",
-					Env: []*ompb.Env{{Name: "TARGET_ENV", Value: "prod"}}}}}}}}}},
+				Name: "gcp-provider",
+				Env:  []*ompb.Env{{Name: "TARGET_ENV", Value: "prod"}}}}}}}}}},
 		},
 		{
 			name: "SecretProviderClasses",

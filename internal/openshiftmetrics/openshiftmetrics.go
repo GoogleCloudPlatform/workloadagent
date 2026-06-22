@@ -128,6 +128,16 @@ func (o *OpenShiftMetrics) CollectMetrics(ctx context.Context, versionData Metri
 		usagemetrics.Error(usagemetrics.OpenShiftMetricCollectionFailure)
 	}
 
+	if err := o.collectInfrastructureData(ctx, payload); err != nil {
+		logger.Warnw("Failed to collect infrastructure data", "error", err)
+		usagemetrics.Error(usagemetrics.OpenShiftMetricCollectionFailure)
+	}
+
+	if err := o.collectConsoleRoute(ctx, payload); err != nil {
+		logger.Warnw("Failed to collect console route data", "error", err)
+		usagemetrics.Error(usagemetrics.OpenShiftMetricCollectionFailure)
+	}
+
 	namespaces, err := o.collectNamespaceData(ctx, payload)
 	if err != nil {
 		logger.Warnw("Failed to collect namespace data", "error", err)
@@ -270,6 +280,33 @@ func (o *OpenShiftMetrics) collectCusterVersionData(ctx context.Context, payload
 	}
 	clusterID := clusterVersion.Items[0].Spec.ClusterID
 	payload.ClusterId = clusterID
+
+	if len(clusterVersion.Items[0].Status.History) > 0 {
+		payload.OpenshiftVersion = clusterVersion.Items[0].Status.History[0].Version
+	}
+	return nil
+}
+
+// collectInfrastructureData collects the infrastructure data from the cluster.
+func (o *OpenShiftMetrics) collectInfrastructureData(ctx context.Context, payload *ompb.OpenshiftMetricsPayload) error {
+	infra, err := o.OpenShiftClient.GetInfrastructure()
+	if err != nil {
+		log.CtxLogger(ctx).Warnw("Failed to get infrastructure", "error", err)
+		return err
+	}
+	payload.ClusterName = infra.Status.InfrastructureName
+	payload.ApiEndpointUrl = infra.Status.APIServerInternalURI
+	return nil
+}
+
+// collectConsoleRoute collects the console route data from the cluster.
+func (o *OpenShiftMetrics) collectConsoleRoute(ctx context.Context, payload *ompb.OpenshiftMetricsPayload) error {
+	route, err := o.OpenShiftClient.GetConsoleRoute()
+	if err != nil {
+		log.CtxLogger(ctx).Warnw("Failed to get console route", "error", err)
+		return err
+	}
+	payload.ConsoleEndpointUrl = route.Spec.Host
 	return nil
 }
 
@@ -869,7 +906,7 @@ func (o *OpenShiftMetrics) collectDaemonSets(ctx context.Context, namespaces []s
 				}
 				containers = append(containers, &ompb.Container{
 					Name: container.Name,
-					Env: env,
+					Env:  env,
 				})
 			}
 

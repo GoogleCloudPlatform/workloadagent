@@ -70,6 +70,15 @@ message OpenshiftMetricsPayload {
   ResourceListContainer pod_monitorings = 21;
   // The ClusterPodMonitoring resources in the Openshift cluster.
   ResourceListContainer cluster_pod_monitorings = 22;
+
+  // The name of the Openshift cluster.
+  string cluster_name = 23;
+  // The Openshift version of the cluster.
+  string openshift_version = 24;
+  // The API endpoint URL of the Openshift cluster.
+  string api_endpoint_url = 25;
+  // The Console endpoint URL of the Openshift cluster.
+  string console_endpoint_url = 26;
 }
 
 // General container for K8 resources.

@@ -37,6 +37,11 @@ type ClusterVersionResponse struct {
 			Channel   string `json:"channel"`
 			ClusterID string `json:"clusterID"`
 		} `json:"spec"`
+		Status struct {
+			History []struct {
+				Version string `json:"version"`
+			} `json:"history"`
+		} `json:"status"`
 	} `json:"items"`
 }
 
@@ -59,8 +64,9 @@ type CloudCredentialConfigResponse struct {
 // InfrastructureResponse is the response from the Openshift infrastructure API.
 type InfrastructureResponse struct {
 	Status struct {
-		InfrastructureName string `json:"infrastructureName"`
-		PlatformStatus     struct {
+		InfrastructureName   string `json:"infrastructureName"`
+		APIServerInternalURI string `json:"apiServerInternalURI"`
+		PlatformStatus       struct {
 			GCP struct {
 				ProjectID string `json:"projectID"`
 				Region    string `json:"region"`
@@ -83,5 +89,12 @@ type APIServerResponse struct {
 		Encryption struct {
 			Type string `json:"type"`
 		} `json:"encryption"`
+	} `json:"spec"`
+}
+
+// RouteResponse is the response from the Openshift Route API.
+type RouteResponse struct {
+	Spec struct {
+		Host string `json:"host"`
 	} `json:"spec"`
 }

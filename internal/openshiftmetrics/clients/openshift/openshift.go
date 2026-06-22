@@ -157,3 +157,30 @@ func (c *Client) GetAPIServer() (*APIServerResponse, error) {
 	}
 	return &apiServerResponse, nil
 }
+
+// GetConsoleRoute returns the console route data of the Openshift cluster.
+func (c *Client) GetConsoleRoute() (*RouteResponse, error) {
+	uri := "/apis/route.openshift.io/v1/namespaces/openshift-console/routes/console"
+	url := fmt.Sprintf("%s%s", c.config.Host, uri)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get console route: %v", string(body))
+	}
+	var routeResponse RouteResponse
+	if err := json.Unmarshal(body, &routeResponse); err != nil {
+		return nil, err
+	}
+	return &routeResponse, nil
+}
