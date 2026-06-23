@@ -48,8 +48,12 @@ const (
 	UnencryptedConnectionsKey = "unencrypted_connections"
 	// DatabaseAuditingDisabledKey is the key for the database auditing disabled signal in metrics.
 	DatabaseAuditingDisabledKey = "database_auditing_disabled"
+	// LastBackupOldKey is the key for the last backup old signal in metrics.
+	LastBackupOldKey = "last_backup_old"
 	// NotProtectedByAutomaticFailoverKey is the key for the not protected by automatic failover signal in metrics.
 	NotProtectedByAutomaticFailoverKey = "not_protected_by_automatic_failover"
+	// NoAutomatedBackupPolicyKey is the key for the no automated backup policy signal in metrics.
+	NoAutomatedBackupPolicyKey = "no_automated_backup_policy"
 )
 
 // EngineType is an enum for the type of database engine.
@@ -183,8 +187,12 @@ func (c *realClient) getSignalType(key string) dcpb.SignalType {
 		return dcpb.SignalType_SIGNAL_TYPE_UNENCRYPTED_CONNECTIONS
 	case DatabaseAuditingDisabledKey:
 		return dcpb.SignalType_SIGNAL_TYPE_DATABASE_AUDITING_DISABLED
+	case LastBackupOldKey:
+		return dcpb.SignalType_SIGNAL_TYPE_LAST_BACKUP_OLD
 	case NotProtectedByAutomaticFailoverKey:
 		return dcpb.SignalType_SIGNAL_TYPE_NOT_PROTECTED_BY_AUTOMATIC_FAILOVER
+	case NoAutomatedBackupPolicyKey:
+		return dcpb.SignalType_SIGNAL_TYPE_NO_AUTOMATED_BACKUP_POLICY
 	default:
 		return dcpb.SignalType_SIGNAL_TYPE_UNSPECIFIED
 	}

@@ -17,12 +17,18 @@ limitations under the License.
 package postgresmetrics
 
 import (
+	"archive/zip"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/api/googleapi"
@@ -34,7 +40,54 @@ import (
 	gcefake "github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/fake"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/wlm"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/zipper/zipper"
 )
+
+type mockFileSystem struct {
+	existsPaths map[string]bool
+	dirFiles    map[string][]fs.FileInfo
+}
+
+func (m mockFileSystem) MkdirAll(string, os.FileMode) error { return nil }
+func (m mockFileSystem) ReadFile(string) ([]byte, error)     { return nil, os.ErrNotExist }
+func (m mockFileSystem) ReadDir(path string) ([]fs.FileInfo, error) {
+	if files, ok := m.dirFiles[path]; ok {
+		return files, nil
+	}
+	return nil, os.ErrNotExist
+}
+func (m mockFileSystem) Open(string) (*os.File, error) { return nil, os.ErrNotExist }
+func (m mockFileSystem) OpenFile(string, int, os.FileMode) (*os.File, error) {
+	return nil, os.ErrNotExist
+}
+func (m mockFileSystem) RemoveAll(string) error { return nil }
+func (m mockFileSystem) Create(string) (*os.File, error) {
+	return nil, os.ErrNotExist
+}
+func (m mockFileSystem) WriteStringToFile(*os.File, string) (int, error) { return 0, nil }
+func (m mockFileSystem) Rename(string, string) error                     { return nil }
+func (m mockFileSystem) Copy(io.Writer, io.Reader) (int64, error)         { return 0, nil }
+func (m mockFileSystem) Chmod(string, os.FileMode) error                 { return nil }
+func (m mockFileSystem) Stat(path string) (os.FileInfo, error) {
+	if m.existsPaths[path] {
+		return nil, nil // Return nil info, we only check err == nil
+	}
+	return nil, os.ErrNotExist
+}
+func (m mockFileSystem) WalkAndZip(string, zipper.Zipper, *zip.Writer) error { return nil }
+func (m mockFileSystem) Seek(*os.File, int64, int) (int64, error)             { return 0, nil }
+
+// mockFileInfo is a simple implementation of fs.FileInfo for testing
+type mockFileInfo struct {
+	name string
+}
+
+func (m mockFileInfo) Name() string       { return m.name }
+func (m mockFileInfo) Size() int64        { return 0 }
+func (m mockFileInfo) Mode() fs.FileMode  { return 0 }
+func (m mockFileInfo) ModTime() time.Time { return time.Time{} }
+func (m mockFileInfo) IsDir() bool        { return false }
+func (m mockFileInfo) Sys() any           { return nil }
 
 type testDB struct {
 	workMemRows     rowsInterface
@@ -54,40 +107,111 @@ type testDB struct {
 	pgdataErr       error
 	replicationRows rowsInterface
 	replicationErr  error
+	pgSettingsRows  rowsInterface
+	pgSettingsErr   error
+	walArchiveRows  rowsInterface
+	walArchiveErr   error
 }
 
 var emptyDB = &testDB{}
 
+type emptyRows struct{}
+
+func (e *emptyRows) Next() bool             { return false }
+func (e *emptyRows) Close() error           { return nil }
+func (e *emptyRows) Scan(dest ...any) error { return sql.ErrNoRows }
+func (e *emptyRows) Err() error             { return nil }
+
 func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (rowsInterface, error) {
 	if query == "SHOW work_mem" {
+		if t.workMemRows == nil {
+			return &emptyRows{}, nil
+		}
 		return t.workMemRows, t.workMemErr
 	}
 	if query == "SHOW server_version" {
+		if t.versionRows == nil {
+			return &emptyRows{}, nil
+		}
 		return t.versionRows, t.versionErr
 	}
 	if query == "SHOW ssl" {
+		if t.sslRows == nil {
+			return &emptyRows{}, nil
+		}
 		return t.sslRows, t.sslErr
 	}
 	if query == "SHOW pgaudit.log" {
+		if t.pgauditLogRows == nil {
+			return &emptyRows{}, nil
+		}
 		return t.pgauditLogRows, t.pgauditLogErr
 	}
 	if strings.Contains(query, "FROM pg_hba_file_rules()") {
+		if t.hbaRulesRows == nil {
+			return &emptyRows{}, nil
+		}
 		return t.hbaRulesRows, t.hbaRulesErr
 	}
+	if strings.Contains(query, "pg_stat_archiver") {
+		return t.walArchiveRows, t.walArchiveErr
+	}
 	if query == "SELECT pg_is_in_recovery()" {
+		if t.isRecoveryRows == nil {
+			return &emptyRows{}, nil
+		}
 		return t.isRecoveryRows, t.isRecoveryErr
 	}
 	if query == "SHOW data_directory" {
+		if t.pgdataRows == nil {
+			return &emptyRows{}, nil
+		}
 		return t.pgdataRows, t.pgdataErr
 	}
 	if query == "SELECT COUNT(*) FROM pg_stat_replication" {
+		if t.replicationRows == nil {
+			return &emptyRows{}, nil
+		}
 		return t.replicationRows, t.replicationErr
 	}
-	return nil, nil
+	if strings.Contains(query, "pg_settings") {
+		if t.pgSettingsErr != nil {
+			return nil, t.pgSettingsErr
+		}
+		if t.pgSettingsRows == nil {
+			return &emptyRows{}, nil
+		}
+		return t.pgSettingsRows, nil
+	}
+	return &emptyRows{}, nil
 }
 
 func (t *testDB) Ping() error {
 	return t.pingErr
+}
+
+type testRow struct {
+	rows rowsInterface
+	err  error
+}
+
+func (tr testRow) Scan(dest ...any) error {
+	if tr.err != nil {
+		return tr.err
+	}
+	if tr.rows == nil {
+		return sql.ErrNoRows
+	}
+	defer tr.rows.Close()
+	if !tr.rows.Next() {
+		return sql.ErrNoRows
+	}
+	return tr.rows.Scan(dest...)
+}
+
+func (t *testDB) QueryRowContext(ctx context.Context, query string, args ...any) rowInterface {
+	rows, err := t.QueryContext(ctx, query, args...)
+	return testRow{rows: rows, err: err}
 }
 
 type workMemRows struct {
@@ -273,6 +397,34 @@ func (m *intMockRows) Scan(dest ...any) error {
 
 func (m *intMockRows) Close() error { return nil }
 func (m *intMockRows) Err() error   { return m.rowsErr }
+
+type pgSettingsRow struct {
+	name    string
+	setting string
+}
+
+type pgSettingsRows struct {
+	rows  []pgSettingsRow
+	index int
+}
+
+func (r *pgSettingsRows) Next() bool {
+	r.index++
+	return r.index <= len(r.rows)
+}
+
+func (r *pgSettingsRows) Scan(dest ...any) error {
+	if r.index < 1 || r.index > len(r.rows) {
+		return errors.New("out of bounds")
+	}
+	row := r.rows[r.index-1]
+	*(dest[0].(*string)) = row.name
+	*(dest[1].(*string)) = row.setting
+	return nil
+}
+
+func (r *pgSettingsRows) Close() error { return nil }
+func (r *pgSettingsRows) Err() error   { return nil }
 
 type MockDatabaseCenterClient struct {
 	sendMetadataCalled bool
@@ -936,11 +1088,17 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			name: "Send metadata success",
 			m: PostgresMetrics{
 				db: &testDB{
-					versionRows:     &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
-					versionErr:      nil,
-					pgauditLogRows:  &genericMockRows{value: "all"},
-					sslRows:         &genericMockRows{value: "on"},
-					hbaRulesRows:    &hbaRulesRows{value: 0},
+					versionRows:    &versionRows{count: 0, size: 1, data: "14.4 (Debian 14.4-1.pgdg110+1)", shouldErr: false},
+					versionErr:     nil,
+					pgauditLogRows: &genericMockRows{value: "all"},
+					sslRows:        &genericMockRows{value: "on"},
+					hbaRulesRows:   &hbaRulesRows{value: 0},
+					pgSettingsRows: &pgSettingsRows{
+						rows: []pgSettingsRow{
+							{name: "archive_mode", setting: "on"},
+							{name: "archive_command", setting: "pgbackrest --stanza=demo archive-push %p"},
+						},
+					},
 					isRecoveryRows:  &boolMockRows{value: false},
 					replicationRows: &intMockRows{value: 1},
 				},
@@ -961,6 +1119,8 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 				databasecenter.UnencryptedConnectionsKey:          "false",
 				databasecenter.DatabaseAuditingDisabledKey:        "false",
 				databasecenter.NotProtectedByAutomaticFailoverKey: "false",
+				databasecenter.NoAutomatedBackupPolicyKey:         "false",
+				databasecenter.LastBackupOldKey:                   "true",
 			},
 			wantSendMetadataCall: true,
 			wantErr:              false,
@@ -974,6 +1134,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 					pgauditLogRows:  &genericMockRows{value: "none"},
 					sslRows:         &genericMockRows{value: "off"},
 					hbaRulesRows:    &hbaRulesRows{value: 1},
+					pgSettingsErr:   errors.New("db error"),
 					isRecoveryRows:  &boolMockRows{value: false},
 					replicationRows: &intMockRows{value: 0},
 				},
@@ -994,9 +1155,191 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 				databasecenter.UnencryptedConnectionsKey:          "true",
 				databasecenter.DatabaseAuditingDisabledKey:        "true",
 				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
+				databasecenter.NoAutomatedBackupPolicyKey:         "true",
+				databasecenter.LastBackupOldKey:                   "true",
 			},
 			wantSendMetadataCall: true,
 			wantErr:              false,
+		},
+		{
+			name: "Archive mode off",
+			m: PostgresMetrics{
+				db: &testDB{
+					versionRows:    &versionRows{count: 0, size: 1, data: "14.4", shouldErr: false},
+					pgauditLogRows: &genericMockRows{value: "none"},
+					sslRows:        &genericMockRows{value: "on"},
+					hbaRulesRows:   &hbaRulesRows{value: 0},
+					pgSettingsRows: &pgSettingsRows{
+						rows: []pgSettingsRow{
+							{name: "archive_mode", setting: "off"},
+							{name: "archive_command", setting: "cp %p /path"},
+						},
+					},
+					isRecoveryRows: &boolMockRows{value: false},
+				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
+			},
+			wantDBcenterMetrics: map[string]string{
+				databasecenter.MajorVersionKey:                    "14",
+				databasecenter.MinorVersionKey:                    "14.4",
+				databasecenter.ExposedToPublicAccessKey:           "false",
+				databasecenter.UnencryptedConnectionsKey:          "false",
+				databasecenter.DatabaseAuditingDisabledKey:        "true",
+				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
+				databasecenter.NoAutomatedBackupPolicyKey:         "true",
+				databasecenter.LastBackupOldKey:                   "true",
+			},
+			wantSendMetadataCall: true,
+		},
+		{
+			name: "Archive command empty",
+			m: PostgresMetrics{
+				db: &testDB{
+					versionRows:    &versionRows{count: 0, size: 1, data: "14.4", shouldErr: false},
+					pgauditLogRows: &genericMockRows{value: "none"},
+					sslRows:        &genericMockRows{value: "on"},
+					hbaRulesRows:   &hbaRulesRows{value: 0},
+					pgSettingsRows: &pgSettingsRows{
+						rows: []pgSettingsRow{
+							{name: "archive_mode", setting: "on"},
+							{name: "archive_command", setting: ""},
+						},
+					},
+					isRecoveryRows: &boolMockRows{value: false},
+				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
+			},
+			wantDBcenterMetrics: map[string]string{
+				databasecenter.MajorVersionKey:                    "14",
+				databasecenter.MinorVersionKey:                    "14.4",
+				databasecenter.ExposedToPublicAccessKey:           "false",
+				databasecenter.UnencryptedConnectionsKey:          "false",
+				databasecenter.DatabaseAuditingDisabledKey:        "true",
+				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
+				databasecenter.NoAutomatedBackupPolicyKey:         "true",
+				databasecenter.LastBackupOldKey:                   "true",
+			},
+			wantSendMetadataCall: true,
+		},
+		{
+			name: "Archive command dummy colon",
+			m: PostgresMetrics{
+				db: &testDB{
+					versionRows:    &versionRows{count: 0, size: 1, data: "14.4", shouldErr: false},
+					pgauditLogRows: &genericMockRows{value: "none"},
+					sslRows:        &genericMockRows{value: "on"},
+					hbaRulesRows:   &hbaRulesRows{value: 0},
+					pgSettingsRows: &pgSettingsRows{
+						rows: []pgSettingsRow{
+							{name: "archive_mode", setting: "on"},
+							{name: "archive_command", setting: ":"},
+						},
+					},
+					isRecoveryRows: &boolMockRows{value: false},
+				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
+			},
+			wantDBcenterMetrics: map[string]string{
+				databasecenter.MajorVersionKey:                    "14",
+				databasecenter.MinorVersionKey:                    "14.4",
+				databasecenter.ExposedToPublicAccessKey:           "false",
+				databasecenter.UnencryptedConnectionsKey:          "false",
+				databasecenter.DatabaseAuditingDisabledKey:        "true",
+				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
+				databasecenter.NoAutomatedBackupPolicyKey:         "true",
+				databasecenter.LastBackupOldKey:                   "true",
+			},
+			wantSendMetadataCall: true,
+		},
+		{
+			name: "Archive command dummy colon with spaces",
+			m: PostgresMetrics{
+				db: &testDB{
+					versionRows:    &versionRows{count: 0, size: 1, data: "14.4", shouldErr: false},
+					pgauditLogRows: &genericMockRows{value: "none"},
+					sslRows:        &genericMockRows{value: "on"},
+					hbaRulesRows:   &hbaRulesRows{value: 0},
+					pgSettingsRows: &pgSettingsRows{
+						rows: []pgSettingsRow{
+							{name: "archive_mode", setting: "on"},
+							{name: "archive_command", setting: "  :  "},
+						},
+					},
+					isRecoveryRows: &boolMockRows{value: false},
+				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
+			},
+			wantDBcenterMetrics: map[string]string{
+				databasecenter.MajorVersionKey:                    "14",
+				databasecenter.MinorVersionKey:                    "14.4",
+				databasecenter.ExposedToPublicAccessKey:           "false",
+				databasecenter.UnencryptedConnectionsKey:          "false",
+				databasecenter.DatabaseAuditingDisabledKey:        "true",
+				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
+				databasecenter.NoAutomatedBackupPolicyKey:         "true",
+				databasecenter.LastBackupOldKey:                   "true",
+			},
+			wantSendMetadataCall: true,
+		},
+		{
+			name: "Archive command dummy true",
+			m: PostgresMetrics{
+				db: &testDB{
+					versionRows:    &versionRows{count: 0, size: 1, data: "14.4", shouldErr: false},
+					pgauditLogRows: &genericMockRows{value: "none"},
+					sslRows:        &genericMockRows{value: "on"},
+					hbaRulesRows:   &hbaRulesRows{value: 0},
+					pgSettingsRows: &pgSettingsRows{
+						rows: []pgSettingsRow{
+							{name: "archive_mode", setting: "on"},
+							{name: "archive_command", setting: "true"},
+						},
+					},
+					isRecoveryRows: &boolMockRows{value: false},
+				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
+			},
+			wantDBcenterMetrics: map[string]string{
+				databasecenter.MajorVersionKey:                    "14",
+				databasecenter.MinorVersionKey:                    "14.4",
+				databasecenter.ExposedToPublicAccessKey:           "false",
+				databasecenter.UnencryptedConnectionsKey:          "false",
+				databasecenter.DatabaseAuditingDisabledKey:        "true",
+				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
+				databasecenter.NoAutomatedBackupPolicyKey:         "true",
+				databasecenter.LastBackupOldKey:                   "true",
+			},
+			wantSendMetadataCall: true,
+		},
+		{
+			name: "Archive mode always and custom command",
+			m: PostgresMetrics{
+				db: &testDB{
+					versionRows:    &versionRows{count: 0, size: 1, data: "14.4", shouldErr: false},
+					pgauditLogRows: &genericMockRows{value: "none"},
+					sslRows:        &genericMockRows{value: "on"},
+					hbaRulesRows:   &hbaRulesRows{value: 0},
+					pgSettingsRows: &pgSettingsRows{
+						rows: []pgSettingsRow{
+							{name: "archive_mode", setting: "always"},
+							{name: "archive_command", setting: "/usr/bin/my_custom_script.sh %p"},
+						},
+					},
+					isRecoveryRows: &boolMockRows{value: false},
+				},
+				DBcenterClient: databasecenter.NewClient(&configpb.Configuration{}, nil),
+			},
+			wantDBcenterMetrics: map[string]string{
+				databasecenter.MajorVersionKey:                    "14",
+				databasecenter.MinorVersionKey:                    "14.4",
+				databasecenter.ExposedToPublicAccessKey:           "false",
+				databasecenter.UnencryptedConnectionsKey:          "false",
+				databasecenter.DatabaseAuditingDisabledKey:        "true",
+				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
+				databasecenter.NoAutomatedBackupPolicyKey:         "true",
+				databasecenter.LastBackupOldKey:                   "true",
+			},
+			wantSendMetadataCall: true,
 		},
 	}
 
@@ -1008,6 +1351,14 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			}
 			// Set the mock dbcenter client in the PostgresMetrics object
 			tc.m.DBcenterClient = mockClient
+			// Inject mock filesystem to prevent panic
+			tc.m.fs = mockFileSystem{}
+			// Inject default mock executor if nil to prevent panic
+			if tc.m.execute == nil {
+				tc.m.execute = func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("exit status 1")}
+				}
+			}
 			// Call the function under test
 			err := tc.m.CollectDBCenterMetricsOnce(ctx)
 
@@ -1021,10 +1372,216 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			if mockClient.sendMetadataCalled != tc.wantSendMetadataCall {
 				t.Errorf("CollectMetricsOnce: sendMetadataCalled = %v, want %v", mockClient.sendMetadataCalled, tc.wantSendMetadataCall)
 			}
-			if tc.wantSendMetadataCall {
+			if mockClient.sendMetadataCalled {
 				if diff := cmp.Diff(tc.wantDBcenterMetrics, mockClient.sentMetrics.Metrics); diff != "" {
-					t.Errorf("CollectMetricsOnce: sentMetrics mismatch (-want +got):\n%s", diff)
+					t.Errorf("CollectDBCenterMetricsOnce metrics diff (-want +got):\n%s", diff)
 				}
+			}
+		})
+	}
+}
+
+type timeMockRows struct {
+	value   time.Time
+	valid   bool
+	read    bool
+	scanErr error
+	rowsErr error
+}
+
+func (m *timeMockRows) Next() bool {
+	if m.rowsErr != nil {
+		return false
+	}
+	if !m.read {
+		m.read = true
+		return true
+	}
+	return false
+}
+
+func (m *timeMockRows) Scan(dest ...any) error {
+	if m.scanErr != nil {
+		return m.scanErr
+	}
+	if len(dest) > 0 {
+		*(dest[0].(*sql.NullTime)) = sql.NullTime{Time: m.value, Valid: m.valid}
+	}
+	return nil
+}
+
+func (m *timeMockRows) Close() error { return nil }
+func (m *timeMockRows) Err() error   { return m.rowsErr }
+
+func TestIsLastBackupOld(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+
+	tests := []struct {
+		name         string
+		m            PostgresMetrics
+		expectResult bool
+		expectErr    bool
+	}{
+		{
+			name: "WAL older than 24h -> early exit violation",
+			m: PostgresMetrics{
+				db: &testDB{
+					walArchiveRows: &timeMockRows{value: now.Add(-25 * time.Hour), valid: true},
+				},
+			},
+			expectResult: true, // violation
+			expectErr:    false,
+		},
+		{
+			name: "WAL healthy, pgbackrest healthy -> healthy",
+			m: PostgresMetrics{
+				db: &testDB{
+					walArchiveRows: &timeMockRows{value: now.Add(-2 * time.Hour), valid: true},
+				},
+				execute: mockSuExecute(func(exe string, args []string) commandlineexecutor.Result {
+					if exe == "pgbackrest" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							StdOut:          fmt.Sprintf(`[{"name":"main","backup":[{"timestamp":{"stop":%d}}]}]`, now.Add(-3*time.Hour).Unix()),
+						}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command not found")}
+				}),
+			},
+			expectResult: false, // healthy
+			expectErr:    false,
+		},
+		{
+			name: "WAL healthy, pgbackrest older than 24h -> violation",
+			m: PostgresMetrics{
+				db: &testDB{
+					walArchiveRows: &timeMockRows{value: now.Add(-2 * time.Hour), valid: true},
+				},
+				execute: mockSuExecute(func(exe string, args []string) commandlineexecutor.Result {
+					if exe == "pgbackrest" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							StdOut:          fmt.Sprintf(`[{"name":"main","backup":[{"timestamp":{"stop":%d}}]}]`, now.Add(-26*time.Hour).Unix()),
+						}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command not found")}
+				}),
+			},
+			expectResult: true, // violation
+			expectErr:    false,
+		},
+		{
+			name: "WAL healthy, pgbackrest empty, walg healthy -> healthy",
+			m: PostgresMetrics{
+				db: &testDB{
+					walArchiveRows: &timeMockRows{value: now.Add(-2 * time.Hour), valid: true},
+				},
+				execute: mockSuExecute(func(exe string, args []string) commandlineexecutor.Result {
+					if exe == "pgbackrest" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							StdOut:          `[]`, // empty stanzas
+						}
+					}
+					if exe == "wal-g" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							StdOut:          fmt.Sprintf(`[{"time":"%s"}]`, now.Add(-4*time.Hour).Format(time.RFC3339Nano)),
+						}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command not found")}
+				}),
+			},
+			expectResult: false, // healthy
+			expectErr:    false,
+		},
+		{
+			name: "WAL healthy, pgbackrest empty, walg older than 24h -> violation",
+			m: PostgresMetrics{
+				db: &testDB{
+					walArchiveRows: &timeMockRows{value: now.Add(-2 * time.Hour), valid: true},
+				},
+				execute: mockSuExecute(func(exe string, args []string) commandlineexecutor.Result {
+					if exe == "pgbackrest" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							StdOut:          `[]`,
+						}
+					}
+					if exe == "wal-g" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							StdOut:          fmt.Sprintf(`[{"time":"%s"}]`, now.Add(-26*time.Hour).Format(time.RFC3339Nano)),
+						}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command not found")}
+				}),
+			},
+			expectResult: true, // violation
+			expectErr:    false,
+		},
+		{
+			name: "WAL healthy, pgbackrest missing, walg missing -> violation",
+			m: PostgresMetrics{
+				db: &testDB{
+					walArchiveRows: &timeMockRows{value: now.Add(-2 * time.Hour), valid: true},
+				},
+				execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{Error: errors.New("command not found")} // no tools found
+				},
+			},
+			expectResult: true, // violation
+			expectErr:    false,
+		},
+		{
+			name: "WAL missing, pgbackrest healthy -> healthy",
+			m: PostgresMetrics{
+				db: &testDB{
+					walArchiveRows: &timeMockRows{valid: false}, // WAL returns nothing
+				},
+				execute: mockSuExecute(func(exe string, args []string) commandlineexecutor.Result {
+					if exe == "pgbackrest" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							StdOut:          fmt.Sprintf(`[{"name":"main","backup":[{"timestamp":{"stop":%d}}]}]`, now.Add(-3*time.Hour).Unix()),
+						}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command not found")}
+				}),
+			},
+			expectResult: false, // healthy
+			expectErr:    false,
+		},
+		{
+			name: "WAL healthy, pgbackrest failing, walg missing -> error",
+			m: PostgresMetrics{
+				db: &testDB{
+					walArchiveRows: &timeMockRows{value: now.Add(-2 * time.Hour), valid: true},
+				},
+				execute: mockSuExecute(func(exe string, args []string) commandlineexecutor.Result {
+					if exe == "pgbackrest" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							Error:           errors.New("corrupted config"),
+						}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command not found")}
+				}),
+			},
+			expectResult: false, // SRE fail-safe: fail open on error
+			expectErr:    true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := tc.m.isLastBackupOld(ctx)
+			if (err != nil) != tc.expectErr {
+				t.Errorf("isLastBackupOld() returned error: %v, wantErr: %v", err, tc.expectErr)
+			}
+			if got != tc.expectResult {
+				t.Errorf("isLastBackupOld() = %v, want %v", got, tc.expectResult)
 			}
 		})
 	}
@@ -1228,6 +1785,25 @@ func TestNotFailoverProtected(t *testing.T) {
 	}
 }
 
+func mockSuExecute(mockFn func(executable string, args []string) commandlineexecutor.Result) commandlineexecutor.Execute {
+	return func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+		if params.Executable != "su" {
+			return commandlineexecutor.Result{Error: errors.New("command not found")}
+		}
+		if len(params.Args) < 4 || params.Args[0] != "-" || params.Args[1] != "postgres" || params.Args[2] != "-c" {
+			return commandlineexecutor.Result{Error: errors.New("invalid su arguments")}
+		}
+		cmdStr := params.Args[3]
+		fields := strings.Fields(cmdStr)
+		if len(fields) == 0 {
+			return commandlineexecutor.Result{Error: errors.New("empty command inside su")}
+		}
+		exe := fields[0]
+		args := fields[1:]
+		return mockFn(exe, args)
+	}
+}
+
 func mockExecute(patroniRunning, pgAutoctlRunning bool, pgAutoctlJSON string, pgAutoctlErr error) commandlineexecutor.Execute {
 	return func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
 		if params.Executable == "pgrep" {
@@ -1303,6 +1879,223 @@ func TestIsProcessRunning(t *testing.T) {
 			}
 			if running != test.wantRunning {
 				t.Errorf("isProcessRunning() running = %v, want %v", running, test.wantRunning)
+			}
+		})
+	}
+}
+
+func TestNoAutomatedBackupPolicy_Extended(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name         string
+		dbMock       *testDB
+		fsMock       mockFileSystem
+		execMock     commandlineexecutor.Execute
+		expectResult bool // Expected return value of noAutomatedBackupPolicy
+		expectErr    bool
+	}{
+		{
+			name: "ArchiveModeOff_ReturnsTrue",
+			dbMock: &testDB{
+				pgSettingsRows: &pgSettingsRows{
+					rows: []pgSettingsRow{
+						{name: "archive_mode", setting: "off"},
+						{name: "archive_command", setting: "cp %p /path"},
+					},
+				},
+			},
+			execMock: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				return commandlineexecutor.Result{ExitCode: 0, Error: nil} // Mock active backup to kill mutants
+			},
+			expectResult: true, // Should still be true (no policy) because WAL archiving is disabled
+		},
+		{
+			name: "ArchiveCommandInvalid_ReturnsTrue",
+			dbMock: &testDB{
+				pgSettingsRows: &pgSettingsRows{
+					rows: []pgSettingsRow{
+						{name: "archive_mode", setting: "on"},
+						{name: "archive_command", setting: ":"},
+					},
+				},
+			},
+			execMock: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				return commandlineexecutor.Result{ExitCode: 0, Error: nil} // Mock active backup to kill mutants
+			},
+			expectResult: true, // Should still be true (no policy) because archive command is invalid
+		},
+		{
+			name: "pgBackRestActiveViaConfig_ReturnsFalse",
+			dbMock: &testDB{
+				pgSettingsRows: &pgSettingsRows{
+					rows: []pgSettingsRow{
+						{name: "archive_mode", setting: "on"},
+						{name: "archive_command", setting: "cp %p /path"},
+					},
+				},
+			},
+			fsMock: mockFileSystem{
+				existsPaths: map[string]bool{
+					"/etc/pgbackrest/pgbackrest.conf": true,
+				},
+			},
+			expectResult: false, // Policy present
+		},
+		{
+			name: "BarmanActiveViaConfig_ReturnsFalse",
+			dbMock: &testDB{
+				pgSettingsRows: &pgSettingsRows{
+					rows: []pgSettingsRow{
+						{name: "archive_mode", setting: "on"},
+						{name: "archive_command", setting: "cp %p /path"},
+					},
+				},
+			},
+			fsMock: mockFileSystem{
+				existsPaths: map[string]bool{
+					"/etc/barman.conf": true,
+				},
+			},
+			expectResult: false, // Policy present
+		},
+		{
+			name: "BarmanActiveViaArchiveCommand_ReturnsFalse",
+			dbMock: &testDB{
+				pgSettingsRows: &pgSettingsRows{
+					rows: []pgSettingsRow{
+						{name: "archive_mode", setting: "on"},
+						{name: "archive_command", setting: "/usr/bin/barman-wal-archive %p"},
+					},
+				},
+			},
+			expectResult: false, // Policy present
+		},
+		{
+			name: "WalGActiveViaEnvDir_ReturnsFalse",
+			dbMock: &testDB{
+				pgSettingsRows: &pgSettingsRows{
+					rows: []pgSettingsRow{
+						{name: "archive_mode", setting: "on"},
+						{name: "archive_command", setting: "cp %p /path"},
+					},
+				},
+			},
+			fsMock: mockFileSystem{
+				dirFiles: map[string][]fs.FileInfo{
+					"/etc/wal-g.d/env/": {mockFileInfo{name: "WALE_S3_PREFIX"}},
+				},
+			},
+			expectResult: false, // Policy present
+		},
+		{
+			name: "CronActive_ReturnsFalse",
+			dbMock: &testDB{
+				pgSettingsRows: &pgSettingsRows{
+					rows: []pgSettingsRow{
+						{name: "archive_mode", setting: "on"},
+						{name: "archive_command", setting: "cp %p /path"},
+					},
+				},
+			},
+			execMock: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				if strings.Contains(strings.Join(params.Args, " "), "crontab") {
+					return commandlineexecutor.Result{ExitCode: 0, Error: nil} // Cron found
+				}
+				return commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("exit status 1")} // Systemd not found
+			},
+			expectResult: false, // Policy present
+		},
+		{
+			name: "SystemdActive_ReturnsFalse",
+			dbMock: &testDB{
+				pgSettingsRows: &pgSettingsRows{
+					rows: []pgSettingsRow{
+						{name: "archive_mode", setting: "on"},
+						{name: "archive_command", setting: "cp %p /path"},
+					},
+				},
+			},
+			execMock: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				if strings.Contains(strings.Join(params.Args, " "), "systemctl") {
+					return commandlineexecutor.Result{ExitCode: 0, Error: nil} // Systemd found
+				}
+				return commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("exit status 1")} // Cron not found
+			},
+			expectResult: false, // Policy present
+		},
+		{
+			name: "NoBackupPolicy_ReturnsTrue",
+			dbMock: &testDB{
+				pgSettingsRows: &pgSettingsRows{
+					rows: []pgSettingsRow{
+						{name: "archive_mode", setting: "on"},
+						{name: "archive_command", setting: "cp %p /path"},
+					},
+				},
+			},
+			execMock: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				return commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("exit status 1")} // Both cron/systemd return 1 (not found)
+			},
+			expectResult: true, // No policy!
+		},
+		{
+			name: "CronError_SRE_FailSafe_ReturnsFalse",
+			dbMock: &testDB{
+				pgSettingsRows: &pgSettingsRows{
+					rows: []pgSettingsRow{
+						{name: "archive_mode", setting: "on"},
+						{name: "archive_command", setting: "cp %p /path"},
+					},
+				},
+			},
+			execMock: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				if strings.Contains(strings.Join(params.Args, " "), "crontab") {
+					return commandlineexecutor.Result{ExitCode: 2, Error: errors.New("cron execution error")} // Cron error
+				}
+				return commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("exit status 1")}
+			},
+			expectResult: false, // Policy present (fail-safe suppresses alert)
+		},
+		{
+			name: "SystemdError_SRE_FailSafe_ReturnsFalse",
+			dbMock: &testDB{
+				pgSettingsRows: &pgSettingsRows{
+					rows: []pgSettingsRow{
+						{name: "archive_mode", setting: "on"},
+						{name: "archive_command", setting: "cp %p /path"},
+					},
+				},
+			},
+			execMock: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				if strings.Contains(strings.Join(params.Args, " "), "systemctl") {
+					return commandlineexecutor.Result{ExitCode: 126, Error: errors.New("systemctl permission error")} // Systemd error
+				}
+				return commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("exit status 1")} // Cron not found
+			},
+			expectResult: false, // Policy present (fail-safe suppresses alert)
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := PostgresMetrics{
+				db:      tc.dbMock,
+				fs:      tc.fsMock,
+				execute: tc.execMock,
+			}
+			if m.execute == nil {
+				// Default mock executor that returns 1 (not found) for safety
+				m.execute = func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("exit status 1")}
+				}
+			}
+			result, err := m.noAutomatedBackupPolicy(ctx)
+			if (err != nil) != tc.expectErr {
+				t.Errorf("noAutomatedBackupPolicy() got error: %v, want error presence: %v", err, tc.expectErr)
+			}
+			if !tc.expectErr && result != tc.expectResult {
+				t.Errorf("noAutomatedBackupPolicy() got result: %v, want result: %v", result, tc.expectResult)
 			}
 		})
 	}
