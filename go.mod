@@ -11,10 +11,10 @@ require (
   github.com/DATA-DOG/go-sqlmock v1.5.0
   // Get the version by running:
   // go list -m -json github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries@main
-  github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20260615112321-5bd2c1e05621
+  github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20260626111311-ac11927a7498
   // Get the version by running:
   // go list -m -json github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos@main
-  github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20260615112321-5bd2c1e05621
+  github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20260626111311-ac11927a7498
   github.com/StackExchange/wmi v1.2.1
   github.com/cenkalti/backoff/v4 v4.3.0
   github.com/gammazero/workerpool v1.1.3
@@ -34,11 +34,11 @@ require (
   github.com/zieckey/goini v0.0.0-20240615065340-08ee21c836fb // indirect
   go.mongodb.org/mongo-driver/v2 v2.0.0
   go.uber.org/zap v1.27.0
-  golang.org/x/crypto v0.47.0
+  golang.org/x/crypto v0.52.0
   golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56
   google.golang.org/api v0.265.0
   google.golang.org/genproto v0.0.0-20251202230838-ff82c1b0f217
-  google.golang.org/genproto/googleapis/api v0.0.0-20251202230838-ff82c1b0f217
+  google.golang.org/genproto/googleapis/api v0.0.0-20260226221140-a57be14db171
   google.golang.org/protobuf v1.36.11
 )
 
@@ -47,7 +47,7 @@ require (
   github.com/GoogleCloudPlatform/agentcommunication_client v0.0.0-20250227185639-b70667e4a927
   github.com/golang/protobuf v1.5.4
   github.com/googleapis/gax-go v1.0.3
-  google.golang.org/genproto/googleapis/rpc v0.0.0-20260128011058-8636f8732409
+  google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171
   k8s.io/api v0.35.0
   k8s.io/apiextensions-apiserver v0.35.0
   k8s.io/apimachinery v0.35.0
@@ -67,17 +67,17 @@ require (
   cloud.google.com/go/storage v1.56.0 // indirect
   filippo.io/edwards25519 v1.1.1 // indirect
   github.com/BurntSushi/toml v0.3.1 // indirect
-  github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.30.0 // indirect
+  github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.31.0 // indirect
   github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.53.0 // indirect
   github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.53.0 // indirect
   github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 // indirect
   github.com/cespare/xxhash/v2 v2.3.0 // indirect
-  github.com/cncf/xds/go v0.0.0-20251210132809-ee656c7534f5 // indirect
+  github.com/cncf/xds/go v0.0.0-20260202195803-dba9d589def2 // indirect
   github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
   github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
   github.com/emicklei/go-restful/v3 v3.12.2 // indirect
-  github.com/envoyproxy/go-control-plane/envoy v1.36.0 // indirect
-  github.com/envoyproxy/protoc-gen-validate v1.3.0 // indirect
+  github.com/envoyproxy/go-control-plane/envoy v1.37.0 // indirect
+  github.com/envoyproxy/protoc-gen-validate v1.3.3 // indirect
   github.com/fatih/color v1.18.0 // indirect
   github.com/felixge/httpsnoop v1.0.4 // indirect
   github.com/fxamacker/cbor/v2 v2.9.0 // indirect
@@ -124,7 +124,7 @@ require (
   github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
   github.com/yusufpapurcu/wmi v1.2.4 // indirect
   go.opentelemetry.io/auto/sdk v1.2.1 // indirect
-  go.opentelemetry.io/contrib/detectors/gcp v1.39.0 // indirect
+  go.opentelemetry.io/contrib/detectors/gcp v1.42.0 // indirect
   go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.61.0 // indirect
   go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.61.0 // indirect
   go.opentelemetry.io/otel v1.44.0 // indirect
@@ -136,17 +136,17 @@ require (
   go.yaml.in/yaml/v2 v2.4.3 // indirect
   go.yaml.in/yaml/v3 v3.0.4 // indirect
   golang.org/x/lint v0.0.0-20181026193005-c67002cb31c3 // indirect
-  golang.org/x/mod v0.31.0 // indirect
-  golang.org/x/net v0.49.0 // indirect
-  golang.org/x/oauth2 v0.34.0 // indirect
-  golang.org/x/sync v0.19.0 // indirect
+  golang.org/x/mod v0.35.0 // indirect
+  golang.org/x/net v0.55.0 // indirect
+  golang.org/x/oauth2 v0.36.0 // indirect
+  golang.org/x/sync v0.20.0 // indirect
   golang.org/x/sys v0.45.0 // indirect
-  golang.org/x/telemetry v0.0.0-20251203150158-8fff8a5912fc // indirect
-  golang.org/x/term v0.39.0 // indirect
-  golang.org/x/text v0.33.0 // indirect
+  golang.org/x/telemetry v0.0.0-20260409153401-be6f6cb8b1fa // indirect
+  golang.org/x/term v0.43.0 // indirect
+  golang.org/x/text v0.37.0 // indirect
   golang.org/x/time v0.14.0 // indirect
-  golang.org/x/tools v0.40.0 // indirect
-  google.golang.org/grpc v1.79.3 // indirect
+  golang.org/x/tools v0.44.0 // indirect
+  google.golang.org/grpc v1.81.1 // indirect
   gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
   gopkg.in/inf.v0 v0.9.1 // indirect
   gopkg.in/yaml.v3 v3.0.1 // indirect
