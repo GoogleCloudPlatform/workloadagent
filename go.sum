@@ -45,10 +45,10 @@ github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/cloudmock v0
 github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/cloudmock v0.53.0/go.mod h1:jUZ5LYlw40WMd07qxcQJD5M40aUxrfwqQX1g7zxYnrQ=
 github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.53.0 h1:Ron4zCA/yk6U7WOBXhTJcDpsUBG9npumK6xw2auFltQ=
 github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.53.0/go.mod h1:cSgYe11MCNYunTnRXrKiR/tHc0eoKjICUuWpNZoVCOo=
-github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20260610152758-f145e2de1b20 h1:rkNvu1dBPVptzdabeNMImaACo3E57O9z4/qBjX1dJbc=
-github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20260610152758-f145e2de1b20/go.mod h1:WrwTr9HFkp+nbHba/tv36eCLkjKAeCx7mqiG/wL3PNU=
-github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20260610152758-f145e2de1b20 h1:Dz3Qkp60EP1dxkZeW6QL+3qqkt9K1gfJPlOF1A0XENU=
-github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20260610152758-f145e2de1b20/go.mod h1:8Ea8vdBuPsWhhwzL9sNK7BFQE9qbkPLZUHxcucWHXaM=
+github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20260615112321-5bd2c1e05621 h1:wXKliPHykEz9YqTriIqUE+vYiSftyQotqY0ISTWNne8=
+github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries v0.0.0-20260615112321-5bd2c1e05621/go.mod h1:WrwTr9HFkp+nbHba/tv36eCLkjKAeCx7mqiG/wL3PNU=
+github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20260615112321-5bd2c1e05621 h1:c+0EwQWMbJ8jZNbjd2lLUuaburEN3Ha1z1sb3Bc1O2o=
+github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos v0.0.0-20260615112321-5bd2c1e05621/go.mod h1:8Ea8vdBuPsWhhwzL9sNK7BFQE9qbkPLZUHxcucWHXaM=
 github.com/Masterminds/semver/v3 v3.4.0 h1:Zog+i5UMtVoCU8oKka5P7i9q9HgrJeGzI9SA1Xbatp0=
 github.com/Masterminds/semver/v3 v3.4.0/go.mod h1:4V+yj/TJE1HU9XfppCwVMZq3I84lprf4nC11bSS5beM=
 github.com/StackExchange/wmi v1.2.1 h1:VIkavFPXSjcnS+O8yTq7NI32k0R5Aj+v39y29VYDOSA=
@@ -469,3 +469,4 @@ sigs.k8s.io/structured-merge-diff/v6 v6.3.0 h1:jTijUJbW353oVOd9oTlifJqOGEkUw2jB/
 sigs.k8s.io/structured-merge-diff/v6 v6.3.0/go.mod h1:M3W8sfWvn2HhQDIbGWj3S099YozAsymCo/wrT5ohRUE=
 sigs.k8s.io/yaml v1.6.0 h1:G8fkbMSAFqgEFgh4b1wmtzDnioxFCUgTZhlbj5P9QYs=
 sigs.k8s.io/yaml v1.6.0/go.mod h1:796bPqUfzR/0jLAl6XjHl3Ck7MiyVv8dbTdyT3/pMf4=
+

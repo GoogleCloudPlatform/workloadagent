@@ -32,6 +32,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/workloadmanager"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/commandlineexecutor"
+	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/filesystem"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/secret"
 )
@@ -81,6 +82,7 @@ type PostgresMetrics struct {
 	connect        func(ctx context.Context, dataSource string) (dbInterface, error)
 	WLMClient      workloadmanager.WLMWriter
 	DBcenterClient databasecenter.Client
+	fs             filesystem.FileSystem
 }
 
 // password gets the password for the Postgres database.
@@ -135,6 +137,7 @@ func New(ctx context.Context, config *configpb.Configuration, wlmClient workload
 		connect:        defaultConnect,
 		WLMClient:      wlmClient,
 		DBcenterClient: dbcenterClient,
+		fs:             filesystem.Helper{},
 	}
 }
 
@@ -504,6 +507,10 @@ func (m *PostgresMetrics) getDataDirectory(ctx context.Context) (string, error) 
 }
 
 func (m *PostgresMetrics) isProcessRunning(ctx context.Context, processName string) (bool, error) {
+	if m.execute == nil {
+		log.CtxLogger(ctx).Debugw("m.execute is nil, assuming process is not running", "processName", processName)
+		return false, nil
+	}
 	result := m.execute(ctx, commandlineexecutor.Params{
 		Executable: "pgrep",
 		Args:       []string{"-x", processName},
@@ -536,6 +543,225 @@ func (m *PostgresMetrics) hasActiveReplication(ctx context.Context) (bool, error
 		return false, err
 	}
 	return count > 0, nil
+}
+
+// noAutomatedBackupPolicy checks if PostgreSQL is missing an automated backup policy.
+// Returns true if no automated backup policy is detected (e.g., WAL archiving is disabled or no base backup schedule is found), false otherwise.
+func (m *PostgresMetrics) noAutomatedBackupPolicy(ctx context.Context) (bool, error) {
+	// 1. WAL Archiving Check
+	walEnabled, archiveCommand, err := m.isWALArchivingEnabled(ctx)
+	if err != nil {
+		return false, err
+	}
+	if !walEnabled {
+		return true, nil
+	}
+
+	// 2. Base Backups Check
+	hasBase, err := m.hasBaseBackup(ctx, archiveCommand)
+	if err != nil {
+		log.CtxLogger(ctx).Warnw("Failed to verify base backups, defaulting to policy present (false) to avoid false alerts", "err", err)
+		return false, nil
+	}
+
+	return !hasBase, nil
+}
+
+// isWALArchivingEnabled checks if PostgreSQL has WAL archiving enabled and configured with a valid command.
+// It returns a boolean indicating if it's enabled, the archive_command string, and any database error.
+func (m *PostgresMetrics) isWALArchivingEnabled(ctx context.Context) (bool, string, error) {
+	query := "SELECT name, setting FROM pg_settings WHERE name IN ('archive_mode', 'archive_command')"
+	rows, err := executeQuery(ctx, m.db, query)
+	if err != nil {
+		return false, "", fmt.Errorf("failed to query pg_settings: %w", err)
+	}
+	defer rows.Close()
+
+	var archiveMode, archiveCommand string
+	for rows.Next() {
+		var name, setting string
+		if err := rows.Scan(&name, &setting); err != nil {
+			return false, "", fmt.Errorf("failed to scan pg_settings row: %w", err)
+		}
+		switch name {
+		case "archive_mode":
+			archiveMode = setting
+		case "archive_command":
+			archiveCommand = setting
+		}
+	}
+
+	log.CtxLogger(ctx).Debugw("Postgres archiving configuration", "archive_mode", archiveMode, "archive_command", archiveCommand)
+
+	if archiveMode != "on" && archiveMode != "always" {
+		log.CtxLogger(ctx).Debugw("Postgres archiving is disabled", "archive_mode", archiveMode)
+		return false, "", nil
+	}
+
+	if !isArchiveCommandValid(archiveCommand) {
+		log.CtxLogger(ctx).Debugw("Postgres archive command is invalid", "archive_command", archiveCommand)
+		return false, "", nil
+	}
+
+	return true, archiveCommand, nil
+}
+
+// isArchiveCommandValid evaluates if the given PostgreSQL archive command is valid.
+// It verifies that the command contains at least one placeholder:
+// '%p' (replaced by the path of the file to archive) or '%f' (replaced by
+// just the file name).
+func isArchiveCommandValid(command string) bool {
+	return strings.Contains(command, "%p") || strings.Contains(command, "%f")
+}
+
+type backupToolConfig struct {
+	name           string
+	configFiles    []string
+	envDirs        []string
+	archivePattern string
+}
+
+// hasBaseBackup verifies if any base backup schedules or tool configurations exist on the host.
+// It checks specialised tools first, then falls back to inspecting cron jobs and systemd timers.
+func (m *PostgresMetrics) hasBaseBackup(ctx context.Context, archiveCommand string) (bool, error) {
+	tools := []backupToolConfig{
+		{
+			name:           "pgbackrest",
+			configFiles:    []string{"/etc/pgbackrest/pgbackrest.conf", "/etc/pgbackrest.conf"},
+			archivePattern: "pgbackrest",
+		},
+		{
+			name:           "barman",
+			configFiles:    []string{"/etc/barman.conf"},
+			envDirs:        []string{"/etc/barman.d/"},
+			archivePattern: "barman",
+		},
+		{
+			name:           "wal-g",
+			configFiles:    []string{"/etc/wal-g.d/config.json"},
+			envDirs:        []string{"/etc/wal-e.d/env/", "/etc/wal-g.d/env/"},
+			archivePattern: "wal-g",
+		},
+	}
+
+	// 1. Loop through specialised tools
+	for _, tool := range tools {
+		if m.checkToolActive(ctx, tool, archiveCommand) {
+			log.CtxLogger(ctx).Infow("Active backup tool detected via configuration", "tool", tool.name)
+			return true, nil
+		}
+	}
+
+	// 2. Fallback to Cron Jobs (with error bubbling)
+	cronFound, err := m.checkCronJobs(ctx)
+	if err != nil {
+		return false, err
+	}
+	if cronFound {
+		log.CtxLogger(ctx).Info("Active backup detected via Cron job")
+		return true, nil
+	}
+
+	// 3. Fallback to Systemd Timers (with error bubbling)
+	systemdFound, err := m.checkSystemdTimers(ctx)
+	if err != nil {
+		return false, err
+	}
+	if systemdFound {
+		log.CtxLogger(ctx).Info("Active backup detected via Systemd timer")
+		return true, nil
+	}
+
+	return false, nil
+}
+
+func (m *PostgresMetrics) checkToolActive(ctx context.Context, tool backupToolConfig, archiveCommand string) bool {
+	// 1. Check archive_command
+	if tool.archivePattern != "" && strings.Contains(archiveCommand, tool.archivePattern) {
+		log.CtxLogger(ctx).Debugw("Backup tool active via archive_command", "tool", tool.name)
+		return true
+	}
+
+	// 2. Check config files
+	for _, file := range tool.configFiles {
+		if m.pathExists(file) {
+			log.CtxLogger(ctx).Debugw("Backup tool active via config file", "tool", tool.name, "path", file)
+			return true
+		}
+	}
+
+	// 3. Check env directories
+	for _, dir := range tool.envDirs {
+		if m.dirExistsAndNotEmpty(dir) {
+			log.CtxLogger(ctx).Debugw("Backup tool active via env directory", "tool", tool.name, "path", dir)
+			return true
+		}
+	}
+
+	return false
+}
+
+// checkCronJobs inspects postgres/root user crontabs and system-wide cron files (/etc/crontab, /etc/cron.*)
+// for any active PostgreSQL backup tool executions or custom backup scripts.
+func (m *PostgresMetrics) checkCronJobs(ctx context.Context) (bool, error) {
+	pipeline := "(crontab -u postgres -l 2>/dev/null; crontab -u root -l 2>/dev/null; grep -rE 'pg_basebackup|pg_dump|pgbackrest|barman|wal-g|pg_start_backup|pg_backup_start' /etc/crontab /etc/cron.* 2>/dev/null) | grep -qE 'pg_basebackup|pg_dump|pgbackrest|barman|wal-g|pg_start_backup|pg_backup_start'"
+
+	result := m.execute(ctx, commandlineexecutor.Params{
+		Executable: "bash",
+		Args:       []string{"-c", pipeline},
+	})
+
+	if result.Error != nil {
+		// No match found for active cron backup
+		if result.ExitCode == 1 {
+			return false, nil
+		}
+		// Scheduler not installed
+		if result.ExitCode == 127 {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to execute cron check pipeline: %w", result.Error)
+	}
+	return true, nil
+}
+
+// checkSystemdTimers inspects all active systemd timers and performs deep payload inspection
+// of their target services' ExecStart command to identify active PostgreSQL backup schedules.
+func (m *PostgresMetrics) checkSystemdTimers(ctx context.Context) (bool, error) {
+	pipeline := "systemctl list-timers --no-legend --full | awk '$NF != \"-\" {print $NF}' | xargs -r systemctl cat 2>/dev/null | grep -qE 'pg_basebackup|pg_dump|pgbackrest|barman|wal-g|pg_start_backup|pg_backup_start'"
+
+	result := m.execute(ctx, commandlineexecutor.Params{
+		Executable: "bash",
+		Args:       []string{"-c", pipeline},
+	})
+
+	if result.Error != nil {
+		// No match found for active systemd backup
+		if result.ExitCode == 1 {
+			return false, nil
+		}
+		// Scheduler not installed
+		if result.ExitCode == 127 {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to execute systemd check pipeline: %w", result.Error)
+	}
+	return true, nil
+}
+
+// pathExists checks if a file or directory exists.
+func (m *PostgresMetrics) pathExists(path string) bool {
+	_, err := m.fs.Stat(path)
+	return err == nil
+}
+
+// dirExistsAndNotEmpty checks if a directory exists and contains at least one file.
+func (m *PostgresMetrics) dirExistsAndNotEmpty(path string) bool {
+	files, err := m.fs.ReadDir(path)
+	if err != nil {
+		return false
+	}
+	return len(files) > 0
 }
 
 // CollectWlmMetricsOnce collects metrics for Postgres databases running on the host.
@@ -596,6 +822,12 @@ func (m *PostgresMetrics) CollectDBCenterMetricsOnce(ctx context.Context) error 
 	if err != nil {
 		log.CtxLogger(ctx).Debugw("Failed to detect failover protection", "err", err)
 	}
+	noAutomatedBackupPolicy, err := m.noAutomatedBackupPolicy(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("Failed to check automated backup policy", "err", err)
+		noAutomatedBackupPolicy = true
+	}
+	log.CtxLogger(ctx).Debugw("Postgres noAutomatedBackupPolicy result", "noAutomatedBackupPolicy", noAutomatedBackupPolicy)
 	// Send metadata details to database center
 	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.POSTGRES,
 		Metrics: map[string]string{
@@ -605,6 +837,7 @@ func (m *PostgresMetrics) CollectDBCenterMetricsOnce(ctx context.Context) error 
 			databasecenter.UnencryptedConnectionsKey:          strconv.FormatBool(unencryptedConnectionsAllowed),
 			databasecenter.DatabaseAuditingDisabledKey:        strconv.FormatBool(!auditingEnabled),
 			databasecenter.NotProtectedByAutomaticFailoverKey: strconv.FormatBool(notFailoverProtected),
+			databasecenter.NoAutomatedBackupPolicyKey:         strconv.FormatBool(noAutomatedBackupPolicy),
 		}})
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.
