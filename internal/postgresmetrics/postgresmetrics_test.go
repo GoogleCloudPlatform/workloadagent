@@ -109,6 +109,8 @@ type testDB struct {
 	replicationErr  error
 	pgSettingsRows  rowsInterface
 	pgSettingsErr   error
+	walArchiveRows  rowsInterface
+	walArchiveErr   error
 }
 
 var emptyDB = &testDB{}
@@ -151,6 +153,9 @@ func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (r
 		}
 		return t.hbaRulesRows, t.hbaRulesErr
 	}
+	if strings.Contains(query, "pg_stat_archiver") {
+		return t.walArchiveRows, t.walArchiveErr
+	}
 	if query == "SELECT pg_is_in_recovery()" {
 		if t.isRecoveryRows == nil {
 			return &emptyRows{}, nil
@@ -183,6 +188,30 @@ func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (r
 
 func (t *testDB) Ping() error {
 	return t.pingErr
+}
+
+type testRow struct {
+	rows rowsInterface
+	err  error
+}
+
+func (tr testRow) Scan(dest ...any) error {
+	if tr.err != nil {
+		return tr.err
+	}
+	if tr.rows == nil {
+		return sql.ErrNoRows
+	}
+	defer tr.rows.Close()
+	if !tr.rows.Next() {
+		return sql.ErrNoRows
+	}
+	return tr.rows.Scan(dest...)
+}
+
+func (t *testDB) QueryRowContext(ctx context.Context, query string, args ...any) rowInterface {
+	rows, err := t.QueryContext(ctx, query, args...)
+	return testRow{rows: rows, err: err}
 }
 
 type workMemRows struct {
@@ -1091,6 +1120,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 				databasecenter.DatabaseAuditingDisabledKey:        "false",
 				databasecenter.NotProtectedByAutomaticFailoverKey: "false",
 				databasecenter.NoAutomatedBackupPolicyKey:         "false",
+				databasecenter.LastBackupOldKey:                   "true",
 			},
 			wantSendMetadataCall: true,
 			wantErr:              false,
@@ -1126,6 +1156,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 				databasecenter.DatabaseAuditingDisabledKey:        "true",
 				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
 				databasecenter.NoAutomatedBackupPolicyKey:         "true",
+				databasecenter.LastBackupOldKey:                   "true",
 			},
 			wantSendMetadataCall: true,
 			wantErr:              false,
@@ -1156,6 +1187,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 				databasecenter.DatabaseAuditingDisabledKey:        "true",
 				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
 				databasecenter.NoAutomatedBackupPolicyKey:         "true",
+				databasecenter.LastBackupOldKey:                   "true",
 			},
 			wantSendMetadataCall: true,
 		},
@@ -1185,6 +1217,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 				databasecenter.DatabaseAuditingDisabledKey:        "true",
 				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
 				databasecenter.NoAutomatedBackupPolicyKey:         "true",
+				databasecenter.LastBackupOldKey:                   "true",
 			},
 			wantSendMetadataCall: true,
 		},
@@ -1214,6 +1247,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 				databasecenter.DatabaseAuditingDisabledKey:        "true",
 				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
 				databasecenter.NoAutomatedBackupPolicyKey:         "true",
+				databasecenter.LastBackupOldKey:                   "true",
 			},
 			wantSendMetadataCall: true,
 		},
@@ -1243,6 +1277,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 				databasecenter.DatabaseAuditingDisabledKey:        "true",
 				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
 				databasecenter.NoAutomatedBackupPolicyKey:         "true",
+				databasecenter.LastBackupOldKey:                   "true",
 			},
 			wantSendMetadataCall: true,
 		},
@@ -1272,6 +1307,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 				databasecenter.DatabaseAuditingDisabledKey:        "true",
 				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
 				databasecenter.NoAutomatedBackupPolicyKey:         "true",
+				databasecenter.LastBackupOldKey:                   "true",
 			},
 			wantSendMetadataCall: true,
 		},
@@ -1301,6 +1337,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 				databasecenter.DatabaseAuditingDisabledKey:        "true",
 				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
 				databasecenter.NoAutomatedBackupPolicyKey:         "true",
+				databasecenter.LastBackupOldKey:                   "true",
 			},
 			wantSendMetadataCall: true,
 		},
@@ -1335,10 +1372,355 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			if mockClient.sendMetadataCalled != tc.wantSendMetadataCall {
 				t.Errorf("CollectMetricsOnce: sendMetadataCalled = %v, want %v", mockClient.sendMetadataCalled, tc.wantSendMetadataCall)
 			}
-			if tc.wantSendMetadataCall {
+			if mockClient.sendMetadataCalled {
 				if diff := cmp.Diff(tc.wantDBcenterMetrics, mockClient.sentMetrics.Metrics); diff != "" {
-					t.Errorf("CollectMetricsOnce: sentMetrics mismatch (-want +got):\n%s", diff)
+					t.Errorf("CollectDBCenterMetricsOnce metrics diff (-want +got):\n%s", diff)
 				}
+			}
+		})
+	}
+}
+
+type timeMockRows struct {
+	value   time.Time
+	valid   bool
+	read    bool
+	scanErr error
+	rowsErr error
+}
+
+func (m *timeMockRows) Next() bool {
+	if m.rowsErr != nil {
+		return false
+	}
+	if !m.read {
+		m.read = true
+		return true
+	}
+	return false
+}
+
+func (m *timeMockRows) Scan(dest ...any) error {
+	if m.scanErr != nil {
+		return m.scanErr
+	}
+	if len(dest) > 0 {
+		*(dest[0].(*sql.NullTime)) = sql.NullTime{Time: m.value, Valid: m.valid}
+	}
+	return nil
+}
+
+func (m *timeMockRows) Close() error { return nil }
+func (m *timeMockRows) Err() error   { return m.rowsErr }
+
+func TestIsLastBackupOld(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+
+	tests := []struct {
+		name         string
+		m            PostgresMetrics
+		expectResult bool
+		expectErr    bool
+	}{
+		{
+			name: "WAL older than 24h -> early exit violation",
+			m: PostgresMetrics{
+				db: &testDB{
+					walArchiveRows: &timeMockRows{value: now.Add(-25 * time.Hour), valid: true},
+				},
+				// Mock a healthy base backup. If WAL check falls through, this would cause
+				// the function to return false (healthy), failing the test and killing the mutant.
+				execute: mockSuExecute(func(exe string, args []string) commandlineexecutor.Result {
+					if exe == "pgbackrest" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							StdOut:          fmt.Sprintf(`[{"name":"main","backup":[{"timestamp":{"stop":%d}}]}]`, now.Add(-3*time.Hour).Unix()),
+						}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command not found")}
+				}),
+			},
+			expectResult: true, // violation (due to stale WAL, despite healthy base backup)
+			expectErr:    false,
+		},
+		{
+			name: "WAL healthy, pgbackrest healthy -> healthy",
+			m: PostgresMetrics{
+				db: &testDB{
+					walArchiveRows: &timeMockRows{value: now.Add(-2 * time.Hour), valid: true},
+				},
+				execute: mockSuExecute(func(exe string, args []string) commandlineexecutor.Result {
+					if exe == "pgbackrest" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							StdOut:          fmt.Sprintf(`[{"name":"main","backup":[{"timestamp":{"stop":%d}}]}]`, now.Add(-3*time.Hour).Unix()),
+						}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command not found")}
+				}),
+			},
+			expectResult: false, // healthy
+			expectErr:    false,
+		},
+		{
+			name: "WAL healthy, pgbackrest older than 24h -> violation",
+			m: PostgresMetrics{
+				db: &testDB{
+					walArchiveRows: &timeMockRows{value: now.Add(-2 * time.Hour), valid: true},
+				},
+				execute: mockSuExecute(func(exe string, args []string) commandlineexecutor.Result {
+					if exe == "pgbackrest" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							StdOut:          fmt.Sprintf(`[{"name":"main","backup":[{"timestamp":{"stop":%d}}]}]`, now.Add(-26*time.Hour).Unix()),
+						}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command not found")}
+				}),
+			},
+			expectResult: true, // violation
+			expectErr:    false,
+		},
+		{
+			name: "WAL healthy, pgbackrest empty, walg healthy -> healthy",
+			m: PostgresMetrics{
+				db: &testDB{
+					walArchiveRows: &timeMockRows{value: now.Add(-2 * time.Hour), valid: true},
+				},
+				execute: mockSuExecute(func(exe string, args []string) commandlineexecutor.Result {
+					if exe == "pgbackrest" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							StdOut:          `[]`, // empty stanzas
+						}
+					}
+					if exe == "wal-g" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							StdOut:          fmt.Sprintf(`[{"time":"%s"}]`, now.Add(-4*time.Hour).Format(time.RFC3339Nano)),
+						}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command not found")}
+				}),
+			},
+			expectResult: false, // healthy
+			expectErr:    false,
+		},
+		{
+			name: "WAL healthy, pgbackrest backup nil, walg healthy -> healthy",
+			m: PostgresMetrics{
+				db: &testDB{
+					walArchiveRows: &timeMockRows{value: now.Add(-2 * time.Hour), valid: true},
+				},
+				execute: mockSuExecute(func(exe string, args []string) commandlineexecutor.Result {
+					if exe == "pgbackrest" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							StdOut:          `[{"name":"main","backup":null}]`,
+						}
+					}
+					if exe == "wal-g" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							StdOut:          fmt.Sprintf(`[{"time":"%s"}]`, now.Add(-4*time.Hour).Format(time.RFC3339Nano)),
+						}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command not found")}
+				}),
+			},
+			expectResult: false, // healthy
+			expectErr:    false,
+		},
+		{
+			name: "WAL healthy, pgbackrest backup nil, walg missing -> violation",
+			m: PostgresMetrics{
+				db: &testDB{
+					walArchiveRows: &timeMockRows{value: now.Add(-2 * time.Hour), valid: true},
+				},
+				execute: mockSuExecute(func(exe string, args []string) commandlineexecutor.Result {
+					if exe == "pgbackrest" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							StdOut:          `[{"name":"main","backup":null}]`,
+						}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command not found")}
+				}),
+			},
+			expectResult: true, // violation
+			expectErr:    false,
+		},
+		{
+			name: "WAL healthy, pgbackrest empty, walg older than 24h -> violation",
+			m: PostgresMetrics{
+				db: &testDB{
+					walArchiveRows: &timeMockRows{value: now.Add(-2 * time.Hour), valid: true},
+				},
+				execute: mockSuExecute(func(exe string, args []string) commandlineexecutor.Result {
+					if exe == "pgbackrest" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							StdOut:          `[]`,
+						}
+					}
+					if exe == "wal-g" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							StdOut:          fmt.Sprintf(`[{"time":"%s"}]`, now.Add(-26*time.Hour).Format(time.RFC3339Nano)),
+						}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command not found")}
+				}),
+			},
+			expectResult: true, // violation
+			expectErr:    false,
+		},
+		{
+			name: "WAL healthy, pgbackrest missing, walg missing -> violation",
+			m: PostgresMetrics{
+				db: &testDB{
+					walArchiveRows: &timeMockRows{value: now.Add(-2 * time.Hour), valid: true},
+				},
+				execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{Error: errors.New("command not found")} // no tools found
+				},
+			},
+			expectResult: true, // violation
+			expectErr:    false,
+		},
+		{
+			name: "WAL missing, pgbackrest healthy -> healthy",
+			m: PostgresMetrics{
+				db: &testDB{
+					walArchiveRows: &timeMockRows{valid: false}, // WAL returns nothing
+				},
+				execute: mockSuExecute(func(exe string, args []string) commandlineexecutor.Result {
+					if exe == "pgbackrest" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							StdOut:          fmt.Sprintf(`[{"name":"main","backup":[{"timestamp":{"stop":%d}}]}]`, now.Add(-3*time.Hour).Unix()),
+						}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command not found")}
+				}),
+			},
+			expectResult: false, // healthy
+			expectErr:    false,
+		},
+		{
+			name: "WAL healthy, pgbackrest failing, walg missing -> error",
+			m: PostgresMetrics{
+				db: &testDB{
+					walArchiveRows: &timeMockRows{value: now.Add(-2 * time.Hour), valid: true},
+				},
+				execute: mockSuExecute(func(exe string, args []string) commandlineexecutor.Result {
+					if exe == "pgbackrest" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							Error:           errors.New("corrupted config"),
+						}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command not found")}
+				}),
+			},
+			expectResult: false, // SRE fail-safe: fail open on error
+			expectErr:    true,
+		},
+		{
+			name: "WAL healthy, pgbackrest older than 24h, walg failing -> violation (fail-closed since old backup found)",
+			m: PostgresMetrics{
+				db: &testDB{
+					walArchiveRows: &timeMockRows{value: now.Add(-2 * time.Hour), valid: true},
+				},
+				execute: mockSuExecute(func(exe string, args []string) commandlineexecutor.Result {
+					if exe == "pgbackrest" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							StdOut:          fmt.Sprintf(`[{"name":"main","backup":[{"timestamp":{"stop":%d}}]}]`, now.Add(-26*time.Hour).Unix()),
+						}
+					}
+					if exe == "wal-g" {
+						return commandlineexecutor.Result{
+							ExecutableFound: true,
+							Error:           errors.New("walg failed to connect"),
+						}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command not found")}
+				}),
+			},
+			expectResult: true, // violation (we found a stale backup, so we report unhealthy despite WAL-G error)
+			expectErr:    false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := tc.m.isLastBackupOld(ctx)
+			if (err != nil) != tc.expectErr {
+				t.Errorf("isLastBackupOld() returned error: %v, wantErr: %v", err, tc.expectErr)
+			}
+			if got != tc.expectResult {
+				t.Errorf("isLastBackupOld() = %v, want %v", got, tc.expectResult)
+			}
+		})
+	}
+}
+
+func TestIsWALArchivingStale(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	maxAge := 24 * time.Hour
+
+	tests := []struct {
+		name         string
+		dbMock       *testDB
+		expectResult bool
+		expectErr    bool
+	}{
+		{
+			name: "healthy_not_stale",
+			dbMock: &testDB{
+				walArchiveRows: &timeMockRows{value: now.Add(-1 * time.Hour), valid: true},
+			},
+			expectResult: false,
+			expectErr:    false,
+		},
+		{
+			name: "stale",
+			dbMock: &testDB{
+				walArchiveRows: &timeMockRows{value: now.Add(-25 * time.Hour), valid: true},
+			},
+			expectResult: true,
+			expectErr:    false,
+		},
+		{
+			name: "no_rows_not_stale",
+			dbMock: &testDB{
+				walArchiveRows: &timeMockRows{valid: false},
+			},
+			expectResult: false,
+			expectErr:    false,
+		},
+		{
+			name: "db_error_propagated",
+			dbMock: &testDB{
+				walArchiveErr: errors.New("db connection failed"),
+			},
+			expectResult: false,
+			expectErr:    true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := PostgresMetrics{db: tc.dbMock}
+			result, err := m.isWALArchivingStale(ctx, maxAge)
+			if (err != nil) != tc.expectErr {
+				t.Errorf("isWALArchivingStale() got error: %v, want error presence: %v", err, tc.expectErr)
+			}
+			if result != tc.expectResult {
+				t.Errorf("isWALArchivingStale() got result: %v, want result: %v", result, tc.expectResult)
 			}
 		})
 	}
@@ -1542,6 +1924,25 @@ func TestNotFailoverProtected(t *testing.T) {
 	}
 }
 
+func mockSuExecute(mockFn func(executable string, args []string) commandlineexecutor.Result) commandlineexecutor.Execute {
+	return func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+		if params.Executable != "su" {
+			return commandlineexecutor.Result{Error: errors.New("command not found")}
+		}
+		if len(params.Args) < 4 || params.Args[0] != "-" || params.Args[1] != "postgres" || params.Args[2] != "-c" {
+			return commandlineexecutor.Result{Error: errors.New("invalid su arguments")}
+		}
+		cmdStr := params.Args[3]
+		fields := strings.Fields(cmdStr)
+		if len(fields) == 0 {
+			return commandlineexecutor.Result{Error: errors.New("empty command inside su")}
+		}
+		exe := fields[0]
+		args := fields[1:]
+		return mockFn(exe, args)
+	}
+}
+
 func mockExecute(patroniRunning, pgAutoctlRunning bool, pgAutoctlJSON string, pgAutoctlErr error) commandlineexecutor.Execute {
 	return func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
 		if params.Executable == "pgrep" {
@@ -1562,11 +1963,22 @@ func mockExecute(patroniRunning, pgAutoctlRunning bool, pgAutoctlJSON string, pg
 			return commandlineexecutor.Result{ExitCode: 1, Error: fmt.Errorf("exit status 1")}
 		}
 
-		if params.Executable == "pg_autoctl" {
-			if pgAutoctlErr != nil {
-				return commandlineexecutor.Result{ExitCode: 1, Error: pgAutoctlErr}
+		if params.Executable == "su" {
+			if len(params.Args) < 4 || params.Args[0] != "-" || params.Args[1] != "postgres" || params.Args[2] != "-c" {
+				return commandlineexecutor.Result{Error: errors.New("invalid su arguments")}
 			}
-			return commandlineexecutor.Result{StdOut: pgAutoctlJSON, ExitCode: 0, Error: nil}
+			cmdStr := params.Args[3]
+			fields := strings.Fields(cmdStr)
+			if len(fields) == 0 {
+				return commandlineexecutor.Result{Error: errors.New("empty command inside su")}
+			}
+			exe := fields[0]
+			if exe == "pg_autoctl" {
+				if pgAutoctlErr != nil {
+					return commandlineexecutor.Result{ExitCode: 1, Error: pgAutoctlErr, ExecutableFound: true}
+				}
+				return commandlineexecutor.Result{StdOut: pgAutoctlJSON, ExitCode: 0, Error: nil, ExecutableFound: true}
+			}
 		}
 
 		return commandlineexecutor.Result{ExitCode: 127, Error: fmt.Errorf("unknown command: %s", params.Executable)}
@@ -1834,6 +2246,64 @@ func TestNoAutomatedBackupPolicy_Extended(t *testing.T) {
 			}
 			if !tc.expectErr && result != tc.expectResult {
 				t.Errorf("noAutomatedBackupPolicy() got result: %v, want result: %v", result, tc.expectResult)
+			}
+		})
+	}
+}
+
+func TestRunCommandAsPostgres(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		executable  string
+		args        []string
+		wantCmdStr  string
+	}{
+		{
+			name:       "no arguments",
+			executable: "mycmd",
+			args:       nil,
+			wantCmdStr: "mycmd",
+		},
+		{
+			name:       "simple arguments",
+			executable: "mycmd",
+			args:       []string{"arg1", "arg2"},
+			wantCmdStr: "mycmd 'arg1' 'arg2'",
+		},
+		{
+			name:       "arguments with spaces",
+			executable: "mycmd",
+			args:       []string{"arg with spaces", "another"},
+			wantCmdStr: "mycmd 'arg with spaces' 'another'",
+		},
+		{
+			name:       "arguments with single quotes",
+			executable: "mycmd",
+			args:       []string{"arg's", "simple"},
+			wantCmdStr: "mycmd 'arg'\\''s' 'simple'",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var capturedParams commandlineexecutor.Params
+			m := PostgresMetrics{
+				execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+					capturedParams = params
+					return commandlineexecutor.Result{ExecutableFound: true}
+				},
+			}
+
+			_, _ = m.runCommandAsPostgres(ctx, tc.executable, tc.args)
+
+			if len(capturedParams.Args) < 4 {
+				t.Fatalf("expected at least 4 arguments for su, got %v", capturedParams.Args)
+			}
+			gotCmdStr := capturedParams.Args[3]
+			if gotCmdStr != tc.wantCmdStr {
+				t.Errorf("runCommandAsPostgres() cmdStr = %q, want %q", gotCmdStr, tc.wantCmdStr)
 			}
 		})
 	}

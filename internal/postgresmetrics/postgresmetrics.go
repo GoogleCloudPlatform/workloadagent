@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	// Register the pq driver for Postgres with the database/sql package.
 	_ "github.com/lib/pq"
@@ -56,6 +57,10 @@ type rowsInterface interface {
 	Err() error
 }
 
+type rowInterface interface {
+	Scan(dest ...any) error
+}
+
 type dbWrapper struct {
 	db *sql.DB
 	dbInterface
@@ -63,11 +68,16 @@ type dbWrapper struct {
 
 type dbInterface interface {
 	QueryContext(ctx context.Context, query string, args ...any) (rowsInterface, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) rowInterface
 	Ping() error
 }
 
 func (d dbWrapper) QueryContext(ctx context.Context, query string, args ...any) (rowsInterface, error) {
 	return d.db.QueryContext(ctx, query, args...)
+}
+
+func (d dbWrapper) QueryRowContext(ctx context.Context, query string, args ...any) rowInterface {
+	return d.db.QueryRowContext(ctx, query, args...)
 }
 
 func (d dbWrapper) Ping() error {
@@ -460,18 +470,17 @@ func (m *PostgresMetrics) checkPgAutoctlState(ctx context.Context) (bool, error)
 		return false, fmt.Errorf("failed to get pgdata directory: %w", err)
 	}
 
-	result := m.execute(ctx, commandlineexecutor.Params{
-		Executable: "pg_autoctl",
-		Args:       []string{"show", "state", "--pgdata", pgdata, "--json"},
-		User:       "postgres",
-	})
-	if result.Error != nil {
-		return false, fmt.Errorf("failed to execute pg_autoctl: %w", result.Error)
+	stdout, err := m.runCommandAsPostgres(ctx, "pg_autoctl", []string{"show", "state", "--pgdata", pgdata, "--json"})
+	if err != nil {
+		return false, fmt.Errorf("failed to execute pg_autoctl: %w", err)
+	}
+	if stdout == "" {
+		return false, nil
 	}
 
 	var nodes []pgAutoctlNode
-	if err := json.Unmarshal([]byte(result.StdOut), &nodes); err != nil {
-		return false, fmt.Errorf("failed to unmarshal pg_autoctl output: %w, stdout: %s", err, result.StdOut)
+	if err := json.Unmarshal([]byte(stdout), &nodes); err != nil {
+		return false, fmt.Errorf("failed to unmarshal pg_autoctl output: %w, stdout: %s", err, stdout)
 	}
 
 	// Look for a reachable secondary node
@@ -764,6 +773,228 @@ func (m *PostgresMetrics) dirExistsAndNotEmpty(path string) bool {
 	return len(files) > 0
 }
 
+// isLastBackupOld evaluates backup age across WAL Archiver, pgBackRest, and WAL-G.
+// It returns true if the most recent backup is older than 24 hours (degraded recovery posture).
+func (m *PostgresMetrics) isLastBackupOld(ctx context.Context) (bool, error) {
+	const maxAge = 24 * time.Hour
+
+	// 1. Check if WAL archiving is active but stale.
+	// If WAL archiving is broken, the entire recovery policy is considered unhealthy.
+	walStale, err := m.isWALArchivingStale(ctx, maxAge)
+	if err != nil {
+		log.CtxLogger(ctx).Warnw("Failed to check WAL archiver status", "err", err)
+	} else if walStale {
+		return true, nil
+	}
+
+	// 2. Check if any base backup tool has a fresh backup (<= 24h).
+	hasFresh, err := m.hasFreshBaseBackup(ctx, maxAge)
+	if err != nil {
+		// Fail-open strategy: if all backup checks errored out and we couldn't verify anything,
+		// we return false (healthy) to prevent triggering false-positive alerts on transient failures.
+		log.CtxLogger(ctx).Warnw("Errors encountered while checking base backups, failing open to avoid false alerts", "err", err)
+		return false, err
+	}
+
+	if hasFresh {
+		return false, nil
+	}
+
+	log.CtxLogger(ctx).Debug("No healthy base backups found across configured tools")
+	return true, nil
+}
+
+// isWALArchivingStale checks if WAL archiving is active but has not successfully archived a segment in over maxAge.
+func (m *PostgresMetrics) isWALArchivingStale(ctx context.Context, maxAge time.Duration) (bool, error) {
+	t, err := m.checkWalArchiverAge(ctx)
+	if err != nil {
+		return false, err
+	}
+	if !t.IsZero() && time.Since(t) > maxAge {
+		log.CtxLogger(ctx).Debugw("WAL Archiver is active but stale (> 24h)", "time", t)
+		return true, nil
+	}
+	return false, nil
+}
+
+// hasFreshBaseBackup returns true if any configured backup tool has a backup newer than maxAge.
+func (m *PostgresMetrics) hasFreshBaseBackup(ctx context.Context, maxAge time.Duration) (bool, error) {
+	// Query industry-standard PostgreSQL backup and recovery tools.
+	providers := []struct {
+		name  string
+		check func(context.Context) (time.Time, error)
+	}{
+		{"pgBackRest", m.checkPgBackRestAge},
+		{"WAL-G", m.checkWalGAge},
+	}
+
+	var errs []error
+	var foundOldBackup bool
+	for _, provider := range providers {
+		t, err := provider.check(ctx)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed to check %s: %w", provider.name, err))
+			continue
+		}
+		if !t.IsZero() {
+			isOld := time.Since(t) > maxAge
+			log.CtxLogger(ctx).Debugw("Evaluated base backup tool", "tool", provider.name, "latestTime", t, "isOld", isOld)
+			// Early exit: if ANY tool successfully reports a fresh backup, the system is protected.
+			if !isOld {
+				return true, nil
+			}
+			foundOldBackup = true
+		}
+	}
+
+	if foundOldBackup {
+		if len(errs) > 0 {
+			log.CtxLogger(ctx).Warnw("Some backup tool checks failed, but a stale backup was definitively identified", "errs", errors.Join(errs...))
+		}
+		return false, nil
+	}
+
+	if len(errs) > 0 {
+		return false, errors.Join(errs...)
+	}
+	return false, nil
+}
+
+// checkWalArchiverAge queries the db to check the latest WAL archiving time from pg_stat_archiver.
+func (m *PostgresMetrics) checkWalArchiverAge(ctx context.Context) (time.Time, error) {
+	if m.db == nil {
+		log.CtxLogger(ctx).Debug("Postgres db client is not initialized, skipping WAL archiver check")
+		return time.Time{}, nil
+	}
+	query := "SELECT last_archived_time FROM pg_stat_archiver"
+	var lastArchivedTime sql.NullTime
+	err := m.db.QueryRowContext(ctx, query).Scan(&lastArchivedTime)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return time.Time{}, nil
+		}
+		return time.Time{}, fmt.Errorf("failed to query pg_stat_archiver: %w", err)
+	}
+
+	if !lastArchivedTime.Valid {
+		// Valid can be false if no WAL segments have been archived yet.
+		log.CtxLogger(ctx).Debug("last_archived_time is NULL")
+		return time.Time{}, nil
+	}
+
+	return lastArchivedTime.Time, nil
+}
+
+type pgBackrestInfo []struct {
+	Name   string `json:"name"`
+	Backup []struct {
+		Timestamp struct {
+			Stop int64 `json:"stop"`
+		} `json:"timestamp"`
+	} `json:"backup"`
+}
+
+type walGBackup []struct {
+	Time time.Time `json:"time"`
+}
+
+// checkPgBackRestAge runs the pgbackrest command to retrieve and parse the latest backup time.
+func (m *PostgresMetrics) checkPgBackRestAge(ctx context.Context) (time.Time, error) {
+	stdout, err := m.runCommandAsPostgres(ctx, "pgbackrest", []string{"info", "--output=json"})
+	if err != nil {
+		return time.Time{}, err
+	}
+	if stdout == "" {
+		return time.Time{}, nil
+	}
+
+	var info pgBackrestInfo
+	if err := json.Unmarshal([]byte(stdout), &info); err != nil {
+		return time.Time{}, fmt.Errorf("failed to unmarshal pgbackrest output: %w", err)
+	}
+
+	// Find the most recent (maximum) backup completion time across all configured stanzas.
+	// pgBackRest lists backups chronologically, so the last element in the slice is the latest.
+	var maxOfLatest time.Time
+	for _, stanza := range info {
+		var stanzaLatest time.Time
+		if stanza.Backup != nil && len(stanza.Backup) > 0 {
+			stanzaLatest = time.Unix(stanza.Backup[len(stanza.Backup)-1].Timestamp.Stop, 0)
+		}
+		if !stanzaLatest.IsZero() {
+			if maxOfLatest.IsZero() || stanzaLatest.After(maxOfLatest) {
+				maxOfLatest = stanzaLatest
+			}
+		}
+	}
+
+	return maxOfLatest, nil
+}
+
+// checkWalGAge runs the wal-g command to retrieve and parse the latest backup time.
+func (m *PostgresMetrics) checkWalGAge(ctx context.Context) (time.Time, error) {
+	stdout, err := m.runCommandAsPostgres(ctx, "wal-g", []string{"backup-list", "--json", "--detail"})
+	if err != nil {
+		return time.Time{}, err
+	}
+	if stdout == "" {
+		return time.Time{}, nil
+	}
+
+	var backups walGBackup
+	if err := json.Unmarshal([]byte(stdout), &backups); err != nil {
+		return time.Time{}, fmt.Errorf("failed to unmarshal wal-g output: %w", err)
+	}
+
+	if len(backups) == 0 {
+		log.CtxLogger(ctx).Debug("wal-g returned empty backup list")
+		return time.Time{}, nil
+	}
+
+	// WAL-G lists backups chronologically, so the last element represents the most recent backup.
+	latestBackup := backups[len(backups)-1]
+	return latestBackup.Time, nil
+}
+
+// runCommandAsPostgres runs the target executable as the 'postgres' user via a login shell.
+// This is critical to ensure the postgres user's environment variables (PATH, PGDATA, config paths) are fully loaded.
+func (m *PostgresMetrics) runCommandAsPostgres(ctx context.Context, executable string, args []string) (string, error) {
+	if m.execute == nil {
+		log.CtxLogger(ctx).Debugw("m.execute is nil, skipping check", "executable", executable)
+		return "", nil
+	}
+
+	// Escape arguments to prevent shell injection and handle spaces in paths (e.g. var/lib/pg data).
+	// Wrapping in single quotes and escaping existing single quotes is standard for POSIX shells.
+	escapedArgs := make([]string, len(args))
+	for i, arg := range args {
+		escapedArgs[i] = fmt.Sprintf("'%s'", strings.ReplaceAll(arg, "'", "'\\''"))
+	}
+
+	cmdStr := executable
+	if len(escapedArgs) > 0 {
+		cmdStr = fmt.Sprintf("%s %s", executable, strings.Join(escapedArgs, " "))
+	}
+
+	params := commandlineexecutor.Params{
+		Executable: "su",
+		Args:       []string{"-", "postgres", "-c", cmdStr},
+	}
+	res := m.execute(ctx, params)
+	if !res.ExecutableFound {
+		log.CtxLogger(ctx).Debugw("su executable not found on the system")
+		return "", nil
+	}
+	if res.Error != nil {
+		if res.ExitCode == 127 {
+			log.CtxLogger(ctx).Debugw("Target executable not found in postgres user PATH", "executable", executable)
+			return "", nil
+		}
+		return "", fmt.Errorf("%s command failed: %w (stderr: %s)", executable, res.Error, res.StdErr)
+	}
+	return res.StdOut, nil
+}
+
 // CollectWlmMetricsOnce collects metrics for Postgres databases running on the host.
 func (m *PostgresMetrics) CollectWlmMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
 	if !dwActivated {
@@ -828,6 +1059,12 @@ func (m *PostgresMetrics) CollectDBCenterMetricsOnce(ctx context.Context) error 
 		noAutomatedBackupPolicy = true
 	}
 	log.CtxLogger(ctx).Debugw("Postgres noAutomatedBackupPolicy result", "noAutomatedBackupPolicy", noAutomatedBackupPolicy)
+
+	lastBackupOld, err := m.isLastBackupOld(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("Failed to check last backup old", "err", err)
+	}
+
 	// Send metadata details to database center
 	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.POSTGRES,
 		Metrics: map[string]string{
@@ -838,6 +1075,7 @@ func (m *PostgresMetrics) CollectDBCenterMetricsOnce(ctx context.Context) error 
 			databasecenter.DatabaseAuditingDisabledKey:        strconv.FormatBool(!auditingEnabled),
 			databasecenter.NotProtectedByAutomaticFailoverKey: strconv.FormatBool(notFailoverProtected),
 			databasecenter.NoAutomatedBackupPolicyKey:         strconv.FormatBool(noAutomatedBackupPolicy),
+			databasecenter.LastBackupOldKey:                   strconv.FormatBool(lastBackupOld),
 		}})
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.
