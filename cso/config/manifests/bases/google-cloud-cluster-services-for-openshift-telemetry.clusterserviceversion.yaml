@@ -120,7 +120,7 @@ spec:
   links:
   - name: Cluster Services for OpenShift Telemetry
     url: https://docs.cloud.google.com/compute/docs/containers/openshift-overview
-  maturity: alpha
+  maturity: stable
   provider:
     name: Google
     url: https://docs.cloud.google.com/
