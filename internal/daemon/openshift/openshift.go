@@ -134,6 +134,7 @@ func collectMetrics(ctx context.Context, args runMetricCollectionArgs) {
 		return
 	}
 	log.CtxLogger(ctx).Debug("Metrics successfully sent to WLM")
+	usagemetrics.Action(usagemetrics.OpenShiftWLMRequestSuccess)
 }
 
 // String returns the name of the OpenShift service.

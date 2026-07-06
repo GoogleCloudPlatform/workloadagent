@@ -86,6 +86,7 @@ const (
 	SQLServerDeploymentTimeout       = 4
 	// Oracle deployment through Oracle-Toolkit.
 	OracleToolkitDeploymentSuccess = 5
+	OpenShiftWLMRequestSuccess     = 6
 )
 
 // projectNumbers contains known project numbers for test instances.
