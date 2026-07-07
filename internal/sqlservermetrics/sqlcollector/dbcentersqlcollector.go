@@ -57,7 +57,10 @@ var (
 	notProtectedByAutoFailoverQueryKey = "not protected by automatic failover query key"
 	notProtectedByAutoFailover         = "not_protected_by_auto_failover"
 
-	signals = []string{auditingEnabledQueryKey, allowUnencryptedConnQueryKey, exposedToBroadIPAccessQueryKey, notProtectedByAutoFailoverQueryKey}
+	lastBackupOldQueryKey = "last backup old query key"
+	lastBackupOld         = "last_backup_old"
+
+	signals = []string{auditingEnabledQueryKey, allowUnencryptedConnQueryKey, exposedToBroadIPAccessQueryKey, notProtectedByAutoFailoverQueryKey, lastBackupOldQueryKey}
 
 	sqlMetrics = map[string]dbCenterSQLMetricsStruct{
 		versionQueryKey: {
@@ -207,6 +210,50 @@ FROM DBStatuses;`,
 			},
 			resultProcessor: notProtectedByAutoFailoverProcessor,
 		},
+
+		lastBackupOldQueryKey: {
+			query: `WITH LatestBackups AS (
+	SELECT
+		database_name,
+		MAX(CASE WHEN type IN ('D', 'I') THEN backup_finish_date END) AS LastBaseBackup,
+		MAX(CASE WHEN type = 'L' THEN backup_finish_date END) AS LastLogBackup
+	FROM msdb.dbo.backupset
+	WHERE type IN ('D', 'I', 'L')
+	  AND backup_finish_date >= DATEADD(day, -14, GETDATE())
+	GROUP BY database_name
+),
+DBStatuses AS (
+	SELECT
+		d.name,
+		CASE
+			WHEN d.recovery_model_desc = 'SIMPLE'
+				 AND b.LastBaseBackup >= DATEADD(hour, -24, GETDATE())
+				 THEN 'HEALTHY'
+			WHEN d.recovery_model_desc IN ('FULL', 'BULK_LOGGED')
+				 AND b.LastBaseBackup >= DATEADD(hour, -24, GETDATE())
+				 AND b.LastLogBackup >= DATEADD(hour, -24, GETDATE())
+				 THEN 'HEALTHY'
+			ELSE 'STALE_OR_MISSING_BACKUP'
+		END AS OperationalStatus
+	FROM master.sys.databases d
+	LEFT JOIN LatestBackups b ON d.name = b.database_name
+	WHERE d.name NOT IN ('master', 'model', 'msdb', 'tempdb')
+	  AND d.state_desc = 'ONLINE'
+	  AND d.create_date < DATEADD(hour, -24, GETDATE())
+)
+SELECT ISNULL(CASE WHEN SUM(CASE WHEN OperationalStatus = 'STALE_OR_MISSING_BACKUP' THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END, 0) AS last_backup_old
+FROM DBStatuses;`,
+			fields: func(rows [][]any) []map[string]string {
+				var res []map[string]string
+				for _, row := range rows {
+					res = append(res, map[string]string{
+						lastBackupOld: handleNilInt(row[0]),
+					})
+				}
+				return res
+			},
+			resultProcessor: lastBackupOldProcessor,
+		},
 	}
 )
 
@@ -286,6 +333,15 @@ func notProtectedByAutoFailoverProcessor(result, metrics map[string]string) {
 		metrics[databasecenter.NotProtectedByAutomaticFailoverKey] = strconv.FormatBool(true)
 	} else {
 		metrics[databasecenter.NotProtectedByAutomaticFailoverKey] = strconv.FormatBool(false)
+	}
+}
+
+func lastBackupOldProcessor(result, metrics map[string]string) {
+	count, err := strconv.Atoi(result[lastBackupOld])
+	if err == nil && count > 0 {
+		metrics[databasecenter.LastBackupOldKey] = strconv.FormatBool(true)
+	} else {
+		metrics[databasecenter.LastBackupOldKey] = strconv.FormatBool(false)
 	}
 }
 
