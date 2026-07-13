@@ -26,9 +26,10 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap/zapcore"
-	"k8s.io/client-go/rest"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/daemon"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/configure"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/logusage"
@@ -40,6 +41,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/metadataserver"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 )
 
@@ -69,17 +71,19 @@ func Run(opts Options) {
 	cloudProps := &cpb.CloudProperties{}
 	//TODO - Move OpenShift-specific Run logic to a separate main file.
 	if os.Getenv("WLA_WORKLOAD") == "OPENSHIFT" {
-		if cp := fetchCloudPropertiesFromOpenShift(); cp != nil {
+		if cp := fetchCloudPropertiesFromOpenShift(ctx); cp != nil {
 			cloudProps = &cpb.CloudProperties{
 				ProjectId:    cp.ProjectID,
 				Region:       cp.Region,
 				InstanceName: cp.InstanceName,
+				Zone:         cp.Zone,
 			}
 
 			log.Logger.Infow("Cloud Properties for OpenShift",
 				"projectid", cloudProps.GetProjectId(),
 				"region", cloudProps.GetRegion(),
 				"instancename", cloudProps.GetInstanceName(),
+				"zone", cloudProps.GetZone(),
 			)
 		}
 	} else if cp := metadataserver.FetchCloudProperties(); cp != nil {
@@ -149,7 +153,7 @@ func Run(opts Options) {
 	os.Exit(rc)
 }
 
-func fetchCloudPropertiesFromOpenShift() *metadataserver.CloudProperties {
+func fetchCloudPropertiesFromOpenShift(ctx context.Context) *metadataserver.CloudProperties {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		log.Logger.Errorw("Failed to get in-cluster config", "error", err)
@@ -166,9 +170,36 @@ func fetchCloudPropertiesFromOpenShift() *metadataserver.CloudProperties {
 		return nil
 	}
 
+	zone := "us-central1-a" // Placeholder value in case we fail to get the zone from a node.
+	k8sClient, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		log.Logger.Errorw("Failed to create kubernetes clientset", "error", err)
+	} else {
+		nodes, err := k8sClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{LabelSelector: "node-role.kubernetes.io/worker"})
+		if err != nil || len(nodes.Items) == 0 {
+			// Fallback to any node if no worker nodes could be found.
+			nodes, err = k8sClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+		}
+		if err != nil {
+			log.Logger.Errorw("Failed to list nodes", "error", err)
+		} else {
+			for _, node := range nodes.Items {
+				if z, ok := node.Labels["topology.kubernetes.io/zone"]; ok {
+					zone = z
+					break
+				}
+				if z, ok := node.Labels["failure-domain.beta.kubernetes.io/zone"]; ok {
+					zone = z
+					break
+				}
+			}
+		}
+	}
+
 	return &metadataserver.CloudProperties{
 		ProjectID:    infra.Status.PlatformStatus.GCP.ProjectID,
 		Region:       infra.Status.PlatformStatus.GCP.Region,
 		InstanceName: infra.Status.InfrastructureName,
+		Zone:         zone,
 	}
 }
