@@ -19,6 +19,7 @@ package sqlcollector
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -134,10 +135,11 @@ func TestPopulateSignals(t *testing.T) {
 				sqlmock.NewRows([]string{allowUnencryptedConn}).AddRow(0),
 				sqlmock.NewRows([]string{exposedToBroadAccess}).AddRow(0),
 				sqlmock.NewRows([]string{notProtectedByAutoFailover}).AddRow(0),
+				sqlmock.NewRows([]string{noAutomatedBackupPolicy}).AddRow(0),
 			},
 			delay:       0,
 			metrics:     map[string]string{},
-			wantMetrics: map[string]string{databasecenter.DatabaseAuditingDisabledKey: "false", databasecenter.UnencryptedConnectionsKey: "false", databasecenter.ExposedToPublicAccessKey: "false", databasecenter.NotProtectedByAutomaticFailoverKey: "false"},
+			wantMetrics: map[string]string{databasecenter.DatabaseAuditingDisabledKey: "false", databasecenter.UnencryptedConnectionsKey: "false", databasecenter.ExposedToPublicAccessKey: "false", databasecenter.NotProtectedByAutomaticFailoverKey: "false", databasecenter.NoAutomatedBackupPolicyKey: "false"},
 		},
 		{
 			name:    "all signals are populated",
@@ -147,11 +149,12 @@ func TestPopulateSignals(t *testing.T) {
 				sqlmock.NewRows([]string{allowUnencryptedConn}).AddRow(1),
 				sqlmock.NewRows([]string{exposedToBroadAccess}).AddRow(1),
 				sqlmock.NewRows([]string{notProtectedByAutoFailover}).AddRow(1),
+				sqlmock.NewRows([]string{noAutomatedBackupPolicy}).AddRow(1),
 				sqlmock.NewRows([]string{lastBackupOld}).AddRow(1),
 			},
 			delay:       0,
 			metrics:     map[string]string{},
-			wantMetrics: map[string]string{databasecenter.DatabaseAuditingDisabledKey: "true", databasecenter.UnencryptedConnectionsKey: "true", databasecenter.ExposedToPublicAccessKey: "true", databasecenter.NotProtectedByAutomaticFailoverKey: "true", databasecenter.LastBackupOldKey: "true"},
+			wantMetrics: map[string]string{databasecenter.DatabaseAuditingDisabledKey: "true", databasecenter.UnencryptedConnectionsKey: "true", databasecenter.ExposedToPublicAccessKey: "true", databasecenter.NotProtectedByAutomaticFailoverKey: "true", databasecenter.NoAutomatedBackupPolicyKey: "true", databasecenter.LastBackupOldKey: "true"},
 		},
 		{
 			name:        "error caught when sql query returns error",
@@ -171,6 +174,7 @@ func TestPopulateSignals(t *testing.T) {
 				sqlmock.NewRows(nil),
 				sqlmock.NewRows(nil),
 				sqlmock.NewRows(nil),
+				sqlmock.NewRows(nil),
 			},
 			metrics:     map[string]string{},
 			wantMetrics: map[string]string{},
@@ -184,6 +188,7 @@ func TestPopulateSignals(t *testing.T) {
 				sqlmock.NewRows([]string{allowUnencryptedConn}).AddRow(1),
 				sqlmock.NewRows([]string{exposedToBroadAccess}).AddRow(1),
 				sqlmock.NewRows([]string{notProtectedByAutoFailover}).AddRow(0),
+				sqlmock.NewRows([]string{noAutomatedBackupPolicy}).AddRow(0),
 				sqlmock.NewRows([]string{lastBackupOld}).AddRow(0),
 			},
 			metrics:     map[string]string{},
@@ -253,6 +258,37 @@ func TestNotProtectedByAutoFailoverProcessor(t *testing.T) {
 	}
 }
 
+func TestNoAutomatedBackupPolicyProcessor(t *testing.T) {
+	tests := []struct {
+		name        string
+		result      map[string]string
+		metrics     map[string]string
+		wantMetrics map[string]string
+	}{
+		{
+			name:        "all databases have automated backup policy",
+			result:      map[string]string{noAutomatedBackupPolicy: "0"},
+			metrics:     map[string]string{},
+			wantMetrics: map[string]string{databasecenter.NoAutomatedBackupPolicyKey: "false"},
+		},
+		{
+			name:        "at least one database missing automated backup policy raises signal",
+			result:      map[string]string{noAutomatedBackupPolicy: "1"},
+			metrics:     map[string]string{},
+			wantMetrics: map[string]string{databasecenter.NoAutomatedBackupPolicyKey: "true"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			noAutomatedBackupPolicyProcessor(tc.result, tc.metrics)
+			if diff := cmp.Diff(tc.wantMetrics, tc.metrics); diff != "" {
+				t.Errorf("noAutomatedBackupPolicyProcessor() returned diff (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestLastBackupOldProcessor(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -281,5 +317,23 @@ func TestLastBackupOldProcessor(t *testing.T) {
 				t.Errorf("lastBackupOldProcessor() returned diff (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestNoAutomatedBackupPolicyQuery(t *testing.T) {
+	query := sqlMetrics[noAutomatedBackupPolicyQueryKey].query
+	wantSubstrings := []string{
+		"AgentJobs",
+		"MaintPlanJobs",
+		"msdb.dbo.sysmaintplan_plans",
+		"msdb.dbo.sysmaintplan_subplans",
+		"HasScheduledFull",
+		"HasScheduledLog",
+	}
+
+	for _, want := range wantSubstrings {
+		if !strings.Contains(query, want) {
+			t.Errorf("noAutomatedBackupPolicyQuery missing expected substring %q in query:\n%s", want, query)
+		}
 	}
 }

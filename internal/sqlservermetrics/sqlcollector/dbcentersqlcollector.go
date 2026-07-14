@@ -57,10 +57,13 @@ var (
 	notProtectedByAutoFailoverQueryKey = "not protected by automatic failover query key"
 	notProtectedByAutoFailover         = "not_protected_by_auto_failover"
 
+	noAutomatedBackupPolicyQueryKey = "no automated backup policy query key"
+	noAutomatedBackupPolicy         = "no_automated_backup_policy"
+
 	lastBackupOldQueryKey = "last backup old query key"
 	lastBackupOld         = "last_backup_old"
 
-	signals = []string{auditingEnabledQueryKey, allowUnencryptedConnQueryKey, exposedToBroadIPAccessQueryKey, notProtectedByAutoFailoverQueryKey, lastBackupOldQueryKey}
+	signals = []string{auditingEnabledQueryKey, allowUnencryptedConnQueryKey, exposedToBroadIPAccessQueryKey, notProtectedByAutoFailoverQueryKey, noAutomatedBackupPolicyQueryKey, lastBackupOldQueryKey}
 
 	sqlMetrics = map[string]dbCenterSQLMetricsStruct{
 		versionQueryKey: {
@@ -211,6 +214,66 @@ FROM DBStatuses;`,
 			resultProcessor: notProtectedByAutoFailoverProcessor,
 		},
 
+		noAutomatedBackupPolicyQueryKey: {
+			query: `WITH AgentJobs AS (
+	SELECT
+		ISNULL(MAX(CASE WHEN LOWER(js.command) LIKE '%backup database%'
+							 OR LOWER(js.command) LIKE '%@backuptype = ''full''%'
+							 OR LOWER(js.command) LIKE '%dbo.databasebackup%'
+							 OR LOWER(js.command) LIKE '%minion.backup%' THEN 1 ELSE 0 END), 0) AS HasAgentFull,
+		ISNULL(MAX(CASE WHEN LOWER(js.command) LIKE '%backup log%'
+							 OR LOWER(js.command) LIKE '%@backuptype = ''log''%' THEN 1 ELSE 0 END), 0) AS HasAgentLog
+	FROM msdb.dbo.sysjobs j
+	INNER JOIN msdb.dbo.sysjobsteps js ON j.job_id = js.job_id
+	INNER JOIN msdb.dbo.sysjobschedules jsch ON j.job_id = jsch.job_id
+	INNER JOIN msdb.dbo.sysschedules s ON jsch.schedule_id = s.schedule_id
+	WHERE j.enabled = 1 AND s.enabled = 1
+),
+MaintPlanJobs AS (
+	SELECT
+		ISNULL(MAX(CASE WHEN LOWER(sld.command) LIKE '%backup database%' THEN 1 ELSE 0 END), 0) AS HasMaintFull,
+		ISNULL(MAX(CASE WHEN LOWER(sld.command) LIKE '%backup log%' THEN 1 ELSE 0 END), 0) AS HasMaintLog
+	FROM msdb.dbo.sysmaintplan_plans p
+	INNER JOIN msdb.dbo.sysmaintplan_subplans sp ON p.id = sp.plan_id
+	INNER JOIN msdb.dbo.sysjobs j ON sp.job_id = j.job_id
+	INNER JOIN msdb.dbo.sysjobschedules jsch ON j.job_id = jsch.job_id
+	INNER JOIN msdb.dbo.sysschedules s ON jsch.schedule_id = s.schedule_id
+	LEFT JOIN msdb.dbo.sysmaintplan_log sl ON sp.subplan_id = sl.subplan_id
+	LEFT JOIN msdb.dbo.sysmaintplan_logdetail sld ON sl.task_detail_id = sld.task_detail_id
+	WHERE j.enabled = 1 AND s.enabled = 1
+),
+ScheduledJobs AS (
+	SELECT
+		(SELECT HasAgentFull FROM AgentJobs) | (SELECT HasMaintFull FROM MaintPlanJobs) AS HasScheduledFull,
+		(SELECT HasAgentLog FROM AgentJobs) | (SELECT HasMaintLog FROM MaintPlanJobs) AS HasScheduledLog
+),
+DBCompliance AS (
+	SELECT
+		d.name,
+		CASE
+			WHEN d.recovery_model_desc = 'SIMPLE' AND j.HasScheduledFull = 1 THEN 1
+			WHEN d.recovery_model_desc IN ('FULL', 'BULK_LOGGED') AND j.HasScheduledFull = 1 AND j.HasScheduledLog = 1 THEN 1
+			ELSE 0
+		END AS IsCompliant
+	FROM master.sys.databases d
+	CROSS JOIN ScheduledJobs j
+	WHERE d.name NOT IN ('master', 'model', 'msdb', 'tempdb')
+	  AND d.state_desc = 'ONLINE'
+)
+SELECT ISNULL(CASE WHEN SUM(CASE WHEN IsCompliant = 0 THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END, 0) AS no_automated_backup_policy
+FROM DBCompliance;`,
+			fields: func(rows [][]any) []map[string]string {
+				var res []map[string]string
+				for _, row := range rows {
+					res = append(res, map[string]string{
+						noAutomatedBackupPolicy: handleNilInt(row[0]),
+					})
+				}
+				return res
+			},
+			resultProcessor: noAutomatedBackupPolicyProcessor,
+		},
+
 		lastBackupOldQueryKey: {
 			query: `WITH LatestBackups AS (
 	SELECT
@@ -329,20 +392,21 @@ func exposedToBroadIPAccess(result, metrics map[string]string) {
 }
 
 func notProtectedByAutoFailoverProcessor(result, metrics map[string]string) {
-	if result[notProtectedByAutoFailover] == "1" {
-		metrics[databasecenter.NotProtectedByAutomaticFailoverKey] = strconv.FormatBool(true)
-	} else {
-		metrics[databasecenter.NotProtectedByAutomaticFailoverKey] = strconv.FormatBool(false)
-	}
+	count, err := strconv.Atoi(result[notProtectedByAutoFailover])
+	hasNotProtectedByAutoFailover := (err == nil && count > 0)
+	metrics[databasecenter.NotProtectedByAutomaticFailoverKey] = strconv.FormatBool(hasNotProtectedByAutoFailover)
+}
+
+func noAutomatedBackupPolicyProcessor(result, metrics map[string]string) {
+	count, err := strconv.Atoi(result[noAutomatedBackupPolicy])
+	hasAutomatedBackupPolicy := (err == nil && count > 0)
+	metrics[databasecenter.NoAutomatedBackupPolicyKey] = strconv.FormatBool(hasAutomatedBackupPolicy)
 }
 
 func lastBackupOldProcessor(result, metrics map[string]string) {
 	count, err := strconv.Atoi(result[lastBackupOld])
-	if err == nil && count > 0 {
-		metrics[databasecenter.LastBackupOldKey] = strconv.FormatBool(true)
-	} else {
-		metrics[databasecenter.LastBackupOldKey] = strconv.FormatBool(false)
-	}
+	hasLastBackupOld := (err == nil && count > 0)
+	metrics[databasecenter.LastBackupOldKey] = strconv.FormatBool(hasLastBackupOld)
 }
 
 // PopulateSignals populates the signals for the SQL Server in the metrics map.
