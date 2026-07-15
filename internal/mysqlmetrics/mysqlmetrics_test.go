@@ -99,6 +99,18 @@ type testDB struct {
 	requireSecureTransportErr  error
 	auditLogPluginRows         rowsInterface
 	auditLogPluginErr          error
+	groupReplicationRows       rowsInterface
+	groupReplicationErr        error
+	wsrepStatusRows            rowsInterface
+	wsrepStatusErr             error
+	ndbEngineRows              rowsInterface
+	ndbEngineErr               error
+	logBinVarRows              rowsInterface
+	logBinVarErr               error
+	dumpThreadsRows            rowsInterface
+	dumpThreadsErr             error
+	managerUserRows            rowsInterface
+	managerUserErr             error
 }
 
 func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (rowsInterface, error) {
@@ -109,9 +121,15 @@ func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (r
 		return t.bufferPoolRows, t.bufferPoolErr
 	}
 	if query == "SHOW REPLICA STATUS" {
+		if r, ok := t.replicaRows.(*replicaRows); ok && r != nil {
+			return &replicaRows{size: r.size, data: r.data, shouldErr: r.shouldErr}, t.replicaErr
+		}
 		return t.replicaRows, t.replicaErr
 	}
 	if query == "SHOW SLAVE STATUS" {
+		if r, ok := t.slaveRows.(*slaveRows); ok && r != nil {
+			return &slaveRows{size: r.size, data: r.data, shouldErr: r.shouldErr}, t.slaveErr
+		}
 		return t.slaveRows, t.slaveErr
 	}
 	if query == replicationZonesQuery {
@@ -119,6 +137,24 @@ func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (r
 	}
 	if query == "SELECT @@version" {
 		return t.versionRows, t.versionErr
+	}
+	if strings.Contains(query, "replication_group_members") {
+		return t.groupReplicationRows, t.groupReplicationErr
+	}
+	if strings.Contains(query, "wsrep_cluster_size") {
+		return t.wsrepStatusRows, t.wsrepStatusErr
+	}
+	if strings.Contains(query, "ndbcluster") {
+		return t.ndbEngineRows, t.ndbEngineErr
+	}
+	if query == "SHOW GLOBAL VARIABLES LIKE 'log_bin'" {
+		return t.logBinVarRows, t.logBinVarErr
+	}
+	if strings.Contains(query, "Binlog Dump") {
+		return t.dumpThreadsRows, t.dumpThreadsErr
+	}
+	if strings.Contains(query, "user LIKE '%orchestrator%'") {
+		return t.managerUserRows, t.managerUserErr
 	}
 	if strings.TrimSpace(query) == strings.TrimSpace(`
 		SELECT user, host, plugin, authentication_string
@@ -418,8 +454,9 @@ func (f *globalVarMockRows) Scan(dest ...any) error {
 	if len(dest) != len(currentRow) {
 		return fmt.Errorf("scan destination count mismatch: got %d, want %d", len(dest), len(currentRow))
 	}
-	*dest[0].(*string) = currentRow[0]
-	*dest[1].(*string) = currentRow[1]
+	for i := range dest {
+		*dest[i].(*string) = currentRow[i]
+	}
 	return nil
 }
 
@@ -465,6 +502,52 @@ func (f *pluginStatusMockRows) Next() bool {
 func (f *pluginStatusMockRows) Close() error {
 	return nil
 }
+
+func (f *bufferPoolRows) Columns() ([]string, error) { return []string{"size"}, nil }
+func (f *isInnoDBRows) Columns() ([]string, error)   { return []string{"engine", "support"}, nil }
+func (f *replicaRows) Columns() ([]string, error) {
+	return []string{"Replica_IO_Running", "Replica_SQL_Running"}, nil
+}
+func (f *slaveRows) Columns() ([]string, error) {
+	return []string{"Slave_IO_Running", "Slave_SQL_Running"}, nil
+}
+func (f *replicationZonesRows) Columns() ([]string, error) { return []string{"host"}, nil }
+func (f *versionRows) Columns() ([]string, error)          { return []string{"version"}, nil }
+func (f *mysqlUserMockRows) Columns() ([]string, error)    { return []string{"user", "host"}, nil }
+func (f *exposedToPublicAccessMockRows) Columns() ([]string, error) {
+	return []string{"user", "host"}, nil
+}
+func (f *globalVarMockRows) Columns() ([]string, error) { return []string{"var_name", "value"}, nil }
+func (f *pluginStatusMockRows) Columns() ([]string, error) {
+	return []string{"plugin_status"}, nil
+}
+
+type countMockRows struct {
+	count     int
+	size      int
+	data      int
+	shouldErr bool
+}
+
+func (f *countMockRows) Scan(dest ...any) error {
+	if f.shouldErr {
+		return errors.New("test scan error")
+	}
+	*dest[0].(*int) = f.data
+	return nil
+}
+
+func (f *countMockRows) Next() bool {
+	if f.count < f.size {
+		f.count++
+		return true
+	}
+	return false
+}
+
+func (f *countMockRows) Close() error { return nil }
+
+func (f *countMockRows) Columns() ([]string, error) { return []string{"count"}, nil }
 
 type MockDatabaseCenterClient struct {
 	sendMetadataCalled bool
@@ -2158,12 +2241,13 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			sendMetadataErr:      nil,
 			wantSendMetadataCall: true,
 			wantDBcenterMetrics: map[string]string{
-				databasecenter.MajorVersionKey:             "8.0",
-				databasecenter.MinorVersionKey:             "8.0.35",
-				databasecenter.NoRootPasswordKey:           "false",
-				databasecenter.ExposedToPublicAccessKey:    "false",
-				databasecenter.UnencryptedConnectionsKey:   "false",
-				databasecenter.DatabaseAuditingDisabledKey: "false",
+				databasecenter.MajorVersionKey:                    "8.0",
+				databasecenter.MinorVersionKey:                    "8.0.35",
+				databasecenter.NoRootPasswordKey:                  "false",
+				databasecenter.ExposedToPublicAccessKey:           "false",
+				databasecenter.UnencryptedConnectionsKey:          "false",
+				databasecenter.DatabaseAuditingDisabledKey:        "false",
+				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
 			},
 			wantErr: false,
 		},
@@ -2203,12 +2287,13 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			},
 			wantSendMetadataCall: true,
 			wantDBcenterMetrics: map[string]string{
-				databasecenter.MajorVersionKey:             "8.0",
-				databasecenter.MinorVersionKey:             "8.0.35",
-				databasecenter.NoRootPasswordKey:           "true",
-				databasecenter.ExposedToPublicAccessKey:    "true",
-				databasecenter.UnencryptedConnectionsKey:   "true",
-				databasecenter.DatabaseAuditingDisabledKey: "true",
+				databasecenter.MajorVersionKey:                    "8.0",
+				databasecenter.MinorVersionKey:                    "8.0.35",
+				databasecenter.NoRootPasswordKey:                  "true",
+				databasecenter.ExposedToPublicAccessKey:           "true",
+				databasecenter.UnencryptedConnectionsKey:          "true",
+				databasecenter.DatabaseAuditingDisabledKey:        "true",
+				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
 			},
 			wantErr: false,
 		},
@@ -2256,12 +2341,13 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 			sendMetadataErr:      fmt.Errorf("db center error"),
 			wantSendMetadataCall: true,
 			wantDBcenterMetrics: map[string]string{
-				databasecenter.MajorVersionKey:             "8.0",
-				databasecenter.MinorVersionKey:             "8.0.35",
-				databasecenter.NoRootPasswordKey:           "false",
-				databasecenter.ExposedToPublicAccessKey:    "false",
-				databasecenter.UnencryptedConnectionsKey:   "false",
-				databasecenter.DatabaseAuditingDisabledKey: "true",
+				databasecenter.MajorVersionKey:                    "8.0",
+				databasecenter.MinorVersionKey:                    "8.0.35",
+				databasecenter.NoRootPasswordKey:                  "false",
+				databasecenter.ExposedToPublicAccessKey:           "false",
+				databasecenter.UnencryptedConnectionsKey:          "false",
+				databasecenter.DatabaseAuditingDisabledKey:        "true",
+				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
 			},
 			wantErr: false,
 		},
@@ -2342,12 +2428,13 @@ func TestCollectDBCenterMetricsOnce(t *testing.T) {
 			sendMetadataErr:      nil,
 			wantSendMetadataCall: true,
 			wantDBcenterMetrics: map[string]string{
-				databasecenter.MajorVersionKey:             "8.0",
-				databasecenter.MinorVersionKey:             "8.0.35",
-				databasecenter.NoRootPasswordKey:           "false",
-				databasecenter.ExposedToPublicAccessKey:    "false",
-				databasecenter.UnencryptedConnectionsKey:   "false",
-				databasecenter.DatabaseAuditingDisabledKey: "false",
+				databasecenter.MajorVersionKey:                    "8.0",
+				databasecenter.MinorVersionKey:                    "8.0.35",
+				databasecenter.NoRootPasswordKey:                  "false",
+				databasecenter.ExposedToPublicAccessKey:           "false",
+				databasecenter.UnencryptedConnectionsKey:          "false",
+				databasecenter.DatabaseAuditingDisabledKey:        "false",
+				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
 			},
 			wantErr: false,
 		},
@@ -2387,12 +2474,13 @@ func TestCollectDBCenterMetricsOnce(t *testing.T) {
 			sendMetadataErr:      fmt.Errorf("db center error"),
 			wantSendMetadataCall: true,
 			wantDBcenterMetrics: map[string]string{
-				"database_auditing_disabled": "false",
-				"exposed_to_public_access":   "false",
-				"major_version":              "8.0",
-				"minor_version":              "8.0.35",
-				"no_root_password":           "false",
-				"unencrypted_connections":    "false",
+				"database_auditing_disabled":          "false",
+				"exposed_to_public_access":            "false",
+				"major_version":                       "8.0",
+				"minor_version":                       "8.0.35",
+				"no_root_password":                    "false",
+				"unencrypted_connections":             "false",
+				"not_protected_by_automatic_failover": "true",
 			},
 			wantErr: false,
 		},
@@ -2425,6 +2513,450 @@ func TestCollectDBCenterMetricsOnce(t *testing.T) {
 				if diff := cmp.Diff(tc.wantDBcenterMetrics, mockClient.gotMetrics.Metrics); diff != "" {
 					t.Errorf("CollectDBCenterMetricsOnce() DBcenterMetrics diff (-want +got):\n%s", diff)
 				}
+			}
+		})
+	}
+}
+
+func TestNotProtectedByAutoFailover(t *testing.T) {
+	tests := []struct {
+		name string
+		m    MySQLMetrics
+		want bool
+	}{
+		{
+			name: "GroupReplicationActive",
+			m: MySQLMetrics{
+				db: &testDB{
+					groupReplicationRows: &countMockRows{size: 1, data: 3},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "GaleraActive",
+			m: MySQLMetrics{
+				db: &testDB{
+					wsrepStatusRows: &globalVarMockRows{
+						size: 2,
+						data: [][]string{{"wsrep_ready", "ON"}, {"wsrep_cluster_size", "3"}},
+					},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "NDBClusterActive",
+			m: MySQLMetrics{
+				db: &testDB{
+					ndbEngineRows: &globalVarMockRows{
+						size: 1,
+						data: [][]string{{"YES"}},
+					},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "PrimaryNoBinlog",
+			m: MySQLMetrics{
+				db: &testDB{
+					replicaRows:   &replicaRows{size: 0},
+					slaveRows:     &slaveRows{size: 0},
+					logBinVarRows: &globalVarMockRows{size: 1, data: [][]string{{"log_bin", "OFF"}}},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "PrimaryNoDumpThreads",
+			m: MySQLMetrics{
+				db: &testDB{
+					replicaRows:     &replicaRows{size: 0},
+					slaveRows:       &slaveRows{size: 0},
+					logBinVarRows:   &globalVarMockRows{size: 1, data: [][]string{{"log_bin", "ON"}}},
+					dumpThreadsRows: &countMockRows{size: 1, data: 0},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "PrimaryWithReplicasAndOrchestratorUser",
+			m: MySQLMetrics{
+				db: &testDB{
+					replicaRows:     &replicaRows{size: 0},
+					slaveRows:       &slaveRows{size: 0},
+					logBinVarRows:   &globalVarMockRows{size: 1, data: [][]string{{"log_bin", "ON"}}},
+					dumpThreadsRows: &countMockRows{size: 1, data: 1},
+					managerUserRows: &countMockRows{size: 1, data: 1},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "PrimaryWithReplicasNoManager",
+			m: MySQLMetrics{
+				db: &testDB{
+					replicaRows:     &replicaRows{size: 0},
+					slaveRows:       &slaveRows{size: 0},
+					logBinVarRows:   &globalVarMockRows{size: 1, data: [][]string{{"log_bin", "ON"}}},
+					dumpThreadsRows: &countMockRows{size: 1, data: 1},
+					managerUserRows: &countMockRows{size: 1, data: 0},
+				},
+				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{StdOut: ""}
+				},
+			},
+			want: true,
+		},
+		{
+			name: "ReplicaBrokenThread",
+			m: MySQLMetrics{
+				db: &testDB{
+					replicaRows: &replicaRows{
+						size: 1,
+						data: []sql.NullString{
+							sql.NullString{String: "No", Valid: true},
+							sql.NullString{String: "Yes", Valid: true},
+						},
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "ReplicaHealthyWithManager",
+			m: MySQLMetrics{
+				db: &testDB{
+					replicaRows: &replicaRows{
+						size: 1,
+						data: []sql.NullString{
+							sql.NullString{String: "Yes", Valid: true},
+							sql.NullString{String: "Yes", Valid: true},
+						},
+					},
+					managerUserRows: &countMockRows{size: 1, data: 1},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "LocalOrchestratorActive",
+			m: MySQLMetrics{
+				db: &testDB{
+					replicaRows: &replicaRows{
+						size: 1,
+						data: []sql.NullString{
+							sql.NullString{String: "Yes", Valid: true},
+							sql.NullString{String: "Yes", Valid: true},
+						},
+					},
+					managerUserRows: &countMockRows{size: 1, data: 0},
+				},
+				execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+					if params.Executable == "grep" && params.Args[0] == "RecoverMasterClusterFilters" {
+						return commandlineexecutor.Result{StdOut: "RecoverMasterClusterFilters: [...]"}
+					}
+					if params.Executable == "systemctl" && params.Args[1] == "orchestrator" {
+						return commandlineexecutor.Result{StdOut: "active\n"}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command failed")}
+				},
+			},
+			want: false,
+		},
+		{
+			name: "LocalMHAServiceActive",
+			m: MySQLMetrics{
+				db: &testDB{
+					replicaRows: &replicaRows{
+						size: 1,
+						data: []sql.NullString{
+							sql.NullString{String: "Yes", Valid: true},
+							sql.NullString{String: "Yes", Valid: true},
+						},
+					},
+					managerUserRows: &countMockRows{size: 1, data: 0},
+				},
+				execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+					if params.Executable == "systemctl" && params.Args[1] == "mha-manager" {
+						return commandlineexecutor.Result{StdOut: "active\n"}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command failed")}
+				},
+			},
+			want: false,
+		},
+		{
+			name: "PrimaryDumpThreadsQueryError",
+			m: MySQLMetrics{
+				db: &testDB{
+					replicaRows:     &replicaRows{size: 0},
+					slaveRows:       &slaveRows{size: 0},
+					logBinVarRows:   &globalVarMockRows{size: 1, data: [][]string{{"log_bin", "ON"}}},
+					dumpThreadsErr:  errors.New("db query error"),
+					managerUserRows: &countMockRows{size: 1, data: 1},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "ReplicaSQLThreadNotRunningWithManager",
+			m: MySQLMetrics{
+				db: &testDB{
+					replicaRows: &replicaRows{
+						size: 1,
+						data: []sql.NullString{
+							sql.NullString{String: "Yes", Valid: true},
+							sql.NullString{String: "No", Valid: true},
+						},
+					},
+					managerUserRows: &countMockRows{size: 1, data: 1},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "GroupReplicationScanErrorCountAboveTwo",
+			m: MySQLMetrics{
+				db: &testDB{
+					groupReplicationRows: &countMockRows{size: 1, data: 3, shouldErr: true},
+					replicaRows:          &replicaRows{size: 0},
+					slaveRows:            &slaveRows{size: 0},
+					logBinVarRows:        &globalVarMockRows{size: 1, data: [][]string{{"log_bin", "OFF"}}},
+				},
+			},
+			want: true,
+		},
+	}
+
+	ctx := context.Background()
+	for _, tc := range tests {
+		got, err := tc.m.notProtectedByAutoFailover(ctx)
+		if err != nil {
+			t.Errorf("notProtectedByAutoFailover() test %v returned unexpected error: %v", tc.name, err)
+		}
+		if got != tc.want {
+			t.Errorf("notProtectedByAutoFailover() test %v = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestIsReplicaHealthy(t *testing.T) {
+	tests := []struct {
+		name        string
+		replicaRows rowsInterface
+		replicaErr  error
+		slaveRows   rowsInterface
+		slaveErr    error
+		want        bool
+		wantErr     bool
+	}{
+		{
+			name: "BothThreadsRunning",
+			replicaRows: &replicaRows{
+				size: 1,
+				data: []sql.NullString{
+					{String: "Yes", Valid: true},
+					{String: "Yes", Valid: true},
+				},
+			},
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name: "SQLThreadNotRunning",
+			replicaRows: &replicaRows{
+				size: 1,
+				data: []sql.NullString{
+					{String: "Yes", Valid: true},
+					{String: "No", Valid: true},
+				},
+			},
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name: "IOThreadNotRunning",
+			replicaRows: &replicaRows{
+				size: 1,
+				data: []sql.NullString{
+					{String: "No", Valid: true},
+					{String: "Yes", Valid: true},
+				},
+			},
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name: "NeitherThreadRunning",
+			replicaRows: &replicaRows{
+				size: 1,
+				data: []sql.NullString{
+					{String: "No", Valid: true},
+					{String: "No", Valid: true},
+				},
+			},
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name:       "QueryError",
+			replicaErr: errors.New("query error"),
+			slaveErr:   errors.New("query error"),
+			want:       false,
+			wantErr:    true,
+		},
+		{
+			name:       "FallbackToSlaveStatus",
+			replicaErr: errors.New("syntax error"),
+			slaveRows: &slaveRows{
+				size: 1,
+				data: []sql.NullString{
+					{String: "Yes", Valid: true},
+					{String: "Yes", Valid: true},
+				},
+			},
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name: "ScanError",
+			replicaRows: &replicaRows{
+				size:      1,
+				data:      []sql.NullString{{String: "Yes", Valid: true}},
+				shouldErr: true,
+			},
+			want:    false,
+			wantErr: true,
+		},
+	}
+	ctx := context.Background()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := MySQLMetrics{
+				db: &testDB{
+					replicaRows: tc.replicaRows,
+					replicaErr:  tc.replicaErr,
+					slaveRows:   tc.slaveRows,
+					slaveErr:    tc.slaveErr,
+				},
+			}
+			got, err := m.isReplicaHealthy(ctx)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("isReplicaHealthy() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if got != tc.want {
+				t.Errorf("isReplicaHealthy() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsInnoDBClusterActive(t *testing.T) {
+	tests := []struct {
+		name                 string
+		groupReplicationRows rowsInterface
+		groupReplicationErr  error
+		want                 bool
+	}{
+		{
+			name:                 "ActiveTwoNodes",
+			groupReplicationRows: &countMockRows{size: 1, data: 2},
+			want:                 true,
+		},
+		{
+			name:                 "ActiveThreeNodes",
+			groupReplicationRows: &countMockRows{size: 1, data: 3},
+			want:                 true,
+		},
+		{
+			name:                 "InactiveSingleNode",
+			groupReplicationRows: &countMockRows{size: 1, data: 1},
+			want:                 false,
+		},
+		{
+			name:                 "InactiveZeroNodes",
+			groupReplicationRows: &countMockRows{size: 1, data: 0},
+			want:                 false,
+		},
+		{
+			name:                 "QueryError",
+			groupReplicationErr:  errors.New("db query error"),
+			want:                 false,
+		},
+		{
+			name:                 "ScanErrorWithCountAboveTwo",
+			groupReplicationRows: &countMockRows{size: 1, data: 3, shouldErr: true},
+			want:                 false,
+		},
+	}
+	ctx := context.Background()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := MySQLMetrics{
+				db: &testDB{
+					groupReplicationRows: tc.groupReplicationRows,
+					groupReplicationErr:  tc.groupReplicationErr,
+				},
+			}
+			got := m.isInnoDBClusterActive(ctx)
+			if got != tc.want {
+				t.Errorf("isInnoDBClusterActive() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsGaleraClusterActive(t *testing.T) {
+	tests := []struct {
+		name            string
+		wsrepStatusRows rowsInterface
+		wsrepStatusErr  error
+		want            bool
+	}{
+		{
+			name: "ActiveGaleraCluster",
+			wsrepStatusRows: &globalVarMockRows{
+				size: 2,
+				data: [][]string{{"wsrep_ready", "ON"}, {"wsrep_cluster_size", "3"}},
+			},
+			want: true,
+		},
+		{
+			name: "GaleraNotReady",
+			wsrepStatusRows: &globalVarMockRows{
+				size: 2,
+				data: [][]string{{"wsrep_ready", "OFF"}, {"wsrep_cluster_size", "3"}},
+			},
+			want: false,
+		},
+		{
+			name: "GaleraClusterSizeTooSmall",
+			wsrepStatusRows: &globalVarMockRows{
+				size: 2,
+				data: [][]string{{"wsrep_ready", "ON"}, {"wsrep_cluster_size", "1"}},
+			},
+			want: false,
+		},
+		{
+			name:           "QueryError",
+			wsrepStatusErr: errors.New("db query error"),
+			want:           false,
+		},
+	}
+	ctx := context.Background()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := MySQLMetrics{
+				db: &testDB{
+					wsrepStatusRows: tc.wsrepStatusRows,
+					wsrepStatusErr:  tc.wsrepStatusErr,
+				},
+			}
+			got := m.isGaleraClusterActive(ctx)
+			if got != tc.want {
+				t.Errorf("isGaleraClusterActive() = %v, want %v", got, tc.want)
 			}
 		})
 	}

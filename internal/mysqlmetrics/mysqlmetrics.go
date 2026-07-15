@@ -77,6 +77,7 @@ type rowsInterface interface {
 	Next() bool
 	Close() error
 	Scan(dest ...any) error
+	Columns() ([]string, error)
 }
 
 type dbWrapper struct {
@@ -274,6 +275,9 @@ func isReplica(ctx context.Context, db dbInterface) bool {
 	// Only supported in versions 8.0.22 and later.
 	rows, err := executeQuery(ctx, db, "SHOW REPLICA STATUS")
 	if err != nil {
+		if rows != nil {
+			rows.Close()
+		}
 		log.CtxLogger(ctx).Debugw("MySQL error while running SHOW REPLICA STATUS", "err", err)
 	} else if rows != nil {
 		defer rows.Close()
@@ -606,6 +610,357 @@ func (m *MySQLMetrics) auditingEnabled(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
+// notProtectedByAutoFailover evaluates to true if no automatic failover mechanism is active for the MySQL instance.
+// High-availability requires either a multi-node cluster (InnoDB Cluster, Galera/PXC, NDB)
+// or a healthy primary-replica topology actively monitored by an external failover orchestrator (such as Orchestrator or MHA).
+func (m *MySQLMetrics) notProtectedByAutoFailover(ctx context.Context) (bool, error) {
+	hasCluster, err := m.isPartOfHACluster(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("Failed to check HA cluster", "err", err)
+	}
+	if hasCluster {
+		return false, nil
+	}
+
+	if isReplica(ctx, m.db) {
+		healthy, err := m.isReplicaHealthy(ctx)
+		if err != nil || !healthy {
+			log.CtxLogger(ctx).Debugw("Replica IO/SQL threads not healthy for auto failover", "err", err)
+			return true, nil
+		}
+	} else {
+		healthy, err := m.isPrimaryHealthy(ctx)
+		if err != nil || !healthy {
+			log.CtxLogger(ctx).Debugw("Primary has log_bin OFF or zero attached dump threads", "err", err)
+			return true, nil
+		}
+	}
+
+	hasAutoFailoverManager, err := m.hasAutoFailoverManager(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("Failed to check auto failover manager", "err", err)
+	}
+	if hasAutoFailoverManager {
+		return false, nil
+	}
+
+	return true, nil
+}
+
+// isPartOfHACluster checks if the instance participates in a self-healing, multi-node HA cluster.
+// Native clusters handle automatic failover and quorum internally without requiring an external failover manager.
+func (m *MySQLMetrics) isPartOfHACluster(ctx context.Context) (bool, error) {
+	if m.isInnoDBClusterActive(ctx) {
+		log.CtxLogger(ctx).Debugw("InnoDB Cluster / Group Replication active")
+		return true, nil
+	}
+
+	if m.isGaleraClusterActive(ctx) {
+		log.CtxLogger(ctx).Debugw("Galera / Percona XtraDB Cluster active")
+		return true, nil
+	}
+
+	if m.isStorageEngineActive(ctx, "ndbcluster") {
+		log.CtxLogger(ctx).Debugw("NDB Cluster engine active")
+		return true, nil
+	}
+
+	return false, nil
+}
+
+// isReplicaHealthy checks if both IO (receiver) and SQL (applier) replication threads are active on the replica.
+// An unhealthy replica cannot safely take over during an automatic failover without risking data loss or split-brain.
+func (m *MySQLMetrics) isReplicaHealthy(ctx context.Context) (bool, error) {
+	// SHOW REPLICA STATUS is supported in MySQL 8.0.22+; fallback to SHOW SLAVE STATUS for older versions (e.g. MySQL 5.7 / < 8.0.22).
+	rows, err := executeQuery(ctx, m.db, "SHOW REPLICA STATUS")
+	if err != nil || rows == nil {
+		if rows != nil {
+			rows.Close()
+		}
+		rows, err = executeQuery(ctx, m.db, "SHOW SLAVE STATUS")
+	}
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("Failed to get replica/slave status", "err", err)
+		return false, err
+	}
+	if rows == nil {
+		log.CtxLogger(ctx).Debugw("No rows returned from replica/slave status query")
+		return false, nil
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return false, nil
+	}
+
+	cols, err := rows.Columns()
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("Failed to get columns from replica status", "err", err)
+		return false, err
+	}
+	if len(cols) == 0 {
+		return false, nil
+	}
+
+	// Dynamically find IO and SQL thread status column indices.
+	// Column names differ between MySQL 8.0.22+ (Replica_IO_Running/Replica_SQL_Running)
+	// and older versions (Slave_IO_Running/Slave_SQL_Running),
+	ioIndex, sqlIndex := -1, -1
+	for i, col := range cols {
+		lowerCol := strings.ToLower(col)
+		if lowerCol == "replica_io_running" || lowerCol == "slave_io_running" {
+			ioIndex = i
+		}
+		if lowerCol == "replica_sql_running" || lowerCol == "slave_sql_running" {
+			sqlIndex = i
+		}
+	}
+
+	if ioIndex == -1 || sqlIndex == -1 {
+		log.CtxLogger(ctx).Debugw("Replica IO or SQL running column not found in status output")
+		return false, nil
+	}
+
+	dest := make([]any, len(cols))
+	nullStrings := make([]sql.NullString, len(cols))
+	for i := range dest {
+		dest[i] = &nullStrings[i]
+	}
+
+	if err := rows.Scan(dest...); err != nil {
+		log.CtxLogger(ctx).Debugw("Failed to scan replica status row", "err", err)
+		return false, err
+	}
+
+	ioRunning := strings.ToUpper(nullStrings[ioIndex].String) == "YES"
+	sqlRunning := strings.ToUpper(nullStrings[sqlIndex].String) == "YES"
+	log.CtxLogger(ctx).Debugw("Replica thread status", "ioRunning", ioRunning, "sqlRunning", sqlRunning)
+
+	return ioRunning && sqlRunning, nil
+}
+
+// isPrimaryHealthy checks if binary logging (log_bin) is enabled on the primary and at least one standby replica is actively connected.
+// Automatic failover is impossible on a primary with disabled binlogs or zero attached replicas as there is no target to promote.
+func (m *MySQLMetrics) isPrimaryHealthy(ctx context.Context) (bool, error) {
+	binlogOn, err := m.isBinaryLoggingEnabled(ctx)
+	if err != nil {
+		return false, err
+	}
+	if !binlogOn {
+		log.CtxLogger(ctx).Debugw("Primary binary logging is not ON")
+		return false, nil
+	}
+
+	dumpThreads, err := m.hasActiveDumpThreads(ctx)
+	if err != nil {
+		return false, err
+	}
+	if !dumpThreads {
+		log.CtxLogger(ctx).Debugw("Primary has zero attached dump threads")
+		return false, nil
+	}
+
+	return true, nil
+}
+
+// hasAutoFailoverManager checks if an external failover orchestrator (Orchestrator or MHA) is configured to manage this instance.
+// Detection looks for dedicated management DB accounts (remote manager) or local configuration files and active daemons (local manager).
+func (m *MySQLMetrics) hasAutoFailoverManager(ctx context.Context) (bool, error) {
+	// When auto-failover manager is running on a different VM, check for user accounts related to it in this MySQL instance (e.g. orchestrator, mha).
+	query := `
+		SELECT COUNT(*)
+		FROM mysql.user
+		WHERE user LIKE '%orchestrator%'
+		   OR user LIKE '%mha%'
+	`
+	rows, err := executeQuery(ctx, m.db, query)
+	if err == nil && rows != nil {
+		defer rows.Close()
+		var count int
+		if rows.Next() && rows.Scan(&count) == nil && count > 0 {
+			log.CtxLogger(ctx).Debugw("Found topology manager user account in mysql.user", "count", count)
+			return true, nil
+		}
+	}
+
+	// When auto-failover manager is running on the same VM, check for local config files and active daemons.
+	if m.hasLocalAutoFailoverService(ctx) {
+		return true, nil
+	}
+
+	return false, nil
+}
+
+// isInnoDBClusterActive checks if MySQL Group Replication / InnoDB Cluster has at least 2 ONLINE members.
+// A single-node Group Replication instance lacks quorum and cannot perform automatic failover.
+func (m *MySQLMetrics) isInnoDBClusterActive(ctx context.Context) bool {
+	query := `
+		SELECT COUNT(*)
+		FROM performance_schema.replication_group_members
+		WHERE MEMBER_STATE = 'ONLINE'
+	`
+	rows, err := executeQuery(ctx, m.db, query)
+	if err != nil || rows == nil {
+		return false
+	}
+	defer rows.Close()
+
+	var count int
+	return rows.Next() && rows.Scan(&count) == nil && count >= 2
+}
+
+// isGaleraClusterActive checks if Galera / Percona XtraDB Cluster (PXC) is in a ready state with at least 2 active nodes.
+// Galera requires wsrep_ready=ON and a cluster size of >= 2 to maintain quorum for automatic failover.
+func (m *MySQLMetrics) isGaleraClusterActive(ctx context.Context) bool {
+	query := `
+		SHOW GLOBAL STATUS
+		WHERE Variable_name IN ('wsrep_cluster_size', 'wsrep_ready')
+	`
+	rows, err := executeQuery(ctx, m.db, query)
+	if err != nil || rows == nil {
+		return false
+	}
+	defer rows.Close()
+
+	var wsrepReady bool
+	var clusterSize int
+	for rows.Next() {
+		var name, val string
+		if scanErr := rows.Scan(&name, &val); scanErr == nil {
+			if name == "wsrep_ready" && strings.ToUpper(val) == "ON" {
+				wsrepReady = true
+			}
+			if name == "wsrep_cluster_size" {
+				clusterSize, _ = strconv.Atoi(val)
+			}
+		}
+	}
+	return wsrepReady && clusterSize >= 2
+}
+
+// isStorageEngineActive checks if a specified storage engine (e.g. 'ndbcluster') is supported and active in the database.
+func (m *MySQLMetrics) isStorageEngineActive(ctx context.Context, engine string) bool {
+	query := fmt.Sprintf(`
+		SELECT Support
+		FROM information_schema.engines
+		WHERE Engine = '%s'
+	`, engine)
+	rows, err := executeQuery(ctx, m.db, query)
+	if err != nil || rows == nil {
+		return false
+	}
+	defer rows.Close()
+
+	var support string
+	if rows.Next() {
+		if scanErr := rows.Scan(&support); scanErr == nil {
+			s := strings.ToUpper(support)
+			return s == "YES" || s == "DEFAULT"
+		}
+	}
+	return false
+}
+
+// isBinaryLoggingEnabled checks if log_bin is ON, which is required for primary-replica replication and point-in-time recovery.
+func (m *MySQLMetrics) isBinaryLoggingEnabled(ctx context.Context) (bool, error) {
+	query := "SHOW GLOBAL VARIABLES LIKE 'log_bin'"
+	rows, err := executeQuery(ctx, m.db, query)
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("Failed to query log_bin variable", "err", err)
+		return false, err
+	}
+	if rows == nil {
+		log.CtxLogger(ctx).Debugw("No rows returned for log_bin variable")
+		return false, errors.New("no rows returned for log_bin")
+	}
+	defer rows.Close()
+
+	var varName, varVal string
+	if !rows.Next() {
+		return false, errors.New("log_bin variable row empty")
+	}
+	if err := rows.Scan(&varName, &varVal); err != nil {
+		return false, err
+	}
+	return strings.ToUpper(varVal) == "ON", nil
+}
+
+// hasActiveDumpThreads checks if at least one replica is actively connected and streaming binary logs from this primary instance.
+func (m *MySQLMetrics) hasActiveDumpThreads(ctx context.Context) (bool, error) {
+	// Query performance_schema.threads first (MySQL 5.7+), fallback to information_schema.PROCESSLIST.
+	query := "SELECT COUNT(*) FROM performance_schema.threads WHERE PROCESSLIST_COMMAND IN ('Binlog Dump', 'Binlog Dump GTID')"
+	rows, err := executeQuery(ctx, m.db, query)
+	if err != nil || rows == nil {
+		if rows != nil {
+			rows.Close()
+		}
+		query = "SELECT COUNT(*) FROM information_schema.PROCESSLIST WHERE COMMAND IN ('Binlog Dump', 'Binlog Dump GTID')"
+		rows, err = executeQuery(ctx, m.db, query)
+	}
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("Failed to query active dump threads", "err", err)
+		return false, err
+	}
+	if rows == nil {
+		return false, errors.New("no rows returned for dump threads")
+	}
+	defer rows.Close()
+
+	var count int
+	if !rows.Next() {
+		return false, errors.New("dump threads row empty")
+	}
+	if err := rows.Scan(&count); err != nil {
+		return false, err
+	}
+	return count >= 1, nil
+}
+
+// hasLocalAutoFailoverService checks if an auto-failover daemon (Orchestrator or MHA) is running locally on this VM host.
+func (m *MySQLMetrics) hasLocalAutoFailoverService(ctx context.Context) bool {
+	orchestratorConfigs := []string{
+		"/etc/orchestrator.conf.json",
+		"/opt/orchestrator/orchestrator.conf.json",
+		"/usr/local/orchestrator/orchestrator.conf.json",
+	}
+
+	// Check Orchestrator local config for RecoverMasterClusterFilters auto-recovery setting
+	for _, cfgPath := range orchestratorConfigs {
+		cmd := commandlineexecutor.Params{
+			Executable: "grep",
+			Args:       []string{"RecoverMasterClusterFilters", cfgPath},
+		}
+		res := m.execute(ctx, cmd)
+		if res.Error == nil && strings.TrimSpace(res.StdOut) != "" {
+			// Check if Orchestrator service/process is active
+			svcCmd := commandlineexecutor.Params{
+				Executable: "systemctl",
+				Args:       []string{"is-active", "orchestrator"},
+			}
+			svcRes := m.execute(ctx, svcCmd)
+			if svcRes.Error == nil && strings.TrimSpace(svcRes.StdOut) == "active" {
+				log.CtxLogger(ctx).Debugw("Found active local Orchestrator service", "config", cfgPath)
+				return true
+			}
+		}
+	}
+
+	// Check MHA local service
+	for _, mhaService := range []string{"mha-manager", "masterha_manager"} {
+		svcCmd := commandlineexecutor.Params{
+			Executable: "systemctl",
+			Args:       []string{"is-active", mhaService},
+		}
+		svcRes := m.execute(ctx, svcCmd)
+		if svcRes.Error == nil && strings.TrimSpace(svcRes.StdOut) == "active" {
+			log.CtxLogger(ctx).Debugw("Found active local MHA manager service", "service", mhaService)
+			return true
+		}
+	}
+
+	return false
+}
+
 // CollectMetricsOnce collects metrics for MySQL databases running on the host.
 func (m *MySQLMetrics) CollectWlmMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
 	if !dwActivated {
@@ -689,15 +1044,20 @@ func (m *MySQLMetrics) CollectDBCenterMetricsOnce(ctx context.Context) error {
 	if err != nil {
 		log.CtxLogger(ctx).Debugw("Failed to check if auditing is disabled", "with error: ", err)
 	}
+	notProtectedByAutoFailover, err := m.notProtectedByAutoFailover(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("Failed to check if not protected by auto failover", "with error: ", err)
+	}
 	// send metadata details to database center
 	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.MYSQL,
 		Metrics: map[string]string{
-			databasecenter.MajorVersionKey:             majorVersion,
-			databasecenter.MinorVersionKey:             minorVersion,
-			databasecenter.NoRootPasswordKey:           strconv.FormatBool(rootPasswordNotSet),
-			databasecenter.ExposedToPublicAccessKey:    strconv.FormatBool(exposedToPublicAccess),
-			databasecenter.UnencryptedConnectionsKey:   strconv.FormatBool(unencryptedConnectionsAllowed),
-			databasecenter.DatabaseAuditingDisabledKey: strconv.FormatBool(!auditingEnabled),
+			databasecenter.MajorVersionKey:                    majorVersion,
+			databasecenter.MinorVersionKey:                    minorVersion,
+			databasecenter.NoRootPasswordKey:                  strconv.FormatBool(rootPasswordNotSet),
+			databasecenter.ExposedToPublicAccessKey:           strconv.FormatBool(exposedToPublicAccess),
+			databasecenter.UnencryptedConnectionsKey:          strconv.FormatBool(unencryptedConnectionsAllowed),
+			databasecenter.DatabaseAuditingDisabledKey:        strconv.FormatBool(!auditingEnabled),
+			databasecenter.NotProtectedByAutomaticFailoverKey: strconv.FormatBool(notProtectedByAutoFailover),
 		}})
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.
