@@ -111,6 +111,10 @@ type testDB struct {
 	dumpThreadsErr             error
 	managerUserRows            rowsInterface
 	managerUserErr             error
+	mebHistoryRows             rowsInterface
+	mebHistoryErr              error
+	xtrabackupHistoryRows      rowsInterface
+	xtrabackupHistoryErr       error
 }
 
 func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (rowsInterface, error) {
@@ -155,6 +159,12 @@ func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (r
 	}
 	if strings.Contains(query, "user LIKE '%orchestrator%'") {
 		return t.managerUserRows, t.managerUserErr
+	}
+	if strings.Contains(query, "mysql.backup_history") {
+		return t.mebHistoryRows, t.mebHistoryErr
+	}
+	if strings.Contains(query, "PERCONA_SCHEMA.xtrabackup_history") {
+		return t.xtrabackupHistoryRows, t.xtrabackupHistoryErr
 	}
 	if strings.TrimSpace(query) == strings.TrimSpace(`
 		SELECT user, host, plugin, authentication_string
@@ -2248,6 +2258,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 				databasecenter.UnencryptedConnectionsKey:          "false",
 				databasecenter.DatabaseAuditingDisabledKey:        "false",
 				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
+				databasecenter.NoAutomatedBackupPolicyKey:         "true",
 			},
 			wantErr: false,
 		},
@@ -2294,6 +2305,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 				databasecenter.UnencryptedConnectionsKey:          "true",
 				databasecenter.DatabaseAuditingDisabledKey:        "true",
 				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
+				databasecenter.NoAutomatedBackupPolicyKey:         "true",
 			},
 			wantErr: false,
 		},
@@ -2348,6 +2360,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 				databasecenter.UnencryptedConnectionsKey:          "false",
 				databasecenter.DatabaseAuditingDisabledKey:        "true",
 				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
+				databasecenter.NoAutomatedBackupPolicyKey:         "true",
 			},
 			wantErr: false,
 		},
@@ -2435,6 +2448,7 @@ func TestCollectDBCenterMetricsOnce(t *testing.T) {
 				databasecenter.UnencryptedConnectionsKey:          "false",
 				databasecenter.DatabaseAuditingDisabledKey:        "false",
 				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
+				databasecenter.NoAutomatedBackupPolicyKey:         "true",
 			},
 			wantErr: false,
 		},
@@ -2474,13 +2488,14 @@ func TestCollectDBCenterMetricsOnce(t *testing.T) {
 			sendMetadataErr:      fmt.Errorf("db center error"),
 			wantSendMetadataCall: true,
 			wantDBcenterMetrics: map[string]string{
-				"database_auditing_disabled":          "false",
-				"exposed_to_public_access":            "false",
-				"major_version":                       "8.0",
-				"minor_version":                       "8.0.35",
-				"no_root_password":                    "false",
-				"unencrypted_connections":             "false",
-				"not_protected_by_automatic_failover": "true",
+				databasecenter.MajorVersionKey:                    "8.0",
+				databasecenter.MinorVersionKey:                    "8.0.35",
+				databasecenter.NoRootPasswordKey:                  "false",
+				databasecenter.ExposedToPublicAccessKey:           "false",
+				databasecenter.UnencryptedConnectionsKey:          "false",
+				databasecenter.DatabaseAuditingDisabledKey:        "false",
+				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
+				databasecenter.NoAutomatedBackupPolicyKey:         "true",
 			},
 			wantErr: false,
 		},
@@ -2961,3 +2976,218 @@ func TestIsGaleraClusterActive(t *testing.T) {
 		})
 	}
 }
+
+func TestNoAutomatedBackupPolicy(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		m       MySQLMetrics
+		want    bool
+		wantErr bool
+	}{
+		{
+			name: "UserCronRootBackupDetected",
+			m: MySQLMetrics{
+				execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+					if params.Executable == "crontab" && len(params.Args) >= 2 && params.Args[1] == "root" {
+						return commandlineexecutor.Result{StdOut: "0 2 * * * /usr/bin/mysqldump --all-databases > /backup.sql\n"}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command failed")}
+				},
+			},
+			want: false,
+		},
+		{
+			name: "UserCronMysqlBackupDetected",
+			m: MySQLMetrics{
+				execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+					if params.Executable == "crontab" && len(params.Args) >= 2 && params.Args[1] == "mysql" {
+						return commandlineexecutor.Result{StdOut: "0 3 * * * xtrabackup --backup --target-dir=/var/backups\n"}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command failed")}
+				},
+			},
+			want: false,
+		},
+		{
+			name: "SystemCronBackupDetected",
+			m: MySQLMetrics{
+				execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+					if params.Executable == "grep" {
+						return commandlineexecutor.Result{StdOut: "/etc/cron.d/backup:0 2 * * * root mysqldump -u root test\n"}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command failed")}
+				},
+			},
+			want: false,
+		},
+		{
+			name: "SystemdTimerBackupDetected",
+			m: MySQLMetrics{
+				execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+					if params.Executable == "systemctl" && params.Args[0] == "list-timers" {
+						return commandlineexecutor.Result{StdOut: "NEXT LEFT LAST PASSED UNIT ACTIVATES\nThu 2026-07-09 12:00:00 UTC 1h left Thu 2026-07-09 11:00:00 UTC 20min ago mysql-backup.timer mysql-backup.service\n"}
+					}
+					if params.Executable == "systemctl" && params.Args[0] == "cat" {
+						return commandlineexecutor.Result{StdOut: "ExecStart=/usr/bin/mysqldump --all-databases\n"}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command failed")}
+				},
+			},
+			want: false,
+		},
+		{
+			name: "MEBHistoryTableBackupDetected",
+			m: MySQLMetrics{
+				db: &testDB{
+					mebHistoryRows: &countMockRows{size: 1, data: 2},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "XtraBackupHistoryTableBackupDetected",
+			m: MySQLMetrics{
+				db: &testDB{
+					mebHistoryRows:        &countMockRows{size: 1, data: 0},
+					xtrabackupHistoryRows: &countMockRows{size: 1, data: 3},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "MEBHistoryCountBelowThreshold",
+			m: MySQLMetrics{
+				db: &testDB{
+					mebHistoryRows:        &countMockRows{size: 1, data: 1},
+					xtrabackupHistoryRows: &countMockRows{size: 1, data: 0},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "UserCronCommentedOut_NoPolicyDetected",
+			m: MySQLMetrics{
+				db: &testDB{
+					mebHistoryRows:        &countMockRows{size: 1, data: 0},
+					xtrabackupHistoryRows: &countMockRows{size: 1, data: 0},
+				},
+				execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+					if params.Executable == "crontab" {
+						return commandlineexecutor.Result{StdOut: "# 0 2 * * * /usr/bin/mysqldump --all-databases > /backup.sql\n"}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command failed")}
+				},
+			},
+			want: true,
+		},
+		{
+			name: "NoPolicyDetected_SignalFired",
+			m: MySQLMetrics{
+				db: &testDB{
+					mebHistoryRows:        &countMockRows{size: 1, data: 0},
+					xtrabackupHistoryRows: &countMockRows{size: 1, data: 0},
+				},
+				execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{Error: errors.New("command failed")}
+				},
+			},
+			want: true,
+		},
+		{
+			name: "ErrorsInAllChecks_SignalFired",
+			m: MySQLMetrics{
+				db: &testDB{
+					mebHistoryErr:        errors.New("db connection error"),
+					xtrabackupHistoryErr: errors.New("db connection error"),
+				},
+				execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{Error: errors.New("command error")}
+				},
+			},
+			want: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.m.execute == nil {
+				tc.m.execute = func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{Error: errors.New("command failed")}
+				}
+			}
+			got, err := tc.m.noAutomatedBackupPolicy(ctx)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("noAutomatedBackupPolicy() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if got != tc.want {
+				t.Errorf("noAutomatedBackupPolicy() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestContainsBackupSignature(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want bool
+	}{
+		{
+			name: "MySQLDump",
+			line: "0 2 * * * /usr/bin/mysqldump -u root db > /backup.sql",
+			want: true,
+		},
+		{
+			name: "XtraBackup",
+			line: "0 3 * * * xtrabackup --backup --target-dir=/var/backups",
+			want: true,
+		},
+		{
+			name: "GCloudComputeDisksSnapshot",
+			line: "gcloud compute disks snapshot my-disk --snapshot-names=backup",
+			want: true,
+		},
+		{
+			name: "CommentedOut",
+			line: "# 0 2 * * * mysqldump -u root db > /backup.sql",
+			want: false,
+		},
+		{
+			name: "EmptyLine",
+			line: "  ",
+			want: false,
+		},
+		{
+			name: "UnrelatedCommand",
+			line: "0 * * * * echo 'hello world'",
+			want: false,
+		},
+		{
+			name: "CaseInsensitive",
+			line: "0 2 * * * MYSQLDUMP --ALL-DATABASES",
+			want: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := containsBackupSignature(tc.line)
+			if got != tc.want {
+				t.Errorf("containsBackupSignature(%q) = %v, want %v", tc.line, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBuildGrepBackupPattern(t *testing.T) {
+	got := buildGrepBackupPattern()
+	if !strings.Contains(got, "mysqldump") {
+		t.Errorf("buildGrepBackupPattern() = %q, expected to contain mysqldump", got)
+	}
+	if !strings.Contains(got, "gcloud.*compute.*disks.*snapshot") {
+		t.Errorf("buildGrepBackupPattern() = %q, expected to contain gcloud.*compute.*disks.*snapshot", got)
+	}
+}
+

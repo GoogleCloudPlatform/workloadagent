@@ -1018,6 +1018,196 @@ func (m *MySQLMetrics) CollectWlmMetricsOnce(ctx context.Context, dwActivated bo
 	return &metrics, nil
 }
 
+var (
+	backupToolSignatures = []string{
+		"mysqldump", "mysqlpump", "mydumper",
+		"xtrabackup", "innobackupex", "mysqlbackup", "mariadb-backup",
+		"gcloud compute disks snapshot", "lvcreate", "zfs snapshot",
+	}
+)
+
+// noAutomatedBackupPolicy evaluates to true if no automated backup policy is detected for the MySQL instance.
+// Detection evaluates OS-level schedulers (Cron, Systemd Timers) and DB tool history tables (MEB, XtraBackup).
+func (m *MySQLMetrics) noAutomatedBackupPolicy(ctx context.Context) (bool, error) {
+	if m.hasCronBackupPolicy(ctx) {
+		log.CtxLogger(ctx).Debugw("Automated backup policy detected via OS cron schedule")
+		return false, nil
+	}
+
+	if m.hasSystemdTimerBackupPolicy(ctx) {
+		log.CtxLogger(ctx).Debugw("Automated backup policy detected via systemd timer")
+		return false, nil
+	}
+
+	if m.hasBackupHistoryTablePolicy(ctx) {
+		log.CtxLogger(ctx).Debugw("Automated backup policy detected via DB tool history tables")
+		return false, nil
+	}
+
+	log.CtxLogger(ctx).Debugw("No automated backup policy detected for MySQL instance")
+	return true, nil
+}
+
+// hasCronBackupPolicy checks if any active, uncommented cron job contains a known backup command.
+func (m *MySQLMetrics) hasCronBackupPolicy(ctx context.Context) bool {
+	return m.hasUserCronBackupPolicy(ctx) || m.hasSystemCronBackupPolicy(ctx)
+}
+
+// hasUserCronBackupPolicy checks user-specific crontabs (e.g. root, mysql) via `crontab -l`.
+func (m *MySQLMetrics) hasUserCronBackupPolicy(ctx context.Context) bool {
+	for _, user := range []string{"root", "mysql"} {
+		res := m.execute(ctx, commandlineexecutor.Params{
+			Executable: "crontab",
+			Args:       []string{"-u", user, "-l"},
+		})
+		if res.Error == nil {
+			for _, line := range strings.Split(res.StdOut, "\n") {
+				if containsBackupSignature(line) {
+					log.CtxLogger(ctx).Debugw("Found backup cron job in user crontab", "user", user)
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// hasSystemCronBackupPolicy checks system-wide cron files and directories for backup commands.
+// Uses `grep -rI` to pre-filter matching lines at the OS level, avoiding reading and parsing vast system cron files in Go.
+func (m *MySQLMetrics) hasSystemCronBackupPolicy(ctx context.Context) bool {
+	cronPaths := []string{
+		"/etc/crontab",
+		"/etc/cron.d",
+		"/etc/cron.daily",
+		"/etc/cron.hourly",
+		"/etc/cron.weekly",
+		"/var/spool/cron/crontabs",
+	}
+
+	grepPattern := buildGrepBackupPattern()
+
+	for _, p := range cronPaths {
+		res := m.execute(ctx, commandlineexecutor.Params{
+			Executable: "grep",
+			Args:       []string{"-rI", "-E", grepPattern, p},
+		})
+		if res.Error == nil && strings.TrimSpace(res.StdOut) != "" {
+			for _, line := range strings.Split(res.StdOut, "\n") {
+				if containsBackupSignature(line) {
+					log.CtxLogger(ctx).Debugw("Found backup cron job in system cron path")
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+// buildGrepBackupPattern constructs a regex pattern from backupToolSignatures for use in grep.
+func buildGrepBackupPattern() string {
+	patterns := make([]string, len(backupToolSignatures))
+	for i, sig := range backupToolSignatures {
+		patterns[i] = strings.ReplaceAll(sig, " ", ".*")
+	}
+	return strings.Join(patterns, "|")
+}
+
+// hasSystemdTimerBackupPolicy checks if any active systemd timer triggers a service with a backup command.
+func (m *MySQLMetrics) hasSystemdTimerBackupPolicy(ctx context.Context) bool {
+	res := m.execute(ctx, commandlineexecutor.Params{
+		Executable: "systemctl",
+		Args:       []string{"list-timers", "--no-legend", "--no-pager"},
+	})
+	if res.Error != nil || strings.TrimSpace(res.StdOut) == "" {
+		return false
+	}
+
+	for _, line := range strings.Split(res.StdOut, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 1 {
+			continue
+		}
+		// In systemctl list-timers output, the last column contains the service name that is activated by the timer
+		serviceName := fields[len(fields)-1]
+		if !strings.HasSuffix(serviceName, ".service") {
+			continue
+		}
+
+		catRes := m.execute(ctx, commandlineexecutor.Params{
+			Executable: "systemctl",
+			Args:       []string{"cat", serviceName},
+		})
+		if catRes.Error == nil {
+			for _, serviceLine := range strings.Split(catRes.StdOut, "\n") {
+				if containsBackupSignature(serviceLine) {
+					log.CtxLogger(ctx).Debugw("Found backup systemd timer service", "service", serviceName)
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+// hasBackupHistoryTablePolicy checks if MEB or Percona XtraBackup history tables show >= 2 successful backups in the last 14 days.
+func (m *MySQLMetrics) hasBackupHistoryTablePolicy(ctx context.Context) bool {
+	return m.hasMEBBackupHistory(ctx) || m.hasXtraBackupHistory(ctx)
+}
+
+// hasMEBBackupHistory checks mysql.backup_history for recent successful MySQL Enterprise Backups.
+func (m *MySQLMetrics) hasMEBBackupHistory(ctx context.Context) bool {
+	query := `
+		SELECT COUNT(*)
+		FROM mysql.backup_history
+		WHERE exit_state = 'SUCCESS'
+		  AND start_time >= NOW() - INTERVAL 14 DAY
+	`
+	return m.checkBackupCountQuery(ctx, query, "Found recent successful MEB backups in mysql.backup_history")
+}
+
+// hasXtraBackupHistory checks PERCONA_SCHEMA.xtrabackup_history for recent Percona XtraBackups.
+func (m *MySQLMetrics) hasXtraBackupHistory(ctx context.Context) bool {
+	query := `
+		SELECT COUNT(*)
+		FROM PERCONA_SCHEMA.xtrabackup_history
+		WHERE start_time >= NOW() - INTERVAL 14 DAY
+	`
+	return m.checkBackupCountQuery(ctx, query, "Found recent successful XtraBackup records in PERCONA_SCHEMA.xtrabackup_history")
+}
+
+// checkBackupCountQuery runs a COUNT(*) query and returns true if count >= 2.
+func (m *MySQLMetrics) checkBackupCountQuery(ctx context.Context, query string, debugMsg string) bool {
+	rows, err := executeQuery(ctx, m.db, query)
+	if err != nil || rows == nil {
+		return false
+	}
+	defer rows.Close()
+
+	var count int
+	if rows.Next() && rows.Scan(&count) == nil && count >= 2 {
+		log.CtxLogger(ctx).Debugw(debugMsg, "count", count)
+		return true
+	}
+	return false
+}
+
+// containsBackupSignature returns true if the given command line contains a known backup tool signature and is not commented out.
+func containsBackupSignature(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return false
+	}
+	lower := strings.ToLower(trimmed)
+	for _, sig := range backupToolSignatures {
+		if strings.Contains(lower, sig) {
+			return true
+		}
+	}
+	return false
+}
+
 // CollectDBCenterMetricsOnce collects metrics to send to Database Center for MySQL databases running on the host.
 func (m *MySQLMetrics) CollectDBCenterMetricsOnce(ctx context.Context) error {
 	// Get major and minor version of MySQL
@@ -1048,6 +1238,10 @@ func (m *MySQLMetrics) CollectDBCenterMetricsOnce(ctx context.Context) error {
 	if err != nil {
 		log.CtxLogger(ctx).Debugw("Failed to check if not protected by auto failover", "with error: ", err)
 	}
+	noAutomatedBackupPolicy, err := m.noAutomatedBackupPolicy(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("Failed to check if no automated backup policy", "with error: ", err)
+	}
 	// send metadata details to database center
 	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.MYSQL,
 		Metrics: map[string]string{
@@ -1058,6 +1252,7 @@ func (m *MySQLMetrics) CollectDBCenterMetricsOnce(ctx context.Context) error {
 			databasecenter.UnencryptedConnectionsKey:          strconv.FormatBool(unencryptedConnectionsAllowed),
 			databasecenter.DatabaseAuditingDisabledKey:        strconv.FormatBool(!auditingEnabled),
 			databasecenter.NotProtectedByAutomaticFailoverKey: strconv.FormatBool(notProtectedByAutoFailover),
+			databasecenter.NoAutomatedBackupPolicyKey:         strconv.FormatBool(noAutomatedBackupPolicy),
 		}})
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.
