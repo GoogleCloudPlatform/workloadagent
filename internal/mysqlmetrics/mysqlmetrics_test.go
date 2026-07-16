@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/api/googleapi"
@@ -161,9 +162,15 @@ func (t *testDB) QueryContext(ctx context.Context, query string, args ...any) (r
 		return t.managerUserRows, t.managerUserErr
 	}
 	if strings.Contains(query, "mysql.backup_history") {
+		if r, ok := t.mebHistoryRows.(*countMockRows); ok && r != nil {
+			return &countMockRows{size: r.size, data: r.data, shouldErr: r.shouldErr}, t.mebHistoryErr
+		}
 		return t.mebHistoryRows, t.mebHistoryErr
 	}
 	if strings.Contains(query, "PERCONA_SCHEMA.xtrabackup_history") {
+		if r, ok := t.xtrabackupHistoryRows.(*countMockRows); ok && r != nil {
+			return &countMockRows{size: r.size, data: r.data, shouldErr: r.shouldErr}, t.xtrabackupHistoryErr
+		}
 		return t.xtrabackupHistoryRows, t.xtrabackupHistoryErr
 	}
 	if strings.TrimSpace(query) == strings.TrimSpace(`
@@ -542,6 +549,9 @@ type countMockRows struct {
 func (f *countMockRows) Scan(dest ...any) error {
 	if f.shouldErr {
 		return errors.New("test scan error")
+	}
+	if f.count == 0 {
+		return errors.New("scan called before Next")
 	}
 	*dest[0].(*int) = f.data
 	return nil
@@ -2259,6 +2269,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 				databasecenter.DatabaseAuditingDisabledKey:        "false",
 				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
 				databasecenter.NoAutomatedBackupPolicyKey:         "true",
+				databasecenter.LastBackupOldKey:                   "true",
 			},
 			wantErr: false,
 		},
@@ -2306,6 +2317,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 				databasecenter.DatabaseAuditingDisabledKey:        "true",
 				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
 				databasecenter.NoAutomatedBackupPolicyKey:         "true",
+				databasecenter.LastBackupOldKey:                   "true",
 			},
 			wantErr: false,
 		},
@@ -2361,6 +2373,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 				databasecenter.DatabaseAuditingDisabledKey:        "true",
 				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
 				databasecenter.NoAutomatedBackupPolicyKey:         "true",
+				databasecenter.LastBackupOldKey:                   "true",
 			},
 			wantErr: false,
 		},
@@ -2449,6 +2462,7 @@ func TestCollectDBCenterMetricsOnce(t *testing.T) {
 				databasecenter.DatabaseAuditingDisabledKey:        "false",
 				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
 				databasecenter.NoAutomatedBackupPolicyKey:         "true",
+				databasecenter.LastBackupOldKey:                   "true",
 			},
 			wantErr: false,
 		},
@@ -2496,6 +2510,7 @@ func TestCollectDBCenterMetricsOnce(t *testing.T) {
 				databasecenter.DatabaseAuditingDisabledKey:        "false",
 				databasecenter.NotProtectedByAutomaticFailoverKey: "true",
 				databasecenter.NoAutomatedBackupPolicyKey:         "true",
+				databasecenter.LastBackupOldKey:                   "true",
 			},
 			wantErr: false,
 		},
@@ -2669,10 +2684,10 @@ func TestNotProtectedByAutoFailover(t *testing.T) {
 					managerUserRows: &countMockRows{size: 1, data: 0},
 				},
 				execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
-					if params.Executable == "grep" && params.Args[0] == "RecoverMasterClusterFilters" {
+					if params.Executable == "grep" && len(params.Args) > 0 && params.Args[0] == "RecoverMasterClusterFilters" {
 						return commandlineexecutor.Result{StdOut: "RecoverMasterClusterFilters: [...]"}
 					}
-					if params.Executable == "systemctl" && params.Args[1] == "orchestrator" {
+					if params.Executable == "systemctl" && len(params.Args) > 1 && params.Args[1] == "orchestrator" {
 						return commandlineexecutor.Result{StdOut: "active\n"}
 					}
 					return commandlineexecutor.Result{Error: errors.New("command failed")}
@@ -2694,7 +2709,7 @@ func TestNotProtectedByAutoFailover(t *testing.T) {
 					managerUserRows: &countMockRows{size: 1, data: 0},
 				},
 				execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
-					if params.Executable == "systemctl" && params.Args[1] == "mha-manager" {
+					if params.Executable == "systemctl" && len(params.Args) > 1 && params.Args[1] == "mha-manager" {
 						return commandlineexecutor.Result{StdOut: "active\n"}
 					}
 					return commandlineexecutor.Result{Error: errors.New("command failed")}
@@ -2739,6 +2754,31 @@ func TestNotProtectedByAutoFailover(t *testing.T) {
 					replicaRows:          &replicaRows{size: 0},
 					slaveRows:            &slaveRows{size: 0},
 					logBinVarRows:        &globalVarMockRows{size: 1, data: [][]string{{"log_bin", "OFF"}}},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "OrchestratorConfigGrepReturnsError",
+			m: MySQLMetrics{
+				db: &testDB{
+					replicaRows: &replicaRows{
+						size: 1,
+						data: []sql.NullString{
+							sql.NullString{String: "Yes", Valid: true},
+							sql.NullString{String: "Yes", Valid: true},
+						},
+					},
+					managerUserRows: &countMockRows{size: 1, data: 0},
+				},
+				execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+					if params.Executable == "grep" && len(params.Args) > 0 && params.Args[0] == "RecoverMasterClusterFilters" {
+						return commandlineexecutor.Result{Error: errors.New("grep failed"), StdOut: "RecoverMasterClusterFilters: [...]"}
+					}
+					if params.Executable == "systemctl" && len(params.Args) > 1 && params.Args[1] == "orchestrator" {
+						return commandlineexecutor.Result{StdOut: "active\n"}
+					}
+					return commandlineexecutor.Result{Error: errors.New("command failed")}
 				},
 			},
 			want: true,
@@ -2896,9 +2936,9 @@ func TestIsInnoDBClusterActive(t *testing.T) {
 			want:                 false,
 		},
 		{
-			name:                 "QueryError",
-			groupReplicationErr:  errors.New("db query error"),
-			want:                 false,
+			name:                "QueryError",
+			groupReplicationErr: errors.New("db query error"),
+			want:                false,
 		},
 		{
 			name:                 "ScanErrorWithCountAboveTwo",
@@ -2978,8 +3018,6 @@ func TestIsGaleraClusterActive(t *testing.T) {
 }
 
 func TestNoAutomatedBackupPolicy(t *testing.T) {
-	ctx := context.Background()
-
 	tests := []struct {
 		name    string
 		m       MySQLMetrics
@@ -3026,10 +3064,10 @@ func TestNoAutomatedBackupPolicy(t *testing.T) {
 			name: "SystemdTimerBackupDetected",
 			m: MySQLMetrics{
 				execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
-					if params.Executable == "systemctl" && params.Args[0] == "list-timers" {
+					if params.Executable == "systemctl" && len(params.Args) > 0 && params.Args[0] == "list-timers" {
 						return commandlineexecutor.Result{StdOut: "NEXT LEFT LAST PASSED UNIT ACTIVATES\nThu 2026-07-09 12:00:00 UTC 1h left Thu 2026-07-09 11:00:00 UTC 20min ago mysql-backup.timer mysql-backup.service\n"}
 					}
-					if params.Executable == "systemctl" && params.Args[0] == "cat" {
+					if params.Executable == "systemctl" && len(params.Args) > 0 && params.Args[0] == "cat" {
 						return commandlineexecutor.Result{StdOut: "ExecStart=/usr/bin/mysqldump --all-databases\n"}
 					}
 					return commandlineexecutor.Result{Error: errors.New("command failed")}
@@ -3110,6 +3148,7 @@ func TestNoAutomatedBackupPolicy(t *testing.T) {
 		},
 	}
 
+	ctx := context.Background()
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.m.execute == nil {
@@ -3191,3 +3230,404 @@ func TestBuildGrepBackupPattern(t *testing.T) {
 	}
 }
 
+func TestLastBackupOld(t *testing.T) {
+	tests := []struct {
+		name                  string
+		mebHistoryRows        rowsInterface
+		mebHistoryErr         error
+		xtrabackupHistoryRows rowsInterface
+		xtrabackupHistoryErr  error
+		execute               func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result
+		want                  bool
+		wantErr               bool
+	}{
+		{
+			name:           "RecentMEBBackupFound",
+			mebHistoryRows: &countMockRows{size: 1, data: 1},
+			want:           false,
+			wantErr:        false,
+		},
+		{
+			name:                  "RecentXtraBackupFound",
+			mebHistoryRows:        &countMockRows{size: 1, data: 0},
+			xtrabackupHistoryRows: &countMockRows{size: 1, data: 1},
+			want:                  false,
+			wantErr:               false,
+		},
+		{
+			name:                  "RecentSystemdTimerFound",
+			mebHistoryRows:        &countMockRows{size: 1, data: 0},
+			xtrabackupHistoryRows: &countMockRows{size: 1, data: 0},
+			execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				if params.Executable == "systemctl" && len(params.Args) > 0 && params.Args[0] == "list-timers" {
+					return commandlineexecutor.Result{StdOut: "Thu 2026-07-16 12:00:00 UTC 15m left Thu 2026-07-16 10:00:00 UTC 44m ago mysql-backup.timer mysql-backup.service\n"}
+				}
+				if params.Executable == "systemctl" && len(params.Args) > 1 && params.Args[0] == "cat" && params.Args[1] == "mysql-backup.service" {
+					return commandlineexecutor.Result{StdOut: "ExecStart=/usr/bin/mysqldump --all-databases\n"}
+				}
+				if params.Executable == "systemctl" && len(params.Args) > 1 && params.Args[0] == "show" && params.Args[1] == "mysql-backup.service" {
+					recentTimestamp := time.Now().Add(-2 * time.Hour).Format("Mon 2006-01-02 15:04:05 MST")
+					return commandlineexecutor.Result{StdOut: fmt.Sprintf("ExecMainStatus=0\nExecMainExitTimestamp=%s\n", recentTimestamp)}
+				}
+				return commandlineexecutor.Result{Error: errors.New("unexpected command")}
+			},
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name:                  "NoBackupFound",
+			mebHistoryRows:        &countMockRows{size: 1, data: 0},
+			xtrabackupHistoryRows: &countMockRows{size: 1, data: 0},
+			execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				if params.Executable == "systemctl" && len(params.Args) > 0 && params.Args[0] == "list-timers" {
+					return commandlineexecutor.Result{StdOut: ""}
+				}
+				return commandlineexecutor.Result{Error: errors.New("unexpected command")}
+			},
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name:                 "QueryErrorsDegradeSafely",
+			mebHistoryErr:        errors.New("meb db error"),
+			xtrabackupHistoryErr: errors.New("xtrabackup db error"),
+			execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				return commandlineexecutor.Result{Error: errors.New("systemctl error")}
+			},
+			want:    true,
+			wantErr: true,
+		},
+	}
+
+	ctx := context.Background()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := MySQLMetrics{
+				db: &testDB{
+					mebHistoryRows:        tc.mebHistoryRows,
+					mebHistoryErr:         tc.mebHistoryErr,
+					xtrabackupHistoryRows: tc.xtrabackupHistoryRows,
+					xtrabackupHistoryErr:  tc.xtrabackupHistoryErr,
+				},
+				execute: tc.execute,
+			}
+			if m.execute == nil {
+				m.execute = func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
+					return commandlineexecutor.Result{Error: errors.New("not executed")}
+				}
+			}
+			got, err := m.lastBackupOld(ctx)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("lastBackupOld() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if got != tc.want {
+				t.Errorf("lastBackupOld() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestHasRecentMEBBackup(t *testing.T) {
+	tests := []struct {
+		name           string
+		mebHistoryRows rowsInterface
+		mebHistoryErr  error
+		want           bool
+		wantErr        bool
+	}{
+		{
+			name:           "CountOneOrMore",
+			mebHistoryRows: &countMockRows{size: 1, data: 1},
+			want:           true,
+			wantErr:        false,
+		},
+		{
+			name:           "CountZero",
+			mebHistoryRows: &countMockRows{size: 1, data: 0},
+			want:           false,
+			wantErr:        false,
+		},
+		{
+			name:          "QueryError",
+			mebHistoryErr: errors.New("db error"),
+			want:          false,
+			wantErr:       true,
+		},
+		{
+			name:           "NilRows",
+			mebHistoryRows: nil,
+			want:           false,
+			wantErr:        true,
+		},
+	}
+
+	ctx := context.Background()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := MySQLMetrics{
+				db: &testDB{
+					mebHistoryRows: tc.mebHistoryRows,
+					mebHistoryErr:  tc.mebHistoryErr,
+				},
+			}
+			got, err := m.hasRecentMEBBackup(ctx)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("hasRecentMEBBackup() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if got != tc.want {
+				t.Errorf("hasRecentMEBBackup() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestHasRecentXtraBackup(t *testing.T) {
+	tests := []struct {
+		name                  string
+		xtrabackupHistoryRows rowsInterface
+		xtrabackupHistoryErr  error
+		want                  bool
+		wantErr               bool
+	}{
+		{
+			name:                  "CountOneOrMore",
+			xtrabackupHistoryRows: &countMockRows{size: 1, data: 1},
+			want:                  true,
+			wantErr:               false,
+		},
+		{
+			name:                  "CountZero",
+			xtrabackupHistoryRows: &countMockRows{size: 1, data: 0},
+			want:                  false,
+			wantErr:               false,
+		},
+		{
+			name:                 "QueryError",
+			xtrabackupHistoryErr: errors.New("db error"),
+			want:                 false,
+			wantErr:              true,
+		},
+		{
+			name:                  "NilRows",
+			xtrabackupHistoryRows: nil,
+			want:                  false,
+			wantErr:               true,
+		},
+	}
+
+	ctx := context.Background()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := MySQLMetrics{
+				db: &testDB{
+					xtrabackupHistoryRows: tc.xtrabackupHistoryRows,
+					xtrabackupHistoryErr:  tc.xtrabackupHistoryErr,
+				},
+			}
+			got, err := m.hasRecentXtraBackup(ctx)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("hasRecentXtraBackup() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if got != tc.want {
+				t.Errorf("hasRecentXtraBackup() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestHasRecentSystemdBackupTimer(t *testing.T) {
+	tests := []struct {
+		name    string
+		execute func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result
+		want    bool
+		wantErr bool
+	}{
+		{
+			name: "ActiveRecentBackupTimer",
+			execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				if params.Executable == "systemctl" && len(params.Args) > 0 && params.Args[0] == "list-timers" {
+					return commandlineexecutor.Result{StdOut: "mysql-backup.timer mysql-backup.service\n"}
+				}
+				if params.Executable == "systemctl" && len(params.Args) > 1 && params.Args[0] == "cat" && params.Args[1] == "mysql-backup.service" {
+					return commandlineexecutor.Result{StdOut: "ExecStart=/usr/bin/mysqldump --all-databases\n"}
+				}
+				if params.Executable == "systemctl" && len(params.Args) > 1 && params.Args[0] == "show" && params.Args[1] == "mysql-backup.service" {
+					recentTimestamp := time.Now().Add(-2 * time.Hour).Format("Mon 2006-01-02 15:04:05 MST")
+					return commandlineexecutor.Result{StdOut: fmt.Sprintf("ExecMainStatus=0\nExecMainExitTimestamp=%s\n", recentTimestamp)}
+				}
+				return commandlineexecutor.Result{Error: errors.New("unexpected command")}
+			},
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name: "FailedExitStatus",
+			execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				if params.Executable == "systemctl" && len(params.Args) > 0 && params.Args[0] == "list-timers" {
+					return commandlineexecutor.Result{StdOut: "mysql-backup.timer mysql-backup.service\n"}
+				}
+				if params.Executable == "systemctl" && len(params.Args) > 1 && params.Args[0] == "cat" && params.Args[1] == "mysql-backup.service" {
+					return commandlineexecutor.Result{StdOut: "ExecStart=/usr/bin/mysqldump --all-databases\n"}
+				}
+				if params.Executable == "systemctl" && len(params.Args) > 1 && params.Args[0] == "show" && params.Args[1] == "mysql-backup.service" {
+					recentTimestamp := time.Now().Add(-2 * time.Hour).Format("Mon 2006-01-02 15:04:05 MST")
+					return commandlineexecutor.Result{StdOut: fmt.Sprintf("ExecMainStatus=1\nExecMainExitTimestamp=%s\n", recentTimestamp)}
+				}
+				return commandlineexecutor.Result{Error: errors.New("unexpected command")}
+			},
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name: "OldBackupTimestamp",
+			execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				if params.Executable == "systemctl" && len(params.Args) > 0 && params.Args[0] == "list-timers" {
+					return commandlineexecutor.Result{StdOut: "mysql-backup.timer mysql-backup.service\n"}
+				}
+				if params.Executable == "systemctl" && len(params.Args) > 1 && params.Args[0] == "cat" && params.Args[1] == "mysql-backup.service" {
+					return commandlineexecutor.Result{StdOut: "ExecStart=/usr/bin/mysqldump --all-databases\n"}
+				}
+				if params.Executable == "systemctl" && len(params.Args) > 1 && params.Args[0] == "show" && params.Args[1] == "mysql-backup.service" {
+					oldTimestamp := time.Now().Add(-48 * time.Hour).Format("Mon 2006-01-02 15:04:05 MST")
+					return commandlineexecutor.Result{StdOut: fmt.Sprintf("ExecMainStatus=0\nExecMainExitTimestamp=%s\n", oldTimestamp)}
+				}
+				return commandlineexecutor.Result{Error: errors.New("unexpected command")}
+			},
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name: "NonServiceUnitIgnored",
+			execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				if params.Executable == "systemctl" && len(params.Args) > 0 && params.Args[0] == "list-timers" {
+					return commandlineexecutor.Result{StdOut: "mysql-backup.timer mysql-backup.target\n"}
+				}
+				return commandlineexecutor.Result{Error: errors.New("unexpected command")}
+			},
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name: "ListTimersError",
+			execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				return commandlineexecutor.Result{Error: errors.New("systemctl error")}
+			},
+			want:    false,
+			wantErr: true,
+		},
+	}
+
+	ctx := context.Background()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := MySQLMetrics{execute: tc.execute}
+			got, err := m.hasRecentSystemdBackupTimer(ctx)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("hasRecentSystemdBackupTimer() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if got != tc.want {
+				t.Errorf("hasRecentSystemdBackupTimer() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsSystemdBackupService(t *testing.T) {
+	tests := []struct {
+		name    string
+		execute func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result
+		want    bool
+	}{
+		{
+			name: "ServiceWithBackupCommand",
+			execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				return commandlineexecutor.Result{StdOut: "[Service]\nExecStart=/usr/bin/mysqldump -u root\n"}
+			},
+			want: true,
+		},
+		{
+			name: "ServiceWithCommentOnly",
+			execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				return commandlineexecutor.Result{StdOut: "[Service]\n# ExecStart=/usr/bin/mysqldump -u root\nExecStart=/usr/bin/echo hello\n"}
+			},
+			want: false,
+		},
+		{
+			name: "CatCommandError",
+			execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				return commandlineexecutor.Result{Error: errors.New("cat error")}
+			},
+			want: false,
+		},
+	}
+
+	ctx := context.Background()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := MySQLMetrics{execute: tc.execute}
+			got := m.isSystemdBackupService(ctx, "mysql-backup.service")
+			if got != tc.want {
+				t.Errorf("isSystemdBackupService() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSystemdServiceExitTime(t *testing.T) {
+	validTime := time.Date(2026, time.July, 16, 10, 0, 0, 0, time.UTC)
+	validTimeStr := validTime.Format("Mon 2006-01-02 15:04:05 MST")
+
+	tests := []struct {
+		name    string
+		execute func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result
+		want    time.Time
+		wantOk  bool
+	}{
+		{
+			name: "SuccessZeroStatus",
+			execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				return commandlineexecutor.Result{StdOut: fmt.Sprintf("ExecMainStatus=0\nExecMainExitTimestamp=%s\n", validTimeStr)}
+			},
+			want:   validTime,
+			wantOk: true,
+		},
+		{
+			name: "NonZeroExitStatus",
+			execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				return commandlineexecutor.Result{StdOut: fmt.Sprintf("ExecMainStatus=1\nExecMainExitTimestamp=%s\n", validTimeStr)}
+			},
+			want:   time.Time{},
+			wantOk: false,
+		},
+		{
+			name: "TimestampNA",
+			execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				return commandlineexecutor.Result{StdOut: "ExecMainStatus=0\nExecMainExitTimestamp=n/a\n"}
+			},
+			want:   time.Time{},
+			wantOk: false,
+		},
+		{
+			name: "CommandError",
+			execute: func(ctx context.Context, params commandlineexecutor.Params) commandlineexecutor.Result {
+				return commandlineexecutor.Result{Error: errors.New("show error")}
+			},
+			want:   time.Time{},
+			wantOk: false,
+		},
+	}
+
+	ctx := context.Background()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := MySQLMetrics{execute: tc.execute}
+			got, ok := m.systemdServiceExitTime(ctx, "mysql-backup.service")
+			if ok != tc.wantOk {
+				t.Errorf("systemdServiceExitTime() ok = %v, wantOk %v", ok, tc.wantOk)
+			}
+			if ok && !got.Equal(tc.want) {
+				t.Errorf("systemdServiceExitTime() got = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

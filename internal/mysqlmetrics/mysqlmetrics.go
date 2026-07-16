@@ -26,6 +26,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/databasecenter"
@@ -961,6 +962,154 @@ func (m *MySQLMetrics) hasLocalAutoFailoverService(ctx context.Context) bool {
 	return false
 }
 
+// lastBackupOld evaluates to true if no successful backup completed within the last 24 hours.
+// Evaluates MEB history (mysql.backup_history), Percona XtraBackup history (PERCONA_SCHEMA.xtrabackup_history),
+// and active systemd backup timers.
+func (m *MySQLMetrics) lastBackupOld(ctx context.Context) (bool, error) {
+	var errs []error
+
+	found, err := m.hasRecentMEBBackup(ctx)
+	if found {
+		log.CtxLogger(ctx).Debugw("Recent successful MEB backup detected within last 24 hours")
+		return false, nil
+	}
+	if err != nil {
+		errs = append(errs, fmt.Errorf("MEB check failed: %w", err))
+	}
+
+	found, err = m.hasRecentXtraBackup(ctx)
+	if found {
+		log.CtxLogger(ctx).Debugw("Recent successful XtraBackup detected within last 24 hours")
+		return false, nil
+	}
+	if err != nil {
+		errs = append(errs, fmt.Errorf("XtraBackup check failed: %w", err))
+	}
+
+	found, err = m.hasRecentSystemdBackupTimer(ctx)
+	if found {
+		log.CtxLogger(ctx).Debugw("Recent successful systemd timer backup detected within last 24 hours")
+		return false, nil
+	}
+	if err != nil {
+		errs = append(errs, fmt.Errorf("systemd timer check failed: %w", err))
+	}
+
+	log.CtxLogger(ctx).Debugw("No successful backup detected within last 24 hours")
+	return true, errors.Join(errs...)
+}
+
+// hasRecentMEBBackup checks if mysql.backup_history has a successful MEB backup in the last 24 hours.
+func (m *MySQLMetrics) hasRecentMEBBackup(ctx context.Context) (bool, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM mysql.backup_history
+		WHERE exit_state = 'SUCCESS'
+		  AND end_time >= NOW() - INTERVAL 24 HOUR
+	`
+	return m.checkBackupCountQuery(ctx, query, 1, "Found recent successful MEB backup in last 24 hours")
+}
+
+// hasRecentXtraBackup checks if PERCONA_SCHEMA.xtrabackup_history has a successful Percona XtraBackup in the last 24 hours.
+func (m *MySQLMetrics) hasRecentXtraBackup(ctx context.Context) (bool, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM PERCONA_SCHEMA.xtrabackup_history
+		WHERE end_time IS NOT NULL
+		  AND end_time >= NOW() - INTERVAL 24 HOUR
+	`
+	return m.checkBackupCountQuery(ctx, query, 1, "Found recent successful XtraBackup in last 24 hours")
+}
+
+// hasRecentSystemdBackupTimer checks if any systemd backup timer executed successfully within the last 24 hours.
+func (m *MySQLMetrics) hasRecentSystemdBackupTimer(ctx context.Context) (bool, error) {
+	res := m.execute(ctx, commandlineexecutor.Params{
+		Executable: "systemctl",
+		Args:       []string{"list-timers", "--no-legend", "--no-pager"},
+	})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	if strings.TrimSpace(res.StdOut) == "" {
+		return false, nil
+	}
+
+	for _, line := range strings.Split(res.StdOut, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 1 {
+			continue
+		}
+		serviceName := fields[len(fields)-1]
+		if !strings.HasSuffix(serviceName, ".service") {
+			continue
+		}
+
+		if !m.isSystemdBackupService(ctx, serviceName) {
+			continue
+		}
+
+		exitTime, ok := m.systemdServiceExitTime(ctx, serviceName)
+		if ok && time.Since(exitTime) <= 24*time.Hour {
+			log.CtxLogger(ctx).Debugw("Found systemd backup service executed within last 24 hours", "service", serviceName, "exitTime", exitTime)
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// isSystemdBackupService returns true if the systemd unit definition contains a known backup command.
+func (m *MySQLMetrics) isSystemdBackupService(ctx context.Context, serviceName string) bool {
+	res := m.execute(ctx, commandlineexecutor.Params{
+		Executable: "systemctl",
+		Args:       []string{"cat", serviceName},
+	})
+	if res.Error != nil {
+		return false
+	}
+
+	for _, line := range strings.Split(res.StdOut, "\n") {
+		if containsBackupSignature(line) {
+			return true
+		}
+	}
+	return false
+}
+
+// systemdServiceExitTime returns the last successful completion time of a systemd service, if available.
+func (m *MySQLMetrics) systemdServiceExitTime(ctx context.Context, serviceName string) (time.Time, bool) {
+	res := m.execute(ctx, commandlineexecutor.Params{
+		Executable: "systemctl",
+		Args:       []string{"show", serviceName, "-p", "ExecMainExitTimestamp", "-p", "ExecMainStatus"},
+	})
+	if res.Error != nil || strings.TrimSpace(res.StdOut) == "" {
+		return time.Time{}, false
+	}
+
+	var exitStatus, timestampStr string
+	for _, line := range strings.Split(res.StdOut, "\n") {
+		if strings.HasPrefix(line, "ExecMainStatus=") {
+			exitStatus = strings.TrimPrefix(line, "ExecMainStatus=")
+		}
+		if strings.HasPrefix(line, "ExecMainExitTimestamp=") {
+			timestampStr = strings.TrimPrefix(line, "ExecMainExitTimestamp=")
+		}
+	}
+
+	if exitStatus != "0" || timestampStr == "" || timestampStr == "n/a" {
+		return time.Time{}, false
+	}
+
+	// Layout matching systemd timestamp: "Mon 2006-01-02 15:04:05 MST"
+	const systemdLayout = "Mon 2006-01-02 15:04:05 MST"
+	t, err := time.Parse(systemdLayout, timestampStr)
+	if err != nil {
+		return time.Time{}, false
+	}
+
+	return t, true
+}
+
 // CollectMetricsOnce collects metrics for MySQL databases running on the host.
 func (m *MySQLMetrics) CollectWlmMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
 	if !dwActivated {
@@ -1164,7 +1313,8 @@ func (m *MySQLMetrics) hasMEBBackupHistory(ctx context.Context) bool {
 		WHERE exit_state = 'SUCCESS'
 		  AND start_time >= NOW() - INTERVAL 14 DAY
 	`
-	return m.checkBackupCountQuery(ctx, query, "Found recent successful MEB backups in mysql.backup_history")
+	found, _ := m.checkBackupCountQuery(ctx, query, 2, "Found recent successful MEB backups in mysql.backup_history")
+	return found
 }
 
 // hasXtraBackupHistory checks PERCONA_SCHEMA.xtrabackup_history for recent Percona XtraBackups.
@@ -1174,23 +1324,34 @@ func (m *MySQLMetrics) hasXtraBackupHistory(ctx context.Context) bool {
 		FROM PERCONA_SCHEMA.xtrabackup_history
 		WHERE start_time >= NOW() - INTERVAL 14 DAY
 	`
-	return m.checkBackupCountQuery(ctx, query, "Found recent successful XtraBackup records in PERCONA_SCHEMA.xtrabackup_history")
+	found, _ := m.checkBackupCountQuery(ctx, query, 2, "Found recent successful XtraBackup records in PERCONA_SCHEMA.xtrabackup_history")
+	return found
 }
 
-// checkBackupCountQuery runs a COUNT(*) query and returns true if count >= 2.
-func (m *MySQLMetrics) checkBackupCountQuery(ctx context.Context, query string, debugMsg string) bool {
+// checkBackupCountQuery runs a COUNT(*) query and returns true if count >= minCount.
+func (m *MySQLMetrics) checkBackupCountQuery(ctx context.Context, query string, minCount int, debugMsg string) (bool, error) {
 	rows, err := executeQuery(ctx, m.db, query)
-	if err != nil || rows == nil {
-		return false
+	if err != nil {
+		return false, err
+	}
+	if rows == nil {
+		return false, errors.New("no rows returned")
 	}
 	defer rows.Close()
 
 	var count int
-	if rows.Next() && rows.Scan(&count) == nil && count >= 2 {
-		log.CtxLogger(ctx).Debugw(debugMsg, "count", count)
-		return true
+	if !rows.Next() {
+		return false, errors.New("no rows returned when scanning count")
 	}
-	return false
+	if err := rows.Scan(&count); err != nil {
+		log.CtxLogger(ctx).Debugw("Failed to scan backup count query result", "query", query, "err", err)
+		return false, err
+	}
+	if count >= minCount {
+		log.CtxLogger(ctx).Debugw(debugMsg, "count", count)
+		return true, nil
+	}
+	return false, nil
 }
 
 // containsBackupSignature returns true if the given command line contains a known backup tool signature and is not commented out.
@@ -1242,6 +1403,10 @@ func (m *MySQLMetrics) CollectDBCenterMetricsOnce(ctx context.Context) error {
 	if err != nil {
 		log.CtxLogger(ctx).Debugw("Failed to check if no automated backup policy", "with error: ", err)
 	}
+	lastBackupOld, err := m.lastBackupOld(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Debugw("Failed to check if last backup old", "with error: ", err)
+	}
 	// send metadata details to database center
 	err = m.DBcenterClient.SendMetadataToDatabaseCenter(ctx, databasecenter.DBCenterMetrics{EngineType: databasecenter.MYSQL,
 		Metrics: map[string]string{
@@ -1253,6 +1418,7 @@ func (m *MySQLMetrics) CollectDBCenterMetricsOnce(ctx context.Context) error {
 			databasecenter.DatabaseAuditingDisabledKey:        strconv.FormatBool(!auditingEnabled),
 			databasecenter.NotProtectedByAutomaticFailoverKey: strconv.FormatBool(notProtectedByAutoFailover),
 			databasecenter.NoAutomatedBackupPolicyKey:         strconv.FormatBool(noAutomatedBackupPolicy),
+			databasecenter.LastBackupOldKey:                   strconv.FormatBool(lastBackupOld),
 		}})
 	if err != nil {
 		// Don't return error here, we want to send metrics to DW even if dbcenter metadata send fails.
