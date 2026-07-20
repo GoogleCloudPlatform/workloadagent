@@ -39,14 +39,15 @@ import (
 )
 
 const (
-	innoDBKey             = "is_inno_db_default"
-	bufferPoolKey         = "buffer_pool_size"
-	totalRAMKey           = "total_ram"
-	currentRoleKey        = "current_role"
-	replicationZonesKey   = "replication_zones"
-	sourceRole            = "source"
-	replicaRole           = "replica"
-	replicationZonesQuery = "SELECT HOST FROM information_schema.PROCESSLIST AS p WHERE p.COMMAND = 'Binlog Dump'"
+	innoDBKey                     = "is_inno_db_default"
+	bufferPoolKey                 = "buffer_pool_size"
+	totalRAMKey                   = "total_ram"
+	currentRoleKey                = "current_role"
+	replicationZonesKey           = "replication_zones"
+	notProtectedByAutoFailoverKey = "not_protected_by_auto_failover"
+	sourceRole                    = "source"
+	replicaRole                   = "replica"
+	replicationZonesQuery         = "SELECT HOST FROM information_schema.PROCESSLIST AS p WHERE p.COMMAND = 'Binlog Dump'"
 )
 
 type netInterface interface {
@@ -1134,21 +1135,27 @@ func (m *MySQLMetrics) CollectWlmMetricsOnce(ctx context.Context, dwActivated bo
 	}
 	currentRole := m.currentRole(ctx)
 	replicationZones := m.replicationZones(ctx, currentRole, &netImpl{})
+	notProtectedByAutoFailover, err := m.notProtectedByAutoFailover(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Warnf("Failed to get not protected by auto failover: %v", err)
+	}
 	log.CtxLogger(ctx).Debugw("Finished collecting MySQL metrics once. Next step is to send to WLM (DW).",
 		bufferPoolKey, bufferPoolSize,
 		totalRAMKey, totalRAM,
 		innoDBKey, isInnoDBDefault,
 		currentRoleKey, currentRole,
 		replicationZonesKey, strings.Join(replicationZones, ","),
+		notProtectedByAutoFailoverKey, notProtectedByAutoFailover,
 	)
 	metrics := workloadmanager.WorkloadMetrics{
 		WorkloadType: workloadmanager.MYSQL,
 		Metrics: map[string]string{
-			bufferPoolKey:       strconv.FormatInt(bufferPoolSize, 10),
-			totalRAMKey:         strconv.Itoa(totalRAM),
-			innoDBKey:           strconv.FormatBool(isInnoDBDefault),
-			currentRoleKey:      currentRole,
-			replicationZonesKey: strings.Join(replicationZones, ","),
+			bufferPoolKey:                 strconv.FormatInt(bufferPoolSize, 10),
+			totalRAMKey:                   strconv.Itoa(totalRAM),
+			innoDBKey:                     strconv.FormatBool(isInnoDBDefault),
+			currentRoleKey:                currentRole,
+			replicationZonesKey:           strings.Join(replicationZones, ","),
+			notProtectedByAutoFailoverKey: strconv.FormatBool(notProtectedByAutoFailover),
 		},
 	}
 	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
