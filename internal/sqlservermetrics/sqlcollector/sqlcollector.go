@@ -44,6 +44,42 @@ type SQLMetricsStruct struct {
 	Fields func([][]any) []map[string]string
 }
 
+// notProtectedByAutoFailoverCTE evaluates SQL Server failover protection mechanisms (Always On AGs, FCIs, and Mirroring).
+const notProtectedByAutoFailoverCTE = `Protected_AGs AS (
+	SELECT group_id
+	FROM sys.availability_replicas
+	WHERE availability_mode = 1
+	  AND failover_mode = 1
+	GROUP BY group_id
+	HAVING COUNT(replica_id) >= 2
+),
+DBStatuses AS (
+	SELECT
+		CASE
+			WHEN SERVERPROPERTY('IsClustered') = 1 THEN 'PROTECTED_BY_FCI'
+			WHEN SERVERPROPERTY('IsHadrEnabled') = 1
+				 AND pag.group_id IS NOT NULL
+				 AND ar_local.failover_mode = 1
+				 AND ar_local.availability_mode = 1 THEN 'PROTECTED_BY_AG'
+			WHEN dm.mirroring_guid IS NOT NULL
+				 AND dm.mirroring_safety_level_desc = 'FULL'
+				 AND dm.mirroring_witness_name IS NOT NULL
+				 AND dm.mirroring_witness_name <> '' THEN 'PROTECTED_BY_MIRRORING'
+			ELSE 'UNPROTECTED'
+		END AS FailoverProtectionStatus
+	FROM master.sys.databases d
+	LEFT JOIN sys.dm_hadr_database_replica_states drs
+		ON d.database_id = drs.database_id AND drs.is_local = 1
+	LEFT JOIN Protected_AGs pag
+		ON drs.group_id = pag.group_id
+	LEFT JOIN sys.availability_replicas ar_local
+		ON drs.replica_id = ar_local.replica_id
+	LEFT JOIN sys.database_mirroring dm
+		ON d.database_id = dm.database_id
+	WHERE d.name NOT IN ('master', 'model', 'msdb', 'tempdb')
+	  AND d.state_desc = 'ONLINE'
+)`
+
 // SQLMetrics defines the rules the agent will collect from sql server.
 var SQLMetrics = []SQLMetricsStruct{
 	{
@@ -218,7 +254,8 @@ var SQLMetrics = []SQLMetricsStruct{
 	},
 	{
 		Name: "INSTANCE_METRICS",
-		Query: `SELECT
+		Query: fmt.Sprintf(`WITH %s
+						SELECT
 							SERVERPROPERTY('productversion') AS productversion,
 							SERVERPROPERTY ('productlevel') AS productlevel,
 							SERVERPROPERTY ('edition') AS edition,
@@ -228,23 +265,25 @@ var SQLMetrics = []SQLMetricsStruct{
 							virtual_memory_kb AS virtualMemoryKb,
 							socket_count AS socketCount,
 							cores_per_socket AS coresPerSocket,
-							numa_node_count AS numaNodeCount
-						FROM sys.dm_os_sys_info`,
+							numa_node_count AS numaNodeCount,
+							ISNULL((SELECT CASE WHEN SUM(CASE WHEN FailoverProtectionStatus = 'UNPROTECTED' THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END FROM DBStatuses), 0) AS not_protected_by_auto_failover
+						FROM sys.dm_os_sys_info`, notProtectedByAutoFailoverCTE),
 		Fields: func(fields [][]any) []map[string]string {
 			res := []map[string]string{}
 			for _, f := range fields {
 				res = append(res, map[string]string{
-					"os":                 handleNilString(f[10]),
-					"product_version":    handleNilString(f[0]),
-					"product_level":      handleNilString(f[1]),
-					"edition":            handleNilString(f[2]),
-					"cpu_count":          handleNilInt(f[3]),
-					"hyperthread_ratio":  handleNilInt(f[4]),
-					"physical_memory_kb": handleNilInt(f[5]),
-					"virtual_memory_kb":  handleNilInt(f[6]),
-					"socket_count":       handleNilInt(f[7]),
-					"cores_per_socket":   handleNilInt(f[8]),
-					"numa_node_count":    handleNilInt(f[9]),
+					"product_version":                handleNilString(f[0]),
+					"product_level":                  handleNilString(f[1]),
+					"edition":                        handleNilString(f[2]),
+					"cpu_count":                      handleNilInt(f[3]),
+					"hyperthread_ratio":              handleNilInt(f[4]),
+					"physical_memory_kb":             handleNilInt(f[5]),
+					"virtual_memory_kb":              handleNilInt(f[6]),
+					"socket_count":                   handleNilInt(f[7]),
+					"cores_per_socket":               handleNilInt(f[8]),
+					"numa_node_count":                handleNilInt(f[9]),
+					"not_protected_by_auto_failover": handleNilInt(f[10]),
+					"os":                             handleNilString(f[11]),
 				})
 			}
 			return res
