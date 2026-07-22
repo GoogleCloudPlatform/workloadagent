@@ -127,7 +127,7 @@ func TestCollectSQLMetrics(t *testing.T) {
 			delay:   0,
 
 			mockQueryRes: []*sqlmock.Rows{
-				sqlmock.NewRows([]string{"col1", "col2", "col3", "col4", "col5", "col6", "col7", "col8", "col9", "col10"}).AddRow("val1", "val2", "val3", "val4", "val5", "val6", "val7", "val8", "val9", "val10"),
+				sqlmock.NewRows([]string{"col1", "col2", "col3", "col4", "col5", "col6", "col7", "col8", "col9", "col10", "col11"}).AddRow("val1", "val2", "val3", "val4", "val5", "val6", "val7", "val8", "val9", "val10", "val11"),
 			},
 
 			rule: []SQLMetricsStruct{
@@ -142,17 +142,18 @@ func TestCollectSQLMetrics(t *testing.T) {
 					Name: "INSTANCE_METRICS",
 					Fields: []map[string]string{
 						map[string]string{
-							"cores_per_socket":   "unknown",
-							"cpu_count":          "unknown",
-							"edition":            "val3",
-							"hyperthread_ratio":  "unknown",
-							"numa_node_count":    "unknown",
-							"os":                 "linux",
-							"physical_memory_kb": "unknown",
-							"product_level":      "val2",
-							"product_version":    "val1",
-							"socket_count":       "unknown",
-							"virtual_memory_kb":  "unknown",
+							"cores_per_socket":               "unknown",
+							"cpu_count":                      "unknown",
+							"edition":                        "val3",
+							"hyperthread_ratio":              "unknown",
+							"numa_node_count":                "unknown",
+							"not_protected_by_auto_failover": "unknown",
+							"os":                             "linux",
+							"physical_memory_kb":             "unknown",
+							"product_level":                  "val2",
+							"product_version":                "val1",
+							"socket_count":                   "unknown",
+							"virtual_memory_kb":              "unknown",
 						},
 					},
 				},

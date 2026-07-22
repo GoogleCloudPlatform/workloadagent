@@ -162,46 +162,10 @@ var (
 		},
 
 		notProtectedByAutoFailoverQueryKey: {
-			query: `WITH Protected_AGs AS (
-	SELECT group_id
-	FROM sys.availability_replicas
-	WHERE availability_mode = 1
-	  AND failover_mode = 1
-	GROUP BY group_id
-	HAVING COUNT(replica_id) >= 2
-),
-DBStatuses AS (
-	SELECT
-		CASE
-			WHEN SERVERPROPERTY('IsClustered') = 1 THEN 'PROTECTED_BY_FCI'
-			WHEN SERVERPROPERTY('IsHadrEnabled') = 1
-				 AND pag.group_id IS NOT NULL
-				 AND ar_local.failover_mode = 1
-				 AND ar_local.availability_mode = 1 THEN 'PROTECTED_BY_AG'
-			WHEN dm.mirroring_guid IS NOT NULL
-				 AND dm.mirroring_safety_level_desc = 'FULL'
-				 AND dm.mirroring_witness_name IS NOT NULL
-				 AND dm.mirroring_witness_name <> '' THEN 'PROTECTED_BY_MIRRORING'
-			ELSE 'UNPROTECTED'
-		END AS FailoverProtectionStatus
-	FROM master.sys.databases d
-	LEFT JOIN sys.dm_hadr_database_replica_states drs
-		ON d.database_id = drs.database_id AND drs.is_local = 1
-	LEFT JOIN Protected_AGs pag
-		ON drs.group_id = pag.group_id
-	LEFT JOIN sys.availability_replicas ar_local
-		ON drs.replica_id = ar_local.replica_id
-	LEFT JOIN sys.database_mirroring dm
-		ON d.database_id = dm.database_id
-	WHERE d.name NOT IN ('master', 'model', 'msdb', 'tempdb')
-	  AND d.state_desc = 'ONLINE'
-)
+			query: fmt.Sprintf(`WITH %s
 SELECT
-	CASE
-		WHEN SUM(CASE WHEN FailoverProtectionStatus = 'UNPROTECTED' THEN 1 ELSE 0 END) > 0 THEN 1
-		ELSE 0
-	END AS not_protected_by_auto_failover
-FROM DBStatuses;`,
+	ISNULL(CASE WHEN SUM(CASE WHEN FailoverProtectionStatus = 'UNPROTECTED' THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END, 0) AS not_protected_by_auto_failover
+FROM DBStatuses;`, notProtectedByAutoFailoverCTE),
 			fields: func(rows [][]any) []map[string]string {
 				var res []map[string]string
 				for _, row := range rows {
