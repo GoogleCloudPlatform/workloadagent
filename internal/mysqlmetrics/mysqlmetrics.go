@@ -45,6 +45,7 @@ const (
 	currentRoleKey                = "current_role"
 	replicationZonesKey           = "replication_zones"
 	notProtectedByAutoFailoverKey = "not_protected_by_auto_failover"
+	noAutomatedBackupPolicyKey    = "no_automated_backup_policy"
 	sourceRole                    = "source"
 	replicaRole                   = "replica"
 	replicationZonesQuery         = "SELECT HOST FROM information_schema.PROCESSLIST AS p WHERE p.COMMAND = 'Binlog Dump'"
@@ -1139,6 +1140,10 @@ func (m *MySQLMetrics) CollectWlmMetricsOnce(ctx context.Context, dwActivated bo
 	if err != nil {
 		log.CtxLogger(ctx).Warnf("Failed to get not protected by auto failover: %v", err)
 	}
+	noAutomatedBackupPolicy, err := m.noAutomatedBackupPolicy(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Warnf("Failed to get no automated backup policy: %v", err)
+	}
 	log.CtxLogger(ctx).Debugw("Finished collecting MySQL metrics once. Next step is to send to WLM (DW).",
 		bufferPoolKey, bufferPoolSize,
 		totalRAMKey, totalRAM,
@@ -1146,6 +1151,7 @@ func (m *MySQLMetrics) CollectWlmMetricsOnce(ctx context.Context, dwActivated bo
 		currentRoleKey, currentRole,
 		replicationZonesKey, strings.Join(replicationZones, ","),
 		notProtectedByAutoFailoverKey, notProtectedByAutoFailover,
+		noAutomatedBackupPolicyKey, noAutomatedBackupPolicy,
 	)
 	metrics := workloadmanager.WorkloadMetrics{
 		WorkloadType: workloadmanager.MYSQL,
@@ -1156,6 +1162,7 @@ func (m *MySQLMetrics) CollectWlmMetricsOnce(ctx context.Context, dwActivated bo
 			currentRoleKey:                currentRole,
 			replicationZonesKey:           strings.Join(replicationZones, ","),
 			notProtectedByAutoFailoverKey: strconv.FormatBool(notProtectedByAutoFailover),
+			noAutomatedBackupPolicyKey:    strconv.FormatBool(noAutomatedBackupPolicy),
 		},
 	}
 	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
