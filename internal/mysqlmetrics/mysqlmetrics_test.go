@@ -1220,6 +1220,15 @@ func TestCollectWlmMetricsOnce(t *testing.T) {
 					engineErr:      nil,
 					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
 					bufferPoolErr:  nil,
+					mysqlUserRows: &mysqlUserMockRows{
+						size: 1,
+						data: [][]any{
+							{"root", "localhost", "mysql_native_password", sql.NullString{String: "hash", Valid: true}},
+						},
+					},
+					exposedToPublicAccessRows:  &exposedToPublicAccessMockRows{size: 0},
+					requireSecureTransportRows: &globalVarMockRows{size: 1, data: [][]string{{"require_secure_transport", "ON"}}},
+					auditLogPluginRows:         &pluginStatusMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1237,12 +1246,18 @@ func TestCollectWlmMetricsOnce(t *testing.T) {
 			wantMetrics: &workloadmanager.WorkloadMetrics{
 				WorkloadType: workloadmanager.MYSQL,
 				Metrics: map[string]string{
-					bufferPoolKey:                 "134217728",
-					currentRoleKey:                sourceRole,
-					totalRAMKey:                   strconv.Itoa(4025040 * 1024),
-					innoDBKey:                     "true",
-					replicationZonesKey:           "",
-					notProtectedByAutoFailoverKey: "true",
+					bufferPoolKey:                    "134217728",
+					currentRoleKey:                   sourceRole,
+					totalRAMKey:                      strconv.Itoa(4025040 * 1024),
+					innoDBKey:                        "true",
+					replicationZonesKey:              "",
+					notProtectedByAutoFailoverKey:    "true",
+					noAutomatedBackupPolicyKey:       "true",
+					lastBackupOldKey:                 "true",
+					rootPasswordNotSetKey:            "false",
+					exposedToPublicAccessKey:         "false",
+					unencryptedConnectionsAllowedKey: "false",
+					auditingEnabledKey:               "false",
 				},
 			},
 			wantErr: false,
@@ -1390,6 +1405,15 @@ func TestCollectWlmMetricsOnce(t *testing.T) {
 					engineErr:      nil,
 					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
 					bufferPoolErr:  nil,
+					mysqlUserRows: &mysqlUserMockRows{
+						size: 1,
+						data: [][]any{
+							{"root", "localhost", "mysql_native_password", sql.NullString{String: "hash", Valid: true}},
+						},
+					},
+					exposedToPublicAccessRows:  &exposedToPublicAccessMockRows{size: 0},
+					requireSecureTransportRows: &globalVarMockRows{size: 1, data: [][]string{{"require_secure_transport", "ON"}}},
+					auditLogPluginRows:         &pluginStatusMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1436,6 +1460,15 @@ func TestCollectWlmMetricsOnce(t *testing.T) {
 					engineErr:      nil,
 					bufferPoolRows: &bufferPoolRows{count: 0, size: 1, data: 134217728, shouldErr: false},
 					bufferPoolErr:  nil,
+					mysqlUserRows: &mysqlUserMockRows{
+						size: 1,
+						data: [][]any{
+							{"root", "localhost", "mysql_native_password", sql.NullString{String: "hash", Valid: true}},
+						},
+					},
+					exposedToPublicAccessRows:  &exposedToPublicAccessMockRows{size: 0},
+					requireSecureTransportRows: &globalVarMockRows{size: 1, data: [][]string{{"require_secure_transport", "ON"}}},
+					auditLogPluginRows:         &pluginStatusMockRows{size: 0},
 				},
 				execute: func(context.Context, commandlineexecutor.Params) commandlineexecutor.Result {
 					return commandlineexecutor.Result{
@@ -1451,12 +1484,18 @@ func TestCollectWlmMetricsOnce(t *testing.T) {
 			wantMetrics: &workloadmanager.WorkloadMetrics{
 				WorkloadType: workloadmanager.MYSQL,
 				Metrics: map[string]string{
-					bufferPoolKey:                 "134217728",
-					currentRoleKey:                sourceRole,
-					totalRAMKey:                   strconv.Itoa(4025040 * 1024),
-					innoDBKey:                     "true",
-					replicationZonesKey:           "",
-					notProtectedByAutoFailoverKey: "true",
+					bufferPoolKey:                    "134217728",
+					currentRoleKey:                   sourceRole,
+					totalRAMKey:                      strconv.Itoa(4025040 * 1024),
+					innoDBKey:                        "true",
+					replicationZonesKey:              "",
+					notProtectedByAutoFailoverKey:    "true",
+					noAutomatedBackupPolicyKey:       "true",
+					lastBackupOldKey:                 "true",
+					rootPasswordNotSetKey:            "false",
+					exposedToPublicAccessKey:         "false",
+					unencryptedConnectionsAllowedKey: "false",
+					auditingEnabledKey:               "false",
 				},
 			},
 			wantErr: false,
