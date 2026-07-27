@@ -39,15 +39,21 @@ import (
 )
 
 const (
-	innoDBKey                     = "is_inno_db_default"
-	bufferPoolKey                 = "buffer_pool_size"
-	totalRAMKey                   = "total_ram"
-	currentRoleKey                = "current_role"
-	replicationZonesKey           = "replication_zones"
-	notProtectedByAutoFailoverKey = "not_protected_by_auto_failover"
-	sourceRole                    = "source"
-	replicaRole                   = "replica"
-	replicationZonesQuery         = "SELECT HOST FROM information_schema.PROCESSLIST AS p WHERE p.COMMAND = 'Binlog Dump'"
+	innoDBKey                        = "is_inno_db_default"
+	bufferPoolKey                    = "buffer_pool_size"
+	totalRAMKey                      = "total_ram"
+	currentRoleKey                   = "current_role"
+	replicationZonesKey              = "replication_zones"
+	notProtectedByAutoFailoverKey    = "not_protected_by_auto_failover"
+	noAutomatedBackupPolicyKey       = "no_automated_backup_policy"
+	lastBackupOldKey                 = "last_backup_old"
+	rootPasswordNotSetKey            = "root_password_not_set"
+	exposedToPublicAccessKey         = "exposed_to_public_access"
+	unencryptedConnectionsAllowedKey = "unencrypted_connections_allowed"
+	auditingEnabledKey               = "auditing_enabled"
+	sourceRole                       = "source"
+	replicaRole                      = "replica"
+	replicationZonesQuery            = "SELECT HOST FROM information_schema.PROCESSLIST AS p WHERE p.COMMAND = 'Binlog Dump'"
 )
 
 type netInterface interface {
@@ -1135,29 +1141,54 @@ func (m *MySQLMetrics) CollectWlmMetricsOnce(ctx context.Context, dwActivated bo
 	}
 	currentRole := m.currentRole(ctx)
 	replicationZones := m.replicationZones(ctx, currentRole, &netImpl{})
-	notProtectedByAutoFailover, err := m.notProtectedByAutoFailover(ctx)
-	if err != nil {
-		log.CtxLogger(ctx).Warnf("Failed to get not protected by auto failover: %v", err)
-	}
-	log.CtxLogger(ctx).Debugw("Finished collecting MySQL metrics once. Next step is to send to WLM (DW).",
-		bufferPoolKey, bufferPoolSize,
-		totalRAMKey, totalRAM,
-		innoDBKey, isInnoDBDefault,
-		currentRoleKey, currentRole,
-		replicationZonesKey, strings.Join(replicationZones, ","),
-		notProtectedByAutoFailoverKey, notProtectedByAutoFailover,
-	)
 	metrics := workloadmanager.WorkloadMetrics{
 		WorkloadType: workloadmanager.MYSQL,
 		Metrics: map[string]string{
-			bufferPoolKey:                 strconv.FormatInt(bufferPoolSize, 10),
-			totalRAMKey:                   strconv.Itoa(totalRAM),
-			innoDBKey:                     strconv.FormatBool(isInnoDBDefault),
-			currentRoleKey:                currentRole,
-			replicationZonesKey:           strings.Join(replicationZones, ","),
-			notProtectedByAutoFailoverKey: strconv.FormatBool(notProtectedByAutoFailover),
+			bufferPoolKey:       strconv.FormatInt(bufferPoolSize, 10),
+			totalRAMKey:         strconv.Itoa(totalRAM),
+			innoDBKey:           strconv.FormatBool(isInnoDBDefault),
+			currentRoleKey:      currentRole,
+			replicationZonesKey: strings.Join(replicationZones, ","),
 		},
 	}
+	// To ensure the metric collection loop remains resilient as new rules are added, these evaluation metrics do not early-return on error;
+	// we simply won't populate them in the map. If collection fails, we log a warning and omit the key so that it defaults to ""NULL" in DWH.
+	if notProtectedByAutoFailover, err := m.notProtectedByAutoFailover(ctx); err == nil {
+		metrics.Metrics[notProtectedByAutoFailoverKey] = strconv.FormatBool(notProtectedByAutoFailover)
+	} else {
+		log.CtxLogger(ctx).Warnf("Failed to get not protected by auto failover: %v", err)
+	}
+	if noAutomatedBackupPolicy, err := m.noAutomatedBackupPolicy(ctx); err == nil {
+		metrics.Metrics[noAutomatedBackupPolicyKey] = strconv.FormatBool(noAutomatedBackupPolicy)
+	} else {
+		log.CtxLogger(ctx).Warnf("Failed to get no automated backup policy: %v", err)
+	}
+	if lastBackupOld, err := m.lastBackupOld(ctx); err == nil {
+		metrics.Metrics[lastBackupOldKey] = strconv.FormatBool(lastBackupOld)
+	} else {
+		log.CtxLogger(ctx).Warnf("Failed to get last backup old: %v", err)
+	}
+	if rootPasswordNotSet, err := m.rootPasswordNotSet(ctx); err == nil {
+		metrics.Metrics[rootPasswordNotSetKey] = strconv.FormatBool(rootPasswordNotSet)
+	} else {
+		log.CtxLogger(ctx).Warnf("Failed to get root password not set: %v", err)
+	}
+	if exposedToPublicAccess, err := m.exposedToPublicAccess(ctx); err == nil {
+		metrics.Metrics[exposedToPublicAccessKey] = strconv.FormatBool(exposedToPublicAccess)
+	} else {
+		log.CtxLogger(ctx).Warnf("Failed to get exposed to public access: %v", err)
+	}
+	if unencryptedConnectionsAllowed, err := m.unencryptedConnectionsAllowed(ctx); err == nil {
+		metrics.Metrics[unencryptedConnectionsAllowedKey] = strconv.FormatBool(unencryptedConnectionsAllowed)
+	} else {
+		log.CtxLogger(ctx).Warnf("Failed to get unencrypted connections allowed: %v", err)
+	}
+	if auditingEnabled, err := m.auditingEnabled(ctx); err == nil {
+		metrics.Metrics[auditingEnabledKey] = strconv.FormatBool(auditingEnabled)
+	} else {
+		log.CtxLogger(ctx).Warnf("Failed to get auditing enabled: %v", err)
+	}
+	log.CtxLogger(ctx).Debugw("Finished collecting MySQL metrics once. Next step is to send to WLM (DW).", "metrics", metrics.Metrics)
 	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
 		WLMetrics:  metrics,
 		CloudProps: m.Config.GetCloudProperties(),
