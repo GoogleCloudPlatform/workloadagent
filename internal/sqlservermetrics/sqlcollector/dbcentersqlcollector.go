@@ -88,24 +88,8 @@ var (
 		},
 
 		auditingEnabledQueryKey: {
-			query: `SELECT
-	CASE
-		WHEN COUNT(*) > 0 THEN 1
-		ELSE 0
-		END AS auditing_enabled
-	FROM	sys.server_audits sa
-	WHERE	sa.is_state_enabled = 1
-	AND (
-		EXISTS (SELECT 1
-       	  	FROM sys.server_audit_specifications sas
-           	WHERE sas.audit_guid = sa.audit_guid
-            AND sas.is_state_enabled = 1)
-	OR
-		EXISTS (SELECT 1
-       	  	FROM sys.database_audit_specifications das
-            WHERE das.audit_guid = sa.audit_guid
-            AND das.is_state_enabled = 1)
-    );`,
+			query: fmt.Sprintf(`WITH %s
+SELECT auditing_enabled FROM AuditingStatus;`, auditingEnabledCTE),
 			fields: func(rows [][]any) []map[string]string {
 				var res []map[string]string
 				for _, row := range rows {
