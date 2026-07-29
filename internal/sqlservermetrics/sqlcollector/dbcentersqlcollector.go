@@ -118,15 +118,8 @@ SELECT allows_unencrypted_connections FROM UnencryptedConnectionsStatus;`, allow
 		},
 
 		exposedToBroadIPAccessQueryKey: {
-			query: `SELECT
-	CASE
-		WHEN COUNT(*) > 0 THEN 1
-		ELSE 0
-	END AS exposed_to_broad_ip_access
-	FROM sys.dm_tcp_listener_states
-	WHERE state_desc = 'ONLINE'
-		AND (ip_address = '0.0.0.0'
-		OR ip_address = '::');`,
+			query: fmt.Sprintf(`WITH %s
+SELECT exposed_to_broad_ip_access FROM BroadIPAccessStatus;`, exposedToBroadIPAccessCTE),
 			fields: func(rows [][]any) []map[string]string {
 				var res []map[string]string
 				for _, row := range rows {

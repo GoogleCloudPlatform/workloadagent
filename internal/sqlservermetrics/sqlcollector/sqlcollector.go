@@ -114,6 +114,19 @@ const allowsUnencryptedConnectionsCTE = `UnencryptedConnectionsStatus AS (
 	  AND net_transport <> 'Shared memory'
 )`
 
+// exposedToBroadIPAccessCTE evaluates whether the SQL Server instance is listening on 0.0.0.0 or ::.
+const exposedToBroadIPAccessCTE = `BroadIPAccessStatus AS (
+	SELECT
+		CASE
+			WHEN COUNT(*) > 0 THEN 1
+			ELSE 0
+		END AS exposed_to_broad_ip_access
+	FROM sys.dm_tcp_listener_states
+	WHERE state_desc = 'ONLINE'
+	  AND (ip_address = '0.0.0.0'
+		OR ip_address = '::')
+)`
+
 // SQLMetrics defines the rules the agent will collect from sql server.
 var SQLMetrics = []SQLMetricsStruct{
 	{
@@ -288,7 +301,7 @@ var SQLMetrics = []SQLMetricsStruct{
 	},
 	{
 		Name: "INSTANCE_METRICS",
-		Query: fmt.Sprintf(`WITH %s, %s, %s
+		Query: fmt.Sprintf(`WITH %s, %s, %s, %s
 						SELECT
 							SERVERPROPERTY('productversion') AS productversion,
 							SERVERPROPERTY ('productlevel') AS productlevel,
@@ -302,8 +315,9 @@ var SQLMetrics = []SQLMetricsStruct{
 							numa_node_count AS numaNodeCount,
 							ISNULL((SELECT CASE WHEN SUM(CASE WHEN FailoverProtectionStatus = 'UNPROTECTED' THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END FROM DBStatuses), 0) AS not_protected_by_auto_failover,
 							ISNULL((SELECT CASE WHEN auditing_enabled = 1 THEN 0 ELSE 1 END FROM AuditingStatus), 1) AS auditing_not_enabled,
-							ISNULL((SELECT allows_unencrypted_connections FROM UnencryptedConnectionsStatus), 1) AS allows_unencrypted_connections
-						FROM sys.dm_os_sys_info`, notProtectedByAutoFailoverCTE, auditingEnabledCTE, allowsUnencryptedConnectionsCTE),
+							ISNULL((SELECT allows_unencrypted_connections FROM UnencryptedConnectionsStatus), 1) AS allows_unencrypted_connections,
+							ISNULL((SELECT exposed_to_broad_ip_access FROM BroadIPAccessStatus), 1) AS exposed_to_broad_ip_access
+						FROM sys.dm_os_sys_info`, notProtectedByAutoFailoverCTE, auditingEnabledCTE, allowsUnencryptedConnectionsCTE, exposedToBroadIPAccessCTE),
 		Fields: func(fields [][]any) []map[string]string {
 			res := []map[string]string{}
 			for _, f := range fields {
@@ -321,7 +335,8 @@ var SQLMetrics = []SQLMetricsStruct{
 					"not_protected_by_auto_failover": handleNilInt(f[10]),
 					"auditing_not_enabled":           handleNilInt(f[11]),
 					"allows_unencrypted_connections": handleNilInt(f[12]),
-					"os":                             handleNilString(f[13]),
+					"exposed_to_broad_ip_access":     handleNilInt(f[13]),
+					"os":                             handleNilString(f[14]),
 				})
 			}
 			return res
