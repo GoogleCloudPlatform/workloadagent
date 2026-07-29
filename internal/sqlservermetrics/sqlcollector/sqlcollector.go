@@ -80,6 +80,104 @@ DBStatuses AS (
 	  AND d.state_desc = 'ONLINE'
 )`
 
+// noAutomatedBackupPolicyCTE evaluates whether any database on the SQL Server instance lacks an automated backup policy.
+const noAutomatedBackupPolicyCTE = `AgentJobs AS (
+	SELECT
+		ISNULL(MAX(CASE WHEN LOWER(js.command) LIKE '%backup database%'
+							 OR LOWER(js.command) LIKE '%@backuptype = ''full''%'
+							 OR LOWER(js.command) LIKE '%dbo.databasebackup%'
+							 OR LOWER(js.command) LIKE '%minion.backup%' THEN 1 ELSE 0 END), 0) AS HasAgentFull,
+		ISNULL(MAX(CASE WHEN LOWER(js.command) LIKE '%backup log%'
+							 OR LOWER(js.command) LIKE '%@backuptype = ''log''%' THEN 1 ELSE 0 END), 0) AS HasAgentLog
+	FROM msdb.dbo.sysjobs j
+	INNER JOIN msdb.dbo.sysjobsteps js ON j.job_id = js.job_id
+	INNER JOIN msdb.dbo.sysjobschedules jsch ON j.job_id = jsch.job_id
+	INNER JOIN msdb.dbo.sysschedules s ON jsch.schedule_id = s.schedule_id
+	WHERE j.enabled = 1 AND s.enabled = 1
+),
+MaintPlanJobs AS (
+	SELECT
+		ISNULL(MAX(CASE WHEN LOWER(sld.command) LIKE '%backup database%' THEN 1 ELSE 0 END), 0) AS HasMaintFull,
+		ISNULL(MAX(CASE WHEN LOWER(sld.command) LIKE '%backup log%' THEN 1 ELSE 0 END), 0) AS HasMaintLog
+	FROM msdb.dbo.sysmaintplan_plans p
+	INNER JOIN msdb.dbo.sysmaintplan_subplans sp ON p.id = sp.plan_id
+	INNER JOIN msdb.dbo.sysjobs j ON sp.job_id = j.job_id
+	INNER JOIN msdb.dbo.sysjobschedules jsch ON j.job_id = jsch.job_id
+	INNER JOIN msdb.dbo.sysschedules s ON jsch.schedule_id = s.schedule_id
+	LEFT JOIN msdb.dbo.sysmaintplan_log sl ON sp.subplan_id = sl.subplan_id
+	LEFT JOIN msdb.dbo.sysmaintplan_logdetail sld ON sl.task_detail_id = sld.task_detail_id
+	WHERE j.enabled = 1 AND s.enabled = 1
+),
+ScheduledJobs AS (
+	SELECT
+		(SELECT HasAgentFull FROM AgentJobs) | (SELECT HasMaintFull FROM MaintPlanJobs) AS HasScheduledFull,
+		(SELECT HasAgentLog FROM AgentJobs) | (SELECT HasMaintLog FROM MaintPlanJobs) AS HasScheduledLog
+),
+DBCompliance AS (
+	SELECT
+		d.name,
+		CASE
+			WHEN d.recovery_model_desc = 'SIMPLE' AND j.HasScheduledFull = 1 THEN 1
+			WHEN d.recovery_model_desc IN ('FULL', 'BULK_LOGGED') AND j.HasScheduledFull = 1 AND j.HasScheduledLog = 1 THEN 1
+			ELSE 0
+		END AS IsCompliant
+	FROM master.sys.databases d
+	CROSS JOIN ScheduledJobs j
+	WHERE d.name NOT IN ('master', 'model', 'msdb', 'tempdb')
+	  AND d.state_desc = 'ONLINE'
+),
+NoAutomatedBackupPolicyStatus AS (
+	SELECT ISNULL(CASE WHEN SUM(CASE WHEN IsCompliant = 0 THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END, 0) AS no_automated_backup_policy
+	FROM DBCompliance
+)`
+
+// auditingEnabledCTE evaluates whether database auditing is enabled on the SQL Server instance.
+const auditingEnabledCTE = `AuditingStatus AS (
+	SELECT
+		CASE
+			WHEN COUNT(*) > 0 THEN 1
+			ELSE 0
+		END AS auditing_enabled
+	FROM sys.server_audits sa
+	WHERE sa.is_state_enabled = 1
+	  AND (
+		EXISTS (SELECT 1
+			FROM sys.server_audit_specifications sas
+			WHERE sas.audit_guid = sa.audit_guid
+			  AND sas.is_state_enabled = 1)
+		OR
+		EXISTS (SELECT 1
+			FROM sys.database_audit_specifications das
+			WHERE das.audit_guid = sa.audit_guid
+			  AND das.is_state_enabled = 1)
+	  )
+)`
+
+// allowsUnencryptedConnectionsCTE evaluates whether unencrypted connections exist on the SQL Server instance.
+const allowsUnencryptedConnectionsCTE = `UnencryptedConnectionsStatus AS (
+	SELECT
+		CASE
+			WHEN COUNT(*) > 0 THEN 1
+			ELSE 0
+		END AS allows_unencrypted_connections
+	FROM sys.dm_exec_connections
+	WHERE encrypt_option = 'FALSE'
+	  AND net_transport <> 'Shared memory'
+)`
+
+// exposedToBroadIPAccessCTE evaluates whether the SQL Server instance is listening on 0.0.0.0 or ::.
+const exposedToBroadIPAccessCTE = `BroadIPAccessStatus AS (
+	SELECT
+		CASE
+			WHEN COUNT(*) > 0 THEN 1
+			ELSE 0
+		END AS exposed_to_broad_ip_access
+	FROM sys.dm_tcp_listener_states
+	WHERE state_desc = 'ONLINE'
+	  AND (ip_address = '0.0.0.0'
+		OR ip_address = '::')
+)`
+
 // SQLMetrics defines the rules the agent will collect from sql server.
 var SQLMetrics = []SQLMetricsStruct{
 	{
@@ -254,7 +352,7 @@ var SQLMetrics = []SQLMetricsStruct{
 	},
 	{
 		Name: "INSTANCE_METRICS",
-		Query: fmt.Sprintf(`WITH %s
+		Query: fmt.Sprintf(`WITH %s, %s, %s, %s, %s
 						SELECT
 							SERVERPROPERTY('productversion') AS productversion,
 							SERVERPROPERTY ('productlevel') AS productlevel,
@@ -266,8 +364,12 @@ var SQLMetrics = []SQLMetricsStruct{
 							socket_count AS socketCount,
 							cores_per_socket AS coresPerSocket,
 							numa_node_count AS numaNodeCount,
-							ISNULL((SELECT CASE WHEN SUM(CASE WHEN FailoverProtectionStatus = 'UNPROTECTED' THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END FROM DBStatuses), 0) AS not_protected_by_auto_failover
-						FROM sys.dm_os_sys_info`, notProtectedByAutoFailoverCTE),
+							ISNULL((SELECT CASE WHEN SUM(CASE WHEN FailoverProtectionStatus = 'UNPROTECTED' THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END FROM DBStatuses), 0) AS not_protected_by_auto_failover,
+							ISNULL((SELECT no_automated_backup_policy FROM NoAutomatedBackupPolicyStatus), 1) AS no_automated_backup_policy,
+							ISNULL((SELECT CASE WHEN auditing_enabled = 1 THEN 0 ELSE 1 END FROM AuditingStatus), 1) AS auditing_not_enabled,
+							ISNULL((SELECT allows_unencrypted_connections FROM UnencryptedConnectionsStatus), 1) AS allows_unencrypted_connections,
+							ISNULL((SELECT exposed_to_broad_ip_access FROM BroadIPAccessStatus), 1) AS exposed_to_broad_ip_access
+						FROM sys.dm_os_sys_info`, notProtectedByAutoFailoverCTE, noAutomatedBackupPolicyCTE, auditingEnabledCTE, allowsUnencryptedConnectionsCTE, exposedToBroadIPAccessCTE),
 		Fields: func(fields [][]any) []map[string]string {
 			res := []map[string]string{}
 			for _, f := range fields {
@@ -283,7 +385,11 @@ var SQLMetrics = []SQLMetricsStruct{
 					"cores_per_socket":               handleNilInt(f[8]),
 					"numa_node_count":                handleNilInt(f[9]),
 					"not_protected_by_auto_failover": handleNilInt(f[10]),
-					"os":                             handleNilString(f[11]),
+					"no_automated_backup_policy":     handleNilInt(f[11]),
+					"auditing_not_enabled":           handleNilInt(f[12]),
+					"allows_unencrypted_connections": handleNilInt(f[13]),
+					"exposed_to_broad_ip_access":     handleNilInt(f[14]),
+					"os":                             handleNilString(f[15]),
 				})
 			}
 			return res
