@@ -102,6 +102,18 @@ const auditingEnabledCTE = `AuditingStatus AS (
 	  )
 )`
 
+// allowsUnencryptedConnectionsCTE evaluates whether unencrypted connections exist on the SQL Server instance.
+const allowsUnencryptedConnectionsCTE = `UnencryptedConnectionsStatus AS (
+	SELECT
+		CASE
+			WHEN COUNT(*) > 0 THEN 1
+			ELSE 0
+		END AS allows_unencrypted_connections
+	FROM sys.dm_exec_connections
+	WHERE encrypt_option = 'FALSE'
+	  AND net_transport <> 'Shared memory'
+)`
+
 // SQLMetrics defines the rules the agent will collect from sql server.
 var SQLMetrics = []SQLMetricsStruct{
 	{
@@ -276,7 +288,7 @@ var SQLMetrics = []SQLMetricsStruct{
 	},
 	{
 		Name: "INSTANCE_METRICS",
-		Query: fmt.Sprintf(`WITH %s, %s
+		Query: fmt.Sprintf(`WITH %s, %s, %s
 						SELECT
 							SERVERPROPERTY('productversion') AS productversion,
 							SERVERPROPERTY ('productlevel') AS productlevel,
@@ -289,8 +301,9 @@ var SQLMetrics = []SQLMetricsStruct{
 							cores_per_socket AS coresPerSocket,
 							numa_node_count AS numaNodeCount,
 							ISNULL((SELECT CASE WHEN SUM(CASE WHEN FailoverProtectionStatus = 'UNPROTECTED' THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END FROM DBStatuses), 0) AS not_protected_by_auto_failover,
-							ISNULL((SELECT CASE WHEN auditing_enabled = 1 THEN 0 ELSE 1 END FROM AuditingStatus), 1) AS auditing_not_enabled
-						FROM sys.dm_os_sys_info`, notProtectedByAutoFailoverCTE, auditingEnabledCTE),
+							ISNULL((SELECT CASE WHEN auditing_enabled = 1 THEN 0 ELSE 1 END FROM AuditingStatus), 1) AS auditing_not_enabled,
+							ISNULL((SELECT allows_unencrypted_connections FROM UnencryptedConnectionsStatus), 1) AS allows_unencrypted_connections
+						FROM sys.dm_os_sys_info`, notProtectedByAutoFailoverCTE, auditingEnabledCTE, allowsUnencryptedConnectionsCTE),
 		Fields: func(fields [][]any) []map[string]string {
 			res := []map[string]string{}
 			for _, f := range fields {
@@ -307,7 +320,8 @@ var SQLMetrics = []SQLMetricsStruct{
 					"numa_node_count":                handleNilInt(f[9]),
 					"not_protected_by_auto_failover": handleNilInt(f[10]),
 					"auditing_not_enabled":           handleNilInt(f[11]),
-					"os":                             handleNilString(f[12]),
+					"allows_unencrypted_connections": handleNilInt(f[12]),
+					"os":                             handleNilString(f[13]),
 				})
 			}
 			return res

@@ -127,7 +127,7 @@ func TestCollectSQLMetrics(t *testing.T) {
 			delay:   0,
 
 			mockQueryRes: []*sqlmock.Rows{
-				sqlmock.NewRows([]string{"col1", "col2", "col3", "col4", "col5", "col6", "col7", "col8", "col9", "col10", "col11", "col12"}).AddRow("val1", "val2", "val3", "val4", "val5", "val6", "val7", "val8", "val9", "val10", "val11", "val12"),
+				sqlmock.NewRows([]string{"col1", "col2", "col3", "col4", "col5", "col6", "col7", "col8", "col9", "col10", "col11", "col12", "col13"}).AddRow("val1", "val2", "val3", "val4", "val5", "val6", "val7", "val8", "val9", "val10", "val11", "val12", "val13"),
 			},
 
 			rule: []SQLMetricsStruct{
@@ -149,6 +149,7 @@ func TestCollectSQLMetrics(t *testing.T) {
 							"numa_node_count":                "unknown",
 							"not_protected_by_auto_failover": "unknown",
 							"auditing_not_enabled":           "unknown",
+							"allows_unencrypted_connections": "unknown",
 							"os":                             "linux",
 							"physical_memory_kb":             "unknown",
 							"product_level":                  "val2",

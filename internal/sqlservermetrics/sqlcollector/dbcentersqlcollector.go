@@ -103,14 +103,8 @@ SELECT auditing_enabled FROM AuditingStatus;`, auditingEnabledCTE),
 		},
 
 		allowUnencryptedConnQueryKey: {
-			query: `SELECT
-	CASE
-    WHEN COUNT(*) > 0 THEN 1
-    ELSE 0
-    END AS UnencryptedConnectionsExist
-	FROM sys.dm_exec_connections
-	WHERE encrypt_option = 'FALSE'
-  AND net_transport <> 'Shared memory';`,
+			query: fmt.Sprintf(`WITH %s
+SELECT allows_unencrypted_connections FROM UnencryptedConnectionsStatus;`, allowsUnencryptedConnectionsCTE),
 			fields: func(rows [][]any) []map[string]string {
 				var res []map[string]string
 				for _, row := range rows {
