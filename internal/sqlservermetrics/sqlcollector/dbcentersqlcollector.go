@@ -164,37 +164,7 @@ FROM DBStatuses;`, notProtectedByAutoFailoverCTE),
 		},
 
 		lastBackupOldQueryKey: {
-			query: `WITH LatestBackups AS (
-	SELECT
-		database_name,
-		MAX(CASE WHEN type IN ('D', 'I') THEN backup_finish_date END) AS LastBaseBackup,
-		MAX(CASE WHEN type = 'L' THEN backup_finish_date END) AS LastLogBackup
-	FROM msdb.dbo.backupset
-	WHERE type IN ('D', 'I', 'L')
-	  AND backup_finish_date >= DATEADD(day, -14, GETDATE())
-	GROUP BY database_name
-),
-DBStatuses AS (
-	SELECT
-		d.name,
-		CASE
-			WHEN d.recovery_model_desc = 'SIMPLE'
-				 AND b.LastBaseBackup >= DATEADD(hour, -24, GETDATE())
-				 THEN 'HEALTHY'
-			WHEN d.recovery_model_desc IN ('FULL', 'BULK_LOGGED')
-				 AND b.LastBaseBackup >= DATEADD(hour, -24, GETDATE())
-				 AND b.LastLogBackup >= DATEADD(hour, -24, GETDATE())
-				 THEN 'HEALTHY'
-			ELSE 'STALE_OR_MISSING_BACKUP'
-		END AS OperationalStatus
-	FROM master.sys.databases d
-	LEFT JOIN LatestBackups b ON d.name = b.database_name
-	WHERE d.name NOT IN ('master', 'model', 'msdb', 'tempdb')
-	  AND d.state_desc = 'ONLINE'
-	  AND d.create_date < DATEADD(hour, -24, GETDATE())
-)
-SELECT ISNULL(CASE WHEN SUM(CASE WHEN OperationalStatus = 'STALE_OR_MISSING_BACKUP' THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END, 0) AS last_backup_old
-FROM DBStatuses;`,
+			query: fmt.Sprintf("WITH %s SELECT last_backup_old FROM LastBackupOldStatus;", lastBackupOldCTE),
 			fields: func(rows [][]any) []map[string]string {
 				var res []map[string]string
 				for _, row := range rows {

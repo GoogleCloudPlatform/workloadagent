@@ -178,6 +178,41 @@ const exposedToBroadIPAccessCTE = `BroadIPAccessStatus AS (
 		OR ip_address = '::')
 )`
 
+// lastBackupOldCTE evaluates whether any database on the SQL Server instance has a stale or missing backup (> 24 hours).
+const lastBackupOldCTE = `LatestBackups AS (
+	SELECT
+		database_name,
+		MAX(CASE WHEN type IN ('D', 'I') THEN backup_finish_date END) AS LastBaseBackup,
+		MAX(CASE WHEN type = 'L' THEN backup_finish_date END) AS LastLogBackup
+	FROM msdb.dbo.backupset
+	WHERE type IN ('D', 'I', 'L')
+	  AND backup_finish_date >= DATEADD(day, -14, GETDATE())
+	GROUP BY database_name
+),
+BackupDBStatuses AS (
+	SELECT
+		d.name,
+		CASE
+			WHEN d.recovery_model_desc = 'SIMPLE'
+				 AND b.LastBaseBackup >= DATEADD(hour, -24, GETDATE())
+				 THEN 'HEALTHY'
+			WHEN d.recovery_model_desc IN ('FULL', 'BULK_LOGGED')
+				 AND b.LastBaseBackup >= DATEADD(hour, -24, GETDATE())
+				 AND b.LastLogBackup >= DATEADD(hour, -24, GETDATE())
+				 THEN 'HEALTHY'
+			ELSE 'STALE_OR_MISSING_BACKUP'
+		END AS OperationalStatus
+	FROM master.sys.databases d
+	LEFT JOIN LatestBackups b ON d.name = b.database_name
+	WHERE d.name NOT IN ('master', 'model', 'msdb', 'tempdb')
+	  AND d.state_desc = 'ONLINE'
+	  AND d.create_date < DATEADD(hour, -24, GETDATE())
+),
+LastBackupOldStatus AS (
+	SELECT ISNULL(CASE WHEN SUM(CASE WHEN OperationalStatus = 'STALE_OR_MISSING_BACKUP' THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END, 0) AS last_backup_old
+	FROM BackupDBStatuses
+)`
+
 // SQLMetrics defines the rules the agent will collect from sql server.
 var SQLMetrics = []SQLMetricsStruct{
 	{
@@ -352,7 +387,7 @@ var SQLMetrics = []SQLMetricsStruct{
 	},
 	{
 		Name: "INSTANCE_METRICS",
-		Query: fmt.Sprintf(`WITH %s, %s, %s, %s, %s
+		Query: fmt.Sprintf(`WITH %s, %s, %s, %s, %s, %s
 						SELECT
 							SERVERPROPERTY('productversion') AS productversion,
 							SERVERPROPERTY ('productlevel') AS productlevel,
@@ -368,8 +403,9 @@ var SQLMetrics = []SQLMetricsStruct{
 							ISNULL((SELECT no_automated_backup_policy FROM NoAutomatedBackupPolicyStatus), 1) AS no_automated_backup_policy,
 							ISNULL((SELECT CASE WHEN auditing_enabled = 1 THEN 0 ELSE 1 END FROM AuditingStatus), 1) AS auditing_not_enabled,
 							ISNULL((SELECT allows_unencrypted_connections FROM UnencryptedConnectionsStatus), 1) AS allows_unencrypted_connections,
-							ISNULL((SELECT exposed_to_broad_ip_access FROM BroadIPAccessStatus), 1) AS exposed_to_broad_ip_access
-						FROM sys.dm_os_sys_info`, notProtectedByAutoFailoverCTE, noAutomatedBackupPolicyCTE, auditingEnabledCTE, allowsUnencryptedConnectionsCTE, exposedToBroadIPAccessCTE),
+							ISNULL((SELECT exposed_to_broad_ip_access FROM BroadIPAccessStatus), 1) AS exposed_to_broad_ip_access,
+							ISNULL((SELECT last_backup_old FROM LastBackupOldStatus), 1) AS last_backup_old
+						FROM sys.dm_os_sys_info`, notProtectedByAutoFailoverCTE, noAutomatedBackupPolicyCTE, auditingEnabledCTE, allowsUnencryptedConnectionsCTE, exposedToBroadIPAccessCTE, lastBackupOldCTE),
 		Fields: func(fields [][]any) []map[string]string {
 			res := []map[string]string{}
 			for _, f := range fields {
@@ -389,7 +425,8 @@ var SQLMetrics = []SQLMetricsStruct{
 					"auditing_not_enabled":           handleNilInt(f[12]),
 					"allows_unencrypted_connections": handleNilInt(f[13]),
 					"exposed_to_broad_ip_access":     handleNilInt(f[14]),
-					"os":                             handleNilString(f[15]),
+					"last_backup_old":                handleNilInt(f[15]),
+					"os":                             handleNilString(f[16]),
 				})
 			}
 			return res
