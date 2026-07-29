@@ -80,6 +80,28 @@ DBStatuses AS (
 	  AND d.state_desc = 'ONLINE'
 )`
 
+// auditingEnabledCTE evaluates whether database auditing is enabled on the SQL Server instance.
+const auditingEnabledCTE = `AuditingStatus AS (
+	SELECT
+		CASE
+			WHEN COUNT(*) > 0 THEN 1
+			ELSE 0
+		END AS auditing_enabled
+	FROM sys.server_audits sa
+	WHERE sa.is_state_enabled = 1
+	  AND (
+		EXISTS (SELECT 1
+			FROM sys.server_audit_specifications sas
+			WHERE sas.audit_guid = sa.audit_guid
+			  AND sas.is_state_enabled = 1)
+		OR
+		EXISTS (SELECT 1
+			FROM sys.database_audit_specifications das
+			WHERE das.audit_guid = sa.audit_guid
+			  AND das.is_state_enabled = 1)
+	  )
+)`
+
 // SQLMetrics defines the rules the agent will collect from sql server.
 var SQLMetrics = []SQLMetricsStruct{
 	{
@@ -254,7 +276,7 @@ var SQLMetrics = []SQLMetricsStruct{
 	},
 	{
 		Name: "INSTANCE_METRICS",
-		Query: fmt.Sprintf(`WITH %s
+		Query: fmt.Sprintf(`WITH %s, %s
 						SELECT
 							SERVERPROPERTY('productversion') AS productversion,
 							SERVERPROPERTY ('productlevel') AS productlevel,
@@ -266,8 +288,9 @@ var SQLMetrics = []SQLMetricsStruct{
 							socket_count AS socketCount,
 							cores_per_socket AS coresPerSocket,
 							numa_node_count AS numaNodeCount,
-							ISNULL((SELECT CASE WHEN SUM(CASE WHEN FailoverProtectionStatus = 'UNPROTECTED' THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END FROM DBStatuses), 0) AS not_protected_by_auto_failover
-						FROM sys.dm_os_sys_info`, notProtectedByAutoFailoverCTE),
+							ISNULL((SELECT CASE WHEN SUM(CASE WHEN FailoverProtectionStatus = 'UNPROTECTED' THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END FROM DBStatuses), 0) AS not_protected_by_auto_failover,
+							ISNULL((SELECT CASE WHEN auditing_enabled = 1 THEN 0 ELSE 1 END FROM AuditingStatus), 1) AS auditing_not_enabled
+						FROM sys.dm_os_sys_info`, notProtectedByAutoFailoverCTE, auditingEnabledCTE),
 		Fields: func(fields [][]any) []map[string]string {
 			res := []map[string]string{}
 			for _, f := range fields {
@@ -283,7 +306,8 @@ var SQLMetrics = []SQLMetricsStruct{
 					"cores_per_socket":               handleNilInt(f[8]),
 					"numa_node_count":                handleNilInt(f[9]),
 					"not_protected_by_auto_failover": handleNilInt(f[10]),
-					"os":                             handleNilString(f[11]),
+					"auditing_not_enabled":           handleNilInt(f[11]),
+					"os":                             handleNilString(f[12]),
 				})
 			}
 			return res
