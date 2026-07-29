@@ -80,6 +80,57 @@ DBStatuses AS (
 	  AND d.state_desc = 'ONLINE'
 )`
 
+// noAutomatedBackupPolicyCTE evaluates whether any database on the SQL Server instance lacks an automated backup policy.
+const noAutomatedBackupPolicyCTE = `AgentJobs AS (
+	SELECT
+		ISNULL(MAX(CASE WHEN LOWER(js.command) LIKE '%backup database%'
+							 OR LOWER(js.command) LIKE '%@backuptype = ''full''%'
+							 OR LOWER(js.command) LIKE '%dbo.databasebackup%'
+							 OR LOWER(js.command) LIKE '%minion.backup%' THEN 1 ELSE 0 END), 0) AS HasAgentFull,
+		ISNULL(MAX(CASE WHEN LOWER(js.command) LIKE '%backup log%'
+							 OR LOWER(js.command) LIKE '%@backuptype = ''log''%' THEN 1 ELSE 0 END), 0) AS HasAgentLog
+	FROM msdb.dbo.sysjobs j
+	INNER JOIN msdb.dbo.sysjobsteps js ON j.job_id = js.job_id
+	INNER JOIN msdb.dbo.sysjobschedules jsch ON j.job_id = jsch.job_id
+	INNER JOIN msdb.dbo.sysschedules s ON jsch.schedule_id = s.schedule_id
+	WHERE j.enabled = 1 AND s.enabled = 1
+),
+MaintPlanJobs AS (
+	SELECT
+		ISNULL(MAX(CASE WHEN LOWER(sld.command) LIKE '%backup database%' THEN 1 ELSE 0 END), 0) AS HasMaintFull,
+		ISNULL(MAX(CASE WHEN LOWER(sld.command) LIKE '%backup log%' THEN 1 ELSE 0 END), 0) AS HasMaintLog
+	FROM msdb.dbo.sysmaintplan_plans p
+	INNER JOIN msdb.dbo.sysmaintplan_subplans sp ON p.id = sp.plan_id
+	INNER JOIN msdb.dbo.sysjobs j ON sp.job_id = j.job_id
+	INNER JOIN msdb.dbo.sysjobschedules jsch ON j.job_id = jsch.job_id
+	INNER JOIN msdb.dbo.sysschedules s ON jsch.schedule_id = s.schedule_id
+	LEFT JOIN msdb.dbo.sysmaintplan_log sl ON sp.subplan_id = sl.subplan_id
+	LEFT JOIN msdb.dbo.sysmaintplan_logdetail sld ON sl.task_detail_id = sld.task_detail_id
+	WHERE j.enabled = 1 AND s.enabled = 1
+),
+ScheduledJobs AS (
+	SELECT
+		(SELECT HasAgentFull FROM AgentJobs) | (SELECT HasMaintFull FROM MaintPlanJobs) AS HasScheduledFull,
+		(SELECT HasAgentLog FROM AgentJobs) | (SELECT HasMaintLog FROM MaintPlanJobs) AS HasScheduledLog
+),
+DBCompliance AS (
+	SELECT
+		d.name,
+		CASE
+			WHEN d.recovery_model_desc = 'SIMPLE' AND j.HasScheduledFull = 1 THEN 1
+			WHEN d.recovery_model_desc IN ('FULL', 'BULK_LOGGED') AND j.HasScheduledFull = 1 AND j.HasScheduledLog = 1 THEN 1
+			ELSE 0
+		END AS IsCompliant
+	FROM master.sys.databases d
+	CROSS JOIN ScheduledJobs j
+	WHERE d.name NOT IN ('master', 'model', 'msdb', 'tempdb')
+	  AND d.state_desc = 'ONLINE'
+),
+NoAutomatedBackupPolicyStatus AS (
+	SELECT ISNULL(CASE WHEN SUM(CASE WHEN IsCompliant = 0 THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END, 0) AS no_automated_backup_policy
+	FROM DBCompliance
+)`
+
 // auditingEnabledCTE evaluates whether database auditing is enabled on the SQL Server instance.
 const auditingEnabledCTE = `AuditingStatus AS (
 	SELECT
@@ -125,6 +176,41 @@ const exposedToBroadIPAccessCTE = `BroadIPAccessStatus AS (
 	WHERE state_desc = 'ONLINE'
 	  AND (ip_address = '0.0.0.0'
 		OR ip_address = '::')
+)`
+
+// lastBackupOldCTE evaluates whether any database on the SQL Server instance has a stale or missing backup (> 24 hours).
+const lastBackupOldCTE = `LatestBackups AS (
+	SELECT
+		database_name,
+		MAX(CASE WHEN type IN ('D', 'I') THEN backup_finish_date END) AS LastBaseBackup,
+		MAX(CASE WHEN type = 'L' THEN backup_finish_date END) AS LastLogBackup
+	FROM msdb.dbo.backupset
+	WHERE type IN ('D', 'I', 'L')
+	  AND backup_finish_date >= DATEADD(day, -14, GETDATE())
+	GROUP BY database_name
+),
+BackupDBStatuses AS (
+	SELECT
+		d.name,
+		CASE
+			WHEN d.recovery_model_desc = 'SIMPLE'
+				 AND b.LastBaseBackup >= DATEADD(hour, -24, GETDATE())
+				 THEN 'HEALTHY'
+			WHEN d.recovery_model_desc IN ('FULL', 'BULK_LOGGED')
+				 AND b.LastBaseBackup >= DATEADD(hour, -24, GETDATE())
+				 AND b.LastLogBackup >= DATEADD(hour, -24, GETDATE())
+				 THEN 'HEALTHY'
+			ELSE 'STALE_OR_MISSING_BACKUP'
+		END AS OperationalStatus
+	FROM master.sys.databases d
+	LEFT JOIN LatestBackups b ON d.name = b.database_name
+	WHERE d.name NOT IN ('master', 'model', 'msdb', 'tempdb')
+	  AND d.state_desc = 'ONLINE'
+	  AND d.create_date < DATEADD(hour, -24, GETDATE())
+),
+LastBackupOldStatus AS (
+	SELECT ISNULL(CASE WHEN SUM(CASE WHEN OperationalStatus = 'STALE_OR_MISSING_BACKUP' THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END, 0) AS last_backup_old
+	FROM BackupDBStatuses
 )`
 
 // SQLMetrics defines the rules the agent will collect from sql server.
@@ -301,7 +387,7 @@ var SQLMetrics = []SQLMetricsStruct{
 	},
 	{
 		Name: "INSTANCE_METRICS",
-		Query: fmt.Sprintf(`WITH %s, %s, %s, %s
+		Query: fmt.Sprintf(`WITH %s, %s, %s, %s, %s, %s
 						SELECT
 							SERVERPROPERTY('productversion') AS productversion,
 							SERVERPROPERTY ('productlevel') AS productlevel,
@@ -314,10 +400,12 @@ var SQLMetrics = []SQLMetricsStruct{
 							cores_per_socket AS coresPerSocket,
 							numa_node_count AS numaNodeCount,
 							ISNULL((SELECT CASE WHEN SUM(CASE WHEN FailoverProtectionStatus = 'UNPROTECTED' THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END FROM DBStatuses), 0) AS not_protected_by_auto_failover,
+							ISNULL((SELECT no_automated_backup_policy FROM NoAutomatedBackupPolicyStatus), 1) AS no_automated_backup_policy,
 							ISNULL((SELECT CASE WHEN auditing_enabled = 1 THEN 0 ELSE 1 END FROM AuditingStatus), 1) AS auditing_not_enabled,
 							ISNULL((SELECT allows_unencrypted_connections FROM UnencryptedConnectionsStatus), 1) AS allows_unencrypted_connections,
-							ISNULL((SELECT exposed_to_broad_ip_access FROM BroadIPAccessStatus), 1) AS exposed_to_broad_ip_access
-						FROM sys.dm_os_sys_info`, notProtectedByAutoFailoverCTE, auditingEnabledCTE, allowsUnencryptedConnectionsCTE, exposedToBroadIPAccessCTE),
+							ISNULL((SELECT exposed_to_broad_ip_access FROM BroadIPAccessStatus), 1) AS exposed_to_broad_ip_access,
+							ISNULL((SELECT last_backup_old FROM LastBackupOldStatus), 1) AS last_backup_old
+						FROM sys.dm_os_sys_info`, notProtectedByAutoFailoverCTE, noAutomatedBackupPolicyCTE, auditingEnabledCTE, allowsUnencryptedConnectionsCTE, exposedToBroadIPAccessCTE, lastBackupOldCTE),
 		Fields: func(fields [][]any) []map[string]string {
 			res := []map[string]string{}
 			for _, f := range fields {
@@ -333,10 +421,12 @@ var SQLMetrics = []SQLMetricsStruct{
 					"cores_per_socket":               handleNilInt(f[8]),
 					"numa_node_count":                handleNilInt(f[9]),
 					"not_protected_by_auto_failover": handleNilInt(f[10]),
-					"auditing_not_enabled":           handleNilInt(f[11]),
-					"allows_unencrypted_connections": handleNilInt(f[12]),
-					"exposed_to_broad_ip_access":     handleNilInt(f[13]),
-					"os":                             handleNilString(f[14]),
+					"no_automated_backup_policy":     handleNilInt(f[11]),
+					"auditing_not_enabled":           handleNilInt(f[12]),
+					"allows_unencrypted_connections": handleNilInt(f[13]),
+					"exposed_to_broad_ip_access":     handleNilInt(f[14]),
+					"last_backup_old":                handleNilInt(f[15]),
+					"os":                             handleNilString(f[16]),
 				})
 			}
 			return res

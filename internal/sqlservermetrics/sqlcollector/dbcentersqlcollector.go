@@ -150,53 +150,7 @@ FROM DBStatuses;`, notProtectedByAutoFailoverCTE),
 		},
 
 		noAutomatedBackupPolicyQueryKey: {
-			query: `WITH AgentJobs AS (
-	SELECT
-		ISNULL(MAX(CASE WHEN LOWER(js.command) LIKE '%backup database%'
-							 OR LOWER(js.command) LIKE '%@backuptype = ''full''%'
-							 OR LOWER(js.command) LIKE '%dbo.databasebackup%'
-							 OR LOWER(js.command) LIKE '%minion.backup%' THEN 1 ELSE 0 END), 0) AS HasAgentFull,
-		ISNULL(MAX(CASE WHEN LOWER(js.command) LIKE '%backup log%'
-							 OR LOWER(js.command) LIKE '%@backuptype = ''log''%' THEN 1 ELSE 0 END), 0) AS HasAgentLog
-	FROM msdb.dbo.sysjobs j
-	INNER JOIN msdb.dbo.sysjobsteps js ON j.job_id = js.job_id
-	INNER JOIN msdb.dbo.sysjobschedules jsch ON j.job_id = jsch.job_id
-	INNER JOIN msdb.dbo.sysschedules s ON jsch.schedule_id = s.schedule_id
-	WHERE j.enabled = 1 AND s.enabled = 1
-),
-MaintPlanJobs AS (
-	SELECT
-		ISNULL(MAX(CASE WHEN LOWER(sld.command) LIKE '%backup database%' THEN 1 ELSE 0 END), 0) AS HasMaintFull,
-		ISNULL(MAX(CASE WHEN LOWER(sld.command) LIKE '%backup log%' THEN 1 ELSE 0 END), 0) AS HasMaintLog
-	FROM msdb.dbo.sysmaintplan_plans p
-	INNER JOIN msdb.dbo.sysmaintplan_subplans sp ON p.id = sp.plan_id
-	INNER JOIN msdb.dbo.sysjobs j ON sp.job_id = j.job_id
-	INNER JOIN msdb.dbo.sysjobschedules jsch ON j.job_id = jsch.job_id
-	INNER JOIN msdb.dbo.sysschedules s ON jsch.schedule_id = s.schedule_id
-	LEFT JOIN msdb.dbo.sysmaintplan_log sl ON sp.subplan_id = sl.subplan_id
-	LEFT JOIN msdb.dbo.sysmaintplan_logdetail sld ON sl.task_detail_id = sld.task_detail_id
-	WHERE j.enabled = 1 AND s.enabled = 1
-),
-ScheduledJobs AS (
-	SELECT
-		(SELECT HasAgentFull FROM AgentJobs) | (SELECT HasMaintFull FROM MaintPlanJobs) AS HasScheduledFull,
-		(SELECT HasAgentLog FROM AgentJobs) | (SELECT HasMaintLog FROM MaintPlanJobs) AS HasScheduledLog
-),
-DBCompliance AS (
-	SELECT
-		d.name,
-		CASE
-			WHEN d.recovery_model_desc = 'SIMPLE' AND j.HasScheduledFull = 1 THEN 1
-			WHEN d.recovery_model_desc IN ('FULL', 'BULK_LOGGED') AND j.HasScheduledFull = 1 AND j.HasScheduledLog = 1 THEN 1
-			ELSE 0
-		END AS IsCompliant
-	FROM master.sys.databases d
-	CROSS JOIN ScheduledJobs j
-	WHERE d.name NOT IN ('master', 'model', 'msdb', 'tempdb')
-	  AND d.state_desc = 'ONLINE'
-)
-SELECT ISNULL(CASE WHEN SUM(CASE WHEN IsCompliant = 0 THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END, 0) AS no_automated_backup_policy
-FROM DBCompliance;`,
+			query: fmt.Sprintf("WITH %s SELECT no_automated_backup_policy FROM NoAutomatedBackupPolicyStatus;", noAutomatedBackupPolicyCTE),
 			fields: func(rows [][]any) []map[string]string {
 				var res []map[string]string
 				for _, row := range rows {
@@ -210,37 +164,7 @@ FROM DBCompliance;`,
 		},
 
 		lastBackupOldQueryKey: {
-			query: `WITH LatestBackups AS (
-	SELECT
-		database_name,
-		MAX(CASE WHEN type IN ('D', 'I') THEN backup_finish_date END) AS LastBaseBackup,
-		MAX(CASE WHEN type = 'L' THEN backup_finish_date END) AS LastLogBackup
-	FROM msdb.dbo.backupset
-	WHERE type IN ('D', 'I', 'L')
-	  AND backup_finish_date >= DATEADD(day, -14, GETDATE())
-	GROUP BY database_name
-),
-DBStatuses AS (
-	SELECT
-		d.name,
-		CASE
-			WHEN d.recovery_model_desc = 'SIMPLE'
-				 AND b.LastBaseBackup >= DATEADD(hour, -24, GETDATE())
-				 THEN 'HEALTHY'
-			WHEN d.recovery_model_desc IN ('FULL', 'BULK_LOGGED')
-				 AND b.LastBaseBackup >= DATEADD(hour, -24, GETDATE())
-				 AND b.LastLogBackup >= DATEADD(hour, -24, GETDATE())
-				 THEN 'HEALTHY'
-			ELSE 'STALE_OR_MISSING_BACKUP'
-		END AS OperationalStatus
-	FROM master.sys.databases d
-	LEFT JOIN LatestBackups b ON d.name = b.database_name
-	WHERE d.name NOT IN ('master', 'model', 'msdb', 'tempdb')
-	  AND d.state_desc = 'ONLINE'
-	  AND d.create_date < DATEADD(hour, -24, GETDATE())
-)
-SELECT ISNULL(CASE WHEN SUM(CASE WHEN OperationalStatus = 'STALE_OR_MISSING_BACKUP' THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END, 0) AS last_backup_old
-FROM DBStatuses;`,
+			query: fmt.Sprintf("WITH %s SELECT last_backup_old FROM LastBackupOldStatus;", lastBackupOldCTE),
 			fields: func(rows [][]any) []map[string]string {
 				var res []map[string]string
 				for _, row := range rows {
