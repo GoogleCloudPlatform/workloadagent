@@ -682,9 +682,6 @@ func (m *MySQLMetrics) isReplicaHealthy(ctx context.Context) (bool, error) {
 	// SHOW REPLICA STATUS is supported in MySQL 8.0.22+; fallback to SHOW SLAVE STATUS for older versions (e.g. MySQL 5.7 / < 8.0.22).
 	rows, err := executeQuery(ctx, m.db, "SHOW REPLICA STATUS")
 	if err != nil || rows == nil {
-		if rows != nil {
-			rows.Close()
-		}
 		rows, err = executeQuery(ctx, m.db, "SHOW SLAVE STATUS")
 	}
 	if err != nil {
@@ -899,9 +896,6 @@ func (m *MySQLMetrics) hasActiveDumpThreads(ctx context.Context) (bool, error) {
 	query := "SELECT COUNT(*) FROM performance_schema.threads WHERE PROCESSLIST_COMMAND IN ('Binlog Dump', 'Binlog Dump GTID')"
 	rows, err := executeQuery(ctx, m.db, query)
 	if err != nil || rows == nil {
-		if rows != nil {
-			rows.Close()
-		}
 		query = "SELECT COUNT(*) FROM information_schema.PROCESSLIST WHERE COMMAND IN ('Binlog Dump', 'Binlog Dump GTID')"
 		rows, err = executeQuery(ctx, m.db, query)
 	}
