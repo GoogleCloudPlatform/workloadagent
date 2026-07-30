@@ -1111,88 +1111,6 @@ func (m *MySQLMetrics) systemdServiceExitTime(ctx context.Context, serviceName s
 	return t, true
 }
 
-// CollectMetricsOnce collects metrics for MySQL databases running on the host.
-func (m *MySQLMetrics) CollectWlmMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
-	if !dwActivated {
-		log.CtxLogger(ctx).Debugw("Data Warehouse is not activated, not sending metrics to Data Warehouse")
-		return nil, nil
-	}
-	bufferPoolSize, err := m.bufferPoolSize(ctx)
-	if err != nil {
-		log.CtxLogger(ctx).Warnf("Failed to get buffer pool size: %v", err)
-		return nil, err
-	}
-	isWindowsOS := runtime.GOOS == "windows"
-	totalRAM, err := m.totalRAM(ctx, isWindowsOS)
-	if err != nil {
-		log.CtxLogger(ctx).Warnf("Failed to get total RAM: %v", err)
-		return nil, err
-	}
-	isInnoDBDefault, err := m.isInnoDBStorageEngine(ctx)
-	if err != nil {
-		log.CtxLogger(ctx).Warnf("Failed to get InnoDB default status: %v", err)
-		return nil, err
-	}
-	currentRole := m.currentRole(ctx)
-	replicationZones := m.replicationZones(ctx, currentRole, &netImpl{})
-	metrics := workloadmanager.WorkloadMetrics{
-		WorkloadType: workloadmanager.MYSQL,
-		Metrics: map[string]string{
-			bufferPoolKey:       strconv.FormatInt(bufferPoolSize, 10),
-			totalRAMKey:         strconv.Itoa(totalRAM),
-			innoDBKey:           strconv.FormatBool(isInnoDBDefault),
-			currentRoleKey:      currentRole,
-			replicationZonesKey: strings.Join(replicationZones, ","),
-		},
-	}
-	// To ensure the metric collection loop remains resilient as new rules are added, these evaluation metrics do not early-return on error;
-	// we simply won't populate them in the map. If collection fails, we log a warning and omit the key so that it defaults to ""NULL" in DWH.
-	if notProtectedByAutoFailover, err := m.notProtectedByAutoFailover(ctx); err == nil {
-		metrics.Metrics[notProtectedByAutoFailoverKey] = strconv.FormatBool(notProtectedByAutoFailover)
-	} else {
-		log.CtxLogger(ctx).Warnf("Failed to get not protected by auto failover: %v", err)
-	}
-	noAutomatedBackupPolicy, _ := m.noAutomatedBackupPolicy(ctx)
-	metrics.Metrics[noAutomatedBackupPolicyKey] = strconv.FormatBool(noAutomatedBackupPolicy)
-	lastBackupOld, err := m.lastBackupOld(ctx)
-	metrics.Metrics[lastBackupOldKey] = strconv.FormatBool(lastBackupOld)
-	if rootPasswordNotSet, err := m.rootPasswordNotSet(ctx); err == nil {
-		metrics.Metrics[rootPasswordNotSetKey] = strconv.FormatBool(rootPasswordNotSet)
-	} else {
-		log.CtxLogger(ctx).Warnf("Failed to get root password not set: %v", err)
-	}
-	if exposedToPublicAccess, err := m.exposedToPublicAccess(ctx); err == nil {
-		metrics.Metrics[exposedToPublicAccessKey] = strconv.FormatBool(exposedToPublicAccess)
-	} else {
-		log.CtxLogger(ctx).Warnf("Failed to get exposed to public access: %v", err)
-	}
-	if unencryptedConnectionsAllowed, err := m.unencryptedConnectionsAllowed(ctx); err == nil {
-		metrics.Metrics[unencryptedConnectionsAllowedKey] = strconv.FormatBool(unencryptedConnectionsAllowed)
-	} else {
-		log.CtxLogger(ctx).Warnf("Failed to get unencrypted connections allowed: %v", err)
-	}
-	if auditingEnabled, err := m.auditingEnabled(ctx); err == nil {
-		metrics.Metrics[auditingEnabledKey] = strconv.FormatBool(auditingEnabled)
-	} else {
-		log.CtxLogger(ctx).Warnf("Failed to get auditing enabled: %v", err)
-	}
-	log.CtxLogger(ctx).Debugw("Finished collecting MySQL metrics once. Next step is to send to WLM (DW).", "metrics", metrics.Metrics)
-	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
-		WLMetrics:  metrics,
-		CloudProps: m.Config.GetCloudProperties(),
-		WLMService: m.WLMClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if res == nil {
-		log.CtxLogger(ctx).Warn("SendDataInsight did not return an error but the WriteInsight response is nil")
-		return &metrics, nil
-	}
-	log.CtxLogger(ctx).Debugw("WriteInsight response", "StatusCode", res.HTTPStatusCode)
-	return &metrics, nil
-}
-
 var (
 	backupToolSignatures = []string{
 		"mysqldump", "mysqlpump", "mydumper",
@@ -1393,6 +1311,88 @@ func containsBackupSignature(line string) bool {
 		}
 	}
 	return false
+}
+
+// CollectMetricsOnce collects metrics for MySQL databases running on the host.
+func (m *MySQLMetrics) CollectWlmMetricsOnce(ctx context.Context, dwActivated bool) (*workloadmanager.WorkloadMetrics, error) {
+	if !dwActivated {
+		log.CtxLogger(ctx).Debugw("Data Warehouse is not activated, not sending metrics to Data Warehouse")
+		return nil, nil
+	}
+	bufferPoolSize, err := m.bufferPoolSize(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Warnf("Failed to get buffer pool size: %v", err)
+		return nil, err
+	}
+	isWindowsOS := runtime.GOOS == "windows"
+	totalRAM, err := m.totalRAM(ctx, isWindowsOS)
+	if err != nil {
+		log.CtxLogger(ctx).Warnf("Failed to get total RAM: %v", err)
+		return nil, err
+	}
+	isInnoDBDefault, err := m.isInnoDBStorageEngine(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Warnf("Failed to get InnoDB default status: %v", err)
+		return nil, err
+	}
+	currentRole := m.currentRole(ctx)
+	replicationZones := m.replicationZones(ctx, currentRole, &netImpl{})
+	metrics := workloadmanager.WorkloadMetrics{
+		WorkloadType: workloadmanager.MYSQL,
+		Metrics: map[string]string{
+			bufferPoolKey:       strconv.FormatInt(bufferPoolSize, 10),
+			totalRAMKey:         strconv.Itoa(totalRAM),
+			innoDBKey:           strconv.FormatBool(isInnoDBDefault),
+			currentRoleKey:      currentRole,
+			replicationZonesKey: strings.Join(replicationZones, ","),
+		},
+	}
+	// To ensure the metric collection loop remains resilient as new rules are added, these evaluation metrics do not early-return on error;
+	// we simply won't populate them in the map. If collection fails, we log a warning and omit the key so that it defaults to ""NULL" in DWH.
+	if notProtectedByAutoFailover, err := m.notProtectedByAutoFailover(ctx); err == nil {
+		metrics.Metrics[notProtectedByAutoFailoverKey] = strconv.FormatBool(notProtectedByAutoFailover)
+	} else {
+		log.CtxLogger(ctx).Warnf("Failed to get not protected by auto failover: %v", err)
+	}
+	noAutomatedBackupPolicy, _ := m.noAutomatedBackupPolicy(ctx)
+	metrics.Metrics[noAutomatedBackupPolicyKey] = strconv.FormatBool(noAutomatedBackupPolicy)
+	lastBackupOld, err := m.lastBackupOld(ctx)
+	metrics.Metrics[lastBackupOldKey] = strconv.FormatBool(lastBackupOld)
+	if rootPasswordNotSet, err := m.rootPasswordNotSet(ctx); err == nil {
+		metrics.Metrics[rootPasswordNotSetKey] = strconv.FormatBool(rootPasswordNotSet)
+	} else {
+		log.CtxLogger(ctx).Warnf("Failed to get root password not set: %v", err)
+	}
+	if exposedToPublicAccess, err := m.exposedToPublicAccess(ctx); err == nil {
+		metrics.Metrics[exposedToPublicAccessKey] = strconv.FormatBool(exposedToPublicAccess)
+	} else {
+		log.CtxLogger(ctx).Warnf("Failed to get exposed to public access: %v", err)
+	}
+	if unencryptedConnectionsAllowed, err := m.unencryptedConnectionsAllowed(ctx); err == nil {
+		metrics.Metrics[unencryptedConnectionsAllowedKey] = strconv.FormatBool(unencryptedConnectionsAllowed)
+	} else {
+		log.CtxLogger(ctx).Warnf("Failed to get unencrypted connections allowed: %v", err)
+	}
+	if auditingEnabled, err := m.auditingEnabled(ctx); err == nil {
+		metrics.Metrics[auditingEnabledKey] = strconv.FormatBool(auditingEnabled)
+	} else {
+		log.CtxLogger(ctx).Warnf("Failed to get auditing enabled: %v", err)
+	}
+	log.CtxLogger(ctx).Debugw("Finished collecting MySQL metrics once. Next step is to send to WLM (DW).", "metrics", metrics.Metrics)
+	res, err := workloadmanager.SendDataInsight(ctx, workloadmanager.SendDataInsightParams{
+		WLMetrics:  metrics,
+		CloudProps: m.Config.GetCloudProperties(),
+		WLMService: m.WLMClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if res == nil {
+		log.CtxLogger(ctx).Warn("SendDataInsight did not return an error but the WriteInsight response is nil")
+		return &metrics, nil
+	}
+	log.CtxLogger(ctx).Debugw("WriteInsight response", "StatusCode", res.HTTPStatusCode)
+	return &metrics, nil
 }
 
 // CollectDBCenterMetricsOnce collects metrics to send to Database Center for MySQL databases running on the host.
