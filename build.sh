@@ -62,12 +62,17 @@ if [ "${COMPILE_PROTOS}" == "TRUE" ] && [ ! -d "workloadagentplatform" ]; then
     find workloadagentplatform/sharedprotos -type f -exec sed -i 's|"sharedprotos|"workloadagentplatform/sharedprotos|g' {} +
 fi
 
-echo "**************  Getting go 1.25.11"
-curl -sLOS https://go.dev/dl/go1.25.11.linux-amd64.tar.gz
+echo "**************  Getting latest Go version"
+LATEST_GO_VERSION=$(curl -s https://go.dev/dl/?mode=json | jq -r '.[0].version' || echo "go1.25.11")
+if [ -z "${LATEST_GO_VERSION}" ] || [ "${LATEST_GO_VERSION}" == "null" ]; then
+  LATEST_GO_VERSION="go1.25.11"
+fi
+echo "**************  Installing Go ${LATEST_GO_VERSION}"
+curl -sLOS "https://go.dev/dl/${LATEST_GO_VERSION}.linux-amd64.tar.gz"
 chmod -fR u+rwx /tmp/workloadagent || :
 rm -fr /tmp/workloadagent
 mkdir -p /tmp/workloadagent
-tar -C /tmp/workloadagent -xzf go1.25.11.linux-amd64.tar.gz
+tar -C /tmp/workloadagent -xzf "${LATEST_GO_VERSION}.linux-amd64.tar.gz"
 
 export GOROOT=/tmp/workloadagent/go
 export GOPATH=/tmp/workloadagent/gopath
@@ -100,22 +105,20 @@ if [ "${COMPILE_PROTOS}" == "TRUE" ]; then
 fi
 
 mkdir -p buildoutput
-echo "**************  Generating the latest go.mod and go.sum dependencies"
-cp go.mod go.mod.orig
-cp go.sum go.sum.orig
+echo "**************  Automating go package/dependency updates and upgrading Go version"
+LATEST_GO_VERSION_NUM=$(echo "${LATEST_GO_VERSION}" | sed 's/^go//' | cut -d. -f1-2)
+go mod edit -go="${LATEST_GO_VERSION_NUM}" || true
 go clean -modcache
 go mod tidy
-mv go.mod buildoutput/go.mod.latest
-mv go.sum buildoutput/go.sum.latest
-mv go.mod.orig go.mod
-mv go.sum.orig go.sum
+cp go.mod buildoutput/go.mod.latest
+cp go.sum buildoutput/go.sum.latest
 
 echo "**************  Getting the repo module dependencies using go mod vendor"
 go clean -modcache
 go mod vendor
 
 echo "**************  Running all tests"
-go test ./...
+go test -mod=vendor ./...
 
 pushd cmd
 echo "**************  Building Linux binary"
