@@ -24,7 +24,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	structpb "github.com/golang/protobuf/ptypes/struct"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 )
 
 const (
