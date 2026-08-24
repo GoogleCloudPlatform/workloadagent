@@ -31,7 +31,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/googleapis/gax-go"
+	"github.com/googleapis/gax-go/v2"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/api/serviceusage/v1"
@@ -44,7 +44,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/permissions"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/statushelper"
 
-	arpb "google.golang.org/genproto/googleapis/devtools/artifactregistry/v1"
+	arpb "cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
 	ar "cloud.google.com/go/artifactregistry/apiv1"
 	spb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/status"
 )
