@@ -34,7 +34,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/recovery"
 
-	mrpb "google.golang.org/genproto/googleapis/monitoring/v3"
+	mrpb "cloud.google.com/go/monitoring/apiv3/v2/monitoringpb"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	odpb "github.com/GoogleCloudPlatform/workloadagent/protos/oraclediscovery"
 	gapb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/guestactions"

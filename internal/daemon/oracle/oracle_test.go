@@ -30,7 +30,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/metadataserver"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/guestactions"
 
-	mrpb "google.golang.org/genproto/googleapis/monitoring/v3"
+	mrpb "cloud.google.com/go/monitoring/apiv3/v2/monitoringpb"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	cpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	odpb "github.com/GoogleCloudPlatform/workloadagent/protos/oraclediscovery"
