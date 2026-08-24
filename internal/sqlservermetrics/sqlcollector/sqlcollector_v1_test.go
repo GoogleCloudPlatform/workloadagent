@@ -191,6 +191,10 @@ func TestCollectSQLMetrics(t *testing.T) {
 
 	for _, test := range testcases {
 		t.Run(test.name, func(t *testing.T) {
+			origSQLMetrics := SQLMetrics
+			t.Cleanup(func() {
+				SQLMetrics = origSQLMetrics
+			})
 			SQLMetrics = test.rule
 
 			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(test.timeout)*time.Second)
