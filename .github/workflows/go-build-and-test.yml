@@ -14,7 +14,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v7
 
     - name: Add workloadagentplatform submodule
       run: |
@@ -30,7 +30,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Set up Go
-      uses: actions/setup-go@v3
+      uses: actions/setup-go@v7
       with:
         go-version: 'stable'
     - name: Install Protoc
@@ -48,8 +48,6 @@ jobs:
 
     - name: Automate go package/dependency updates and upgrade Go version
       run: |
-        go get -u ./...
-        go clean -modcache
         go mod tidy
         echo "**************************** Latest go.mod dependencies ****************************"
         cat go.mod
