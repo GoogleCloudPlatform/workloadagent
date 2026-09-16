@@ -23,14 +23,31 @@ import (
 	"time"
 
 	anypb "google.golang.org/protobuf/types/known/anypb"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	"github.com/GoogleCloudPlatform/agentcommunication_client"
 	"github.com/google/go-cmp/cmp"
+	compute "google.golang.org/api/compute/v1"
 	"google.golang.org/protobuf/testing/protocmp"
-
-	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	dcpb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/databasecenter"
 )
+
+type mockGCEClient struct {
+	getInstanceFn func(project, zone, instance string) (*compute.Instance, error)
+}
+
+func (m *mockGCEClient) GetInstance(project, zone, instance string) (*compute.Instance, error) {
+	if m.getInstanceFn != nil {
+		return m.getInstanceFn(project, zone, instance)
+	}
+	return &compute.Instance{}, nil
+}
+
+func init() {
+	newGCEClientFn = func(ctx context.Context) (gceClient, error) {
+		return &mockGCEClient{}, nil
+	}
+}
 
 var (
 	defaultConfig = &configpb.Configuration{
@@ -94,6 +111,18 @@ func TestGetSignalType(t *testing.T) {
 		{
 			key:  DatabaseAuditingDisabledKey,
 			want: dcpb.SignalType_SIGNAL_TYPE_DATABASE_AUDITING_DISABLED,
+		},
+		{
+			key:  LastBackupOldKey,
+			want: dcpb.SignalType_SIGNAL_TYPE_LAST_BACKUP_OLD,
+		},
+		{
+			key:  NotProtectedByAutomaticFailoverKey,
+			want: dcpb.SignalType_SIGNAL_TYPE_NOT_PROTECTED_BY_AUTOMATIC_FAILOVER,
+		},
+		{
+			key:  NoAutomatedBackupPolicyKey,
+			want: dcpb.SignalType_SIGNAL_TYPE_NO_AUTOMATED_BACKUP_POLICY,
 		},
 		{
 			key:  "unknown_key",
@@ -217,7 +246,7 @@ func TestBuildConfigBasedSignalMessage(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 			client := &realClient{Config: tc.config}
 
 			gotAny, err := client.buildConfigBasedSignalMessage(ctx, tc.key, tc.value)
@@ -247,11 +276,12 @@ func TestBuildDatabaseResourceMetadataMessage(t *testing.T) {
 	testTimestamp := timestamppb.New(testTime)
 
 	tests := []struct {
-		name    string
-		config  *configpb.Configuration
-		metrics DBCenterMetrics
-		want    *dcpb.DatabaseResourceFeed
-		wantErr bool
+		name          string
+		mockGCEClient gceClient
+		config        *configpb.Configuration
+		metrics       DBCenterMetrics
+		want          *dcpb.DatabaseResourceFeed
+		wantErr       bool
 	}{
 		{
 			name: "valid config mysql",
@@ -416,6 +446,69 @@ func TestBuildDatabaseResourceMetadataMessage(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "valid_config_cloud_sql_sqlserver",
+			mockGCEClient: &mockGCEClient{
+				getInstanceFn: func(project, zone, instance string) (*compute.Instance, error) {
+					return &compute.Instance{
+						Labels: map[string]string{
+							SQLFlexInstanceIDLabelKey: "test-flex-instance-id",
+						},
+					}, nil
+				},
+			},
+			config: &configpb.Configuration{
+				CloudProperties: &configpb.CloudProperties{
+					ProjectId:        "test-project",
+					NumericProjectId: "12345",
+					InstanceId:       "test-instance",
+					InstanceName:     "test-instance-name",
+					Region:           "us-central1",
+					Zone:             "us-central1-a",
+					VcpuCount:        2,
+					MemorySizeMb:     8192,
+				},
+			},
+			metrics: DBCenterMetrics{
+				EngineType: SQLSERVER,
+				Metrics: map[string]string{
+					"major_version": "SQL Server 2022 Express",
+					"minor_version": "CU13",
+				},
+			},
+			want: &dcpb.DatabaseResourceFeed{
+				FeedTimestamp: testTimestamp,
+				FeedType:      dcpb.DatabaseResourceFeed_RESOURCE_METADATA,
+				Content: &dcpb.DatabaseResourceFeed_ResourceMetadata{
+					ResourceMetadata: &dcpb.DatabaseResourceMetadata{
+						Id: &dcpb.DatabaseResourceId{
+							Provider:     dcpb.DatabaseResourceId_GCP,
+							UniqueId:     "test-instance",
+							ResourceType: "compute.googleapis.com/Instance",
+						},
+						ResourceName:      "//cloudsql.googleapis.com/projects/test-project/instances/test-flex-instance-id",
+						ResourceContainer: "projects/12345",
+						Location:          "us-central1",
+						CreationTime:      testTimestamp,
+						UpdationTime:      testTimestamp,
+						ExpectedState:     dcpb.DatabaseResourceMetadata_HEALTHY,
+						CurrentState:      dcpb.DatabaseResourceMetadata_HEALTHY,
+						InstanceType:      dcpb.InstanceType_SUB_RESOURCE_TYPE_PRIMARY,
+						Product: &dcpb.Product{
+							Type:         dcpb.ProductType_PRODUCT_TYPE_CLOUD_SQL,
+							Engine:       dcpb.Engine_ENGINE_SQL_SERVER,
+							Version:      "SQL Server 2022 Express",
+							MinorVersion: "CU13",
+						},
+						MachineConfiguration: &dcpb.MachineConfiguration{
+							VcpuCount:         2,
+							MemorySizeInBytes: 8589934592, // 8 GiB
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
 			name:   "empty config",
 			config: &configpb.Configuration{},
 			metrics: DBCenterMetrics{
@@ -459,14 +552,32 @@ func TestBuildDatabaseResourceMetadataMessage(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			client := realClient{Config: tc.config, CommClient: &MockCommunication{}}
+			origNewGCEClientFn := newGCEClientFn
+			t.Cleanup(func() { newGCEClientFn = origNewGCEClientFn })
+			if tc.mockGCEClient != nil {
+				newGCEClientFn = func(ctx context.Context) (gceClient, error) {
+					return tc.mockGCEClient, nil
+				}
+			} else {
+				newGCEClientFn = func(ctx context.Context) (gceClient, error) {
+					return &mockGCEClient{}, nil
+				}
+			}
 
-			gotAny, err := client.buildDatabaseResourceMetadataMessage(context.Background(), tc.metrics)
+			client := realClient{
+				Config:     tc.config,
+				CommClient: &MockCommunication{},
+			}
+
+			gotAny, gotResourceName, err := client.buildDatabaseResourceMetadataMessage(t.Context(), tc.metrics)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("buildDatabaseResourceMetadataMessage() error = %v, wantErr %v", err, tc.wantErr)
 			}
 			if err != nil {
 				return
+			}
+			if tc.want.GetResourceMetadata() != nil && gotResourceName != tc.want.GetResourceMetadata().GetResourceName() {
+				t.Errorf("buildDatabaseResourceMetadataMessage() resourceName = %q, want %q", gotResourceName, tc.want.GetResourceMetadata().GetResourceName())
 			}
 			got := &dcpb.DatabaseResourceFeed{}
 			if err := gotAny.UnmarshalTo(got); err != nil {
@@ -496,6 +607,7 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 	tests := []struct {
 		name                        string
 		config                      *configpb.Configuration
+		mockGCEClient               gceClient
 		metrics                     DBCenterMetrics
 		establishACSConnectionError error
 		sendAgentMessageError       error
@@ -536,6 +648,35 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 				dcpb.SignalType_SIGNAL_TYPE_EXPOSED_TO_PUBLIC_ACCESS:   false,
 				dcpb.SignalType_SIGNAL_TYPE_DATABASE_AUDITING_DISABLED: true,
 				dcpb.SignalType_SIGNAL_TYPE_UNENCRYPTED_CONNECTIONS:    false,
+			},
+		},
+		{
+			name:   "success_with_signals_cloud_sql_skips_public_access_and_unencrypted",
+			config: defaultConfig,
+			mockGCEClient: &mockGCEClient{
+				getInstanceFn: func(project, zone, instance string) (*compute.Instance, error) {
+					return &compute.Instance{
+						Labels: map[string]string{
+							SQLFlexInstanceIDLabelKey: "test-flex-instance-id",
+						},
+					}, nil
+				},
+			},
+			metrics: DBCenterMetrics{
+				EngineType: SQLSERVER,
+				Metrics: map[string]string{
+					"major_version":             "SQL Server 2022 Express",
+					"minor_version":             "CU13",
+					NoRootPasswordKey:           "false",
+					ExposedToPublicAccessKey:    "false",
+					DatabaseAuditingDisabledKey: "true",
+					UnencryptedConnectionsKey:   "TRUE",
+				},
+			},
+			wantSendCallCount: 3, // 1 metadata + 2 signals (ExposedToPublicAccessKey and UnencryptedConnectionsKey are skipped)
+			wantSignals: map[dcpb.SignalType]bool{
+				dcpb.SignalType_SIGNAL_TYPE_NO_ROOT_PASSWORD:           false,
+				dcpb.SignalType_SIGNAL_TYPE_DATABASE_AUDITING_DISABLED: true,
 			},
 		},
 		{
@@ -580,20 +721,173 @@ func TestSendMetadataToDatabaseCenter(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			origNewGCEClientFn := newGCEClientFn
+			t.Cleanup(func() { newGCEClientFn = origNewGCEClientFn })
+			if tc.mockGCEClient != nil {
+				newGCEClientFn = func(ctx context.Context) (gceClient, error) {
+					return tc.mockGCEClient, nil
+				}
+			} else {
+				newGCEClientFn = func(ctx context.Context) (gceClient, error) {
+					return &mockGCEClient{}, nil
+				}
+			}
+
 			mockComm := &MockCommunication{
 				establishACSConnectionError: tc.establishACSConnectionError,
 				sendAgentMessageError:       tc.sendAgentMessageError,
 			}
 			client := NewClient(tc.config, mockComm)
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
 
-			err := client.SendMetadataToDatabaseCenter(ctx, tc.metrics)
-			if err != nil && err.Error() != tc.wantErr.Error() {
+			err := client.SendMetadataToDatabaseCenter(t.Context(), tc.metrics)
+			if (err != nil) != (tc.wantErr != nil) {
+				t.Errorf("SendMetadataToDatabaseCenter() error = %v, wantErr %v", err, tc.wantErr)
+			} else if err != nil && err.Error() != tc.wantErr.Error() {
 				t.Errorf("SendMetadataToDatabaseCenter() error = %v, wantErr %v", err, tc.wantErr)
 			}
 			if len(mockComm.Calls) != tc.wantSendCallCount {
 				t.Errorf("SendMetadataToDatabaseCenter(%v) unexpected number of SendAgentMessage calls: got %d, want %d", tc.metrics, len(mockComm.Calls), tc.wantSendCallCount)
+			}
+			if tc.wantErr == nil {
+				gotSignals := make(map[dcpb.SignalType]bool)
+				for _, call := range mockComm.Calls {
+					if call.MessageType != "configbasedsignal" {
+						continue
+					}
+					feed := &dcpb.DatabaseResourceFeed{}
+					if err := call.Msg.UnmarshalTo(feed); err != nil {
+						t.Fatalf("Failed to unmarshal call.Msg: %v", err)
+					}
+					data := feed.GetConfigBasedSignalData()
+					gotSignals[data.GetSignalType()] = data.GetSignalBoolValue()
+				}
+				if diff := cmp.Diff(tc.wantSignals, gotSignals); diff != "" {
+					t.Errorf("SendMetadataToDatabaseCenter(%v) unexpected signals (-want +got):\n%s", tc.metrics, diff)
+				}
+			}
+		})
+	}
+}
+
+func TestCloudSQLInstanceID(t *testing.T) {
+	tests := []struct {
+		name                  string
+		config                *configpb.Configuration
+		mockGCEClient         gceClient
+		mockGCEClientErr      error
+		wantSQLFlexInstanceID string
+	}{
+		{
+			name:   "cloud_sql_instance_with_label",
+			config: defaultConfig,
+			mockGCEClient: &mockGCEClient{
+				getInstanceFn: func(project, zone, instance string) (*compute.Instance, error) {
+					return &compute.Instance{
+						Labels: map[string]string{
+							SQLFlexInstanceIDLabelKey: "test-flex-instance-id",
+						},
+					}, nil
+				},
+			},
+			wantSQLFlexInstanceID: "test-flex-instance-id",
+		},
+		{
+			name:   "compute_engine_instance_without_label",
+			config: defaultConfig,
+			mockGCEClient: &mockGCEClient{
+				getInstanceFn: func(project, zone, instance string) (*compute.Instance, error) {
+					return &compute.Instance{
+						Labels: map[string]string{
+							"some-other-label": "foo",
+						},
+					}, nil
+				},
+			},
+		},
+		{
+			name:   "instance_with_empty_label_value",
+			config: defaultConfig,
+			mockGCEClient: &mockGCEClient{
+				getInstanceFn: func(project, zone, instance string) (*compute.Instance, error) {
+					return &compute.Instance{
+						Labels: map[string]string{
+							SQLFlexInstanceIDLabelKey: "",
+						},
+					}, nil
+				},
+			},
+		},
+		{
+			name:   "gce_get_instance_returns_error",
+			config: defaultConfig,
+			mockGCEClient: &mockGCEClient{
+				getInstanceFn: func(project, zone, instance string) (*compute.Instance, error) {
+					return nil, fmt.Errorf("GCE API error")
+				},
+			},
+		},
+		{
+			name:             "new_gce_client_fn_returns_error",
+			config:           defaultConfig,
+			mockGCEClientErr: fmt.Errorf("client creation error"),
+		},
+		{
+			name: "nil_config",
+		},
+		{
+			name:   "empty_config",
+			config: &configpb.Configuration{},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			origNewGCEClientFn := newGCEClientFn
+			t.Cleanup(func() { newGCEClientFn = origNewGCEClientFn })
+
+			newGCEClientFn = func(ctx context.Context) (gceClient, error) {
+				if tc.mockGCEClientErr != nil {
+					return nil, tc.mockGCEClientErr
+				}
+				if tc.mockGCEClient != nil {
+					return tc.mockGCEClient, nil
+				}
+				return &mockGCEClient{}, nil
+			}
+
+			got := cloudSQLInstanceID(ctx, tc.config)
+			if got != tc.wantSQLFlexInstanceID {
+				t.Errorf("cloudSQLInstanceID(%v) = %q, want %q", tc.config, got, tc.wantSQLFlexInstanceID)
+			}
+		})
+	}
+}
+
+func TestIsCloudSQLResource(t *testing.T) {
+	tests := []struct {
+		name         string
+		resourceName string
+		want         bool
+	}{
+		{
+			name:         "cloud_sql_resource",
+			resourceName: "//cloudsql.googleapis.com/projects/test-project/instances/test-flex-instance-id",
+			want:         true,
+		},
+		{
+			name:         "compute_engine_resource",
+			resourceName: "//compute.googleapis.com/projects/test-project/zones/us-central1-a/instances/test-instance",
+		},
+		{
+			name:         "empty_resource_name",
+			resourceName: "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isCloudSQLResource(tc.resourceName); got != tc.want {
+				t.Errorf("isCloudSQLResource(%q) = %v, want %v", tc.resourceName, got, tc.want)
 			}
 		})
 	}

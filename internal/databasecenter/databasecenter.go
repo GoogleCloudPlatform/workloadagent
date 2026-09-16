@@ -21,13 +21,16 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"strings"
 	"time"
 
 	anypb "google.golang.org/protobuf/types/known/anypb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	"github.com/GoogleCloudPlatform/agentcommunication_client"
+	compute "google.golang.org/api/compute/v1"
 	configpb "github.com/GoogleCloudPlatform/workloadagent/protos/configuration"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/communication"
+	wlagce "github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
 	dcpb "github.com/GoogleCloudPlatform/workloadagentplatform/sharedprotos/databasecenter"
 )
@@ -36,6 +39,8 @@ const (
 	endpoint = "" // endpoint override for database center, don't set if not needed
 	// DB Center UAP channel name.
 	channel = "databasecenter.googleapis.com/dbcenter-prod"
+	// SQLFlexInstanceIDLabelKey is the GCE VM label for the SQL Flex instance ID.
+	SQLFlexInstanceIDLabelKey = "sql-flex-instance-id"
 	// MajorVersionKey is the key for the major version in metrics.
 	MajorVersionKey = "major_version"
 	// MinorVersionKey is the key for the minor version in metrics.
@@ -87,11 +92,52 @@ type Client interface {
 	SendMetadataToDatabaseCenter(ctx context.Context, metrics DBCenterMetrics) error
 }
 
+// gceClient provides an interface for interacting with the Google Compute Engine API.
+type gceClient interface {
+	GetInstance(project, zone, instance string) (*compute.Instance, error)
+}
+
+// newGCEClientFn creates a new GCE client instance.
+var newGCEClientFn = func(ctx context.Context) (gceClient, error) {
+	return wlagce.NewGCEClient(ctx)
+}
+
 // Client for sending metadata to database center.
 type realClient struct {
 	Config     *configpb.Configuration
 	CommClient CommunicationClient
 	conn       *client.Connection
+}
+
+// cloudSQLInstanceID returns the Cloud SQL instance ID from the VM's labels if present.
+func cloudSQLInstanceID(ctx context.Context, config *configpb.Configuration) string {
+	cloudProperties := config.GetCloudProperties()
+	if cloudProperties == nil {
+		return ""
+	}
+	projectID := cloudProperties.GetProjectId()
+	zone := cloudProperties.GetZone()
+	instanceName := cloudProperties.GetInstanceName()
+	if projectID == "" || zone == "" || instanceName == "" {
+		return ""
+	}
+
+	gceClient, err := newGCEClientFn(ctx)
+	if err != nil {
+		log.CtxLogger(ctx).Debugf("Failed to create GCE client to fetch VM labels: %v.", err)
+		return ""
+	}
+	instance, err := gceClient.GetInstance(projectID, zone, instanceName)
+	if err != nil {
+		log.CtxLogger(ctx).Debugf("Failed to fetch instance from GCE to read labels: %v.", err)
+		return ""
+	}
+	if instance != nil && instance.Labels[SQLFlexInstanceIDLabelKey] != "" {
+		id := instance.Labels[SQLFlexInstanceIDLabelKey]
+		log.CtxLogger(ctx).Infof("Found label %q=%q; treating instance as Cloud SQL.", SQLFlexInstanceIDLabelKey, id)
+		return id
+	}
+	return ""
 }
 
 // NewClient creates a new database center client.
@@ -133,9 +179,15 @@ func (c *realClient) getEngineType(metrics DBCenterMetrics) dcpb.Engine {
 }
 
 // buildDatabaseResourceMetadataMessage builds the snapshot message.
-func (c *realClient) buildDatabaseResourceMetadataMessage(ctx context.Context, metrics DBCenterMetrics) (*anypb.Any, error) {
+func (c *realClient) buildDatabaseResourceMetadataMessage(ctx context.Context, metrics DBCenterMetrics) (*anypb.Any, string, error) {
 	cloudProps := c.Config.GetCloudProperties()
 	feedTime := timestamppb.New(time.Now())
+	productType := dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE
+	resourceName := "//compute.googleapis.com/projects/" + cloudProps.GetProjectId() + "/zones/" + cloudProps.GetZone() + "/instances/" + cloudProps.GetInstanceName()
+	if sqlFlexInstanceID := cloudSQLInstanceID(ctx, c.Config); sqlFlexInstanceID != "" {
+		productType = dcpb.ProductType_PRODUCT_TYPE_CLOUD_SQL
+		resourceName = "//cloudsql.googleapis.com/projects/" + cloudProps.GetProjectId() + "/instances/" + sqlFlexInstanceID
+	}
 	// construct an object of DatabaseResourceFeed proto.
 	body, err := anypb.New(&dcpb.DatabaseResourceFeed{
 		FeedTimestamp: feedTime,
@@ -147,7 +199,8 @@ func (c *realClient) buildDatabaseResourceMetadataMessage(ctx context.Context, m
 					UniqueId:     cloudProps.GetInstanceId(),
 					ResourceType: "compute.googleapis.com/Instance",
 				},
-				ResourceName:      "//compute.googleapis.com/projects/" + cloudProps.GetProjectId() + "/zones/" + cloudProps.GetZone() + "/instances/" + cloudProps.GetInstanceName(),
+				ResourceName: resourceName,
+
 				ResourceContainer: "projects/" + cloudProps.GetNumericProjectId(),
 				Location:          cloudProps.GetRegion(),
 				CreationTime:      feedTime,
@@ -156,7 +209,7 @@ func (c *realClient) buildDatabaseResourceMetadataMessage(ctx context.Context, m
 				CurrentState:      dcpb.DatabaseResourceMetadata_HEALTHY,
 				InstanceType:      dcpb.InstanceType_SUB_RESOURCE_TYPE_PRIMARY,
 				Product: &dcpb.Product{
-					Type:         dcpb.ProductType_PRODUCT_TYPE_COMPUTE_ENGINE,
+					Type:         productType,
 					Engine:       c.getEngineType(metrics),
 					Version:      metrics.Metrics[MajorVersionKey],
 					MinorVersion: metrics.Metrics[MinorVersionKey],
@@ -170,10 +223,10 @@ func (c *realClient) buildDatabaseResourceMetadataMessage(ctx context.Context, m
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("unable to create DatabaseResourceFeed: %v", err)
+		return nil, "", fmt.Errorf("unable to create DatabaseResourceFeed: %w", err)
 	}
 	log.CtxLogger(ctx).Debugf("Sending message databaseresourcefeed: %v", body)
-	return body, nil
+	return body, resourceName, nil
 }
 
 // Get the signal type from the metric key
@@ -219,9 +272,10 @@ func (c *realClient) buildConfigBasedSignalMessage(ctx context.Context, key stri
 					ResourceType: "compute.googleapis.com/Instance",
 				},
 				FullResourceName: "//compute.googleapis.com/projects/" + cloudProps.GetProjectId() + "/zones/" + cloudProps.GetZone() + "/instances/" + cloudProps.GetInstanceName(),
-				LastRefreshTime:  feedTime,
-				SignalType:       c.getSignalType(key),
-				SignalMetadata:   &dcpb.ConfigBasedSignalData_SignalBoolValue{SignalBoolValue: c.getSignalValue(value)},
+
+				LastRefreshTime: feedTime,
+				SignalType:      c.getSignalType(key),
+				SignalMetadata:  &dcpb.ConfigBasedSignalData_SignalBoolValue{SignalBoolValue: c.getSignalValue(value)},
 			},
 		},
 	})
@@ -230,6 +284,11 @@ func (c *realClient) buildConfigBasedSignalMessage(ctx context.Context, key stri
 	}
 	log.CtxLogger(ctx).Debugf("Sending message configbasedsignal: %v", body)
 	return body, nil
+}
+
+// isCloudSQLResource reports whether the given resource name represents a Cloud SQL resource.
+func isCloudSQLResource(resourceName string) bool {
+	return strings.HasPrefix(resourceName, "//cloudsql.googleapis.com/")
 }
 
 // SendMetadataToDatabaseCenter sends metadata to database center.
@@ -246,20 +305,25 @@ func (c *realClient) SendMetadataToDatabaseCenter(ctx context.Context, metrics D
 		c.conn = conn
 	}
 
-	msg, err := c.buildDatabaseResourceMetadataMessage(ctx, metrics)
+	msg, resourceName, err := c.buildDatabaseResourceMetadataMessage(ctx, metrics)
 	if err != nil {
-		return fmt.Errorf("failed to build database resource metadata message: %v", err)
+		return fmt.Errorf("failed to build database resource metadata message: %w", err)
 	}
 	err = c.CommClient.SendAgentMessage(ctx, string(metrics.EngineType), "databaseresourcefeed", msg, c.conn)
 	if err != nil {
 		return fmt.Errorf("failed to send metadata message to database center: %v", err)
 	}
 
+	isCloudSQL := isCloudSQLResource(resourceName)
 	log.CtxLogger(ctx).Debugf("Send signals to database center")
 	for key, value := range metrics.Metrics {
 		log.CtxLogger(ctx).Debugf("Key: %v, Value: %v", key, value)
-		// skip for major version and minor version
+		// Skip major version and minor version signals.
 		if key == MajorVersionKey || key == MinorVersionKey {
+			continue
+		}
+		// Skip certain signals for Cloud SQL.
+		if isCloudSQL && (key == ExposedToPublicAccessKey || key == UnencryptedConnectionsKey) {
 			continue
 		}
 		msg, err := c.buildConfigBasedSignalMessage(ctx, key, value)
