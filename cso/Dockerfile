@@ -34,7 +34,7 @@ LABEL name="google-cloud-cluster-services-for-openshift-telemetry-controller" \
       release="1" \
       summary="Google Cloud Cluster Services for Openshift Telemetry Controller" \
       description="Controller for the Google Cloud Cluster Services for Openshift Telemetry operator." \
-      maintainer="openshift-eng-team@google.com"
+      maintainer="openshift-eng@google.com"
 
 WORKDIR /
 
