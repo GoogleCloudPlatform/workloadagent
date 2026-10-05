@@ -163,7 +163,7 @@ func (m *MySQLMetrics) dbDSN(ctx context.Context, gceService GceInterface) (stri
 	cfg := mysql.Config{
 		User:   m.Config.GetMysqlConfiguration().GetConnectionParameters().GetUsername(),
 		Passwd: pw.SecretValue(),
-		Addr:   "localhost:3306", // using localhost because the agent is running on the same machine as the MySQL server
+		// Omit Addr to use default 127.0.0.1:3306 because the agent is running on the same machine as the MySQL server
 		DBName: "mysql",
 	}
 	return cfg.FormatDSN(), nil
