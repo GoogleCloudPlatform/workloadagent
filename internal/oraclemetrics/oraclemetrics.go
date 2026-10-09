@@ -21,6 +21,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -49,10 +50,29 @@ import (
 )
 
 const (
-	metricURL        = "workload.googleapis.com/oracle"
-	maxQueryFailures = 3
-	dbViewQuery      = `SELECT d.dbid, d.db_unique_name, d.database_role, p.name AS pdb_name FROM v$database d LEFT JOIN v$pdbs p ON 1=1`
-	healthQuery      = `SELECT 1 FROM dual`
+	metricURL   = "workload.googleapis.com/oracle"
+	dbViewQuery = `SELECT d.dbid, d.db_unique_name, d.database_role, p.name AS pdb_name FROM v$database d LEFT JOIN v$pdbs p ON 1=1`
+	healthQuery = `SELECT 1 FROM dual`
+	// sendTimeSeriesTimeout bounds sending query metrics to Cloud Monitoring, including retries.
+	sendTimeSeriesTimeout = 30 * time.Second
+	// maxReportedQueryFailures is the number of consecutive non-auth failures of a query that are
+	// logged at error level and reported to usage metrics. Further consecutive failures (e.g. a
+	// persistent ORA-00942 / ORA-01031 from a missing grant) are logged at debug level until the
+	// query succeeds, while the query keeps being retried every collection interval.
+	maxReportedQueryFailures = 3
+)
+
+var (
+	// authErrorPattern matches Oracle error codes related to authentication and session logon
+	// privileges. Word boundaries prevent matching longer codes (e.g. ORA-10456 contains "ORA-1045"),
+	// and matching is case-insensitive because go_ora formats some errors as "ora-%d".
+	//   ORA-01005: null password given; logon denied
+	//   ORA-01017: invalid username/password; logon denied
+	//   ORA-01045: user lacks CREATE SESSION privilege; logon denied
+	//   ORA-28000: the account is locked
+	//   ORA-28001: the password has expired
+	//   ORA-28041: authentication protocol internal error
+	authErrorPattern = regexp.MustCompile(`(?i)\bORA-0?(1005|1017|1045|28000|28001|28041)\b`)
 )
 
 const (
@@ -94,6 +114,7 @@ type (
 		mu                      sync.Mutex
 		connections             map[string]*sql.DB
 		failCount               map[string]int
+		authError               map[string]bool
 		skipMsgLogged           map[string]bool
 	}
 
@@ -217,6 +238,7 @@ func New(ctx context.Context, config *configpb.Configuration) (*MetricCollector,
 		GCEService:        gceService,
 		startTime:         tspb.Now(),
 		failCount:         make(map[string]int),
+		authError:         make(map[string]bool),
 		skipMsgLogged:     make(map[string]bool),
 	}, nil
 }
@@ -256,12 +278,24 @@ func createHealthMetrics(ctx context.Context, statusData map[string]*ServiceHeal
 	return timeSeries
 }
 
-func checkDatabaseHealth(ctx context.Context, connections map[string]*sql.DB) map[string]*ServiceHealth {
+// checkDatabaseHealth runs the health query against every connection. Services with a previously
+// recorded authentication error are reported as Unhealthy without querying the database again to
+// prevent user lockout.
+func (c *MetricCollector) checkDatabaseHealth(ctx context.Context) map[string]*ServiceHealth {
 	statusData := make(map[string]*ServiceHealth)
 
-	for serviceName, db := range connections {
+	for serviceName, db := range c.connections {
+		if c.shouldSkipService(ctx, serviceName) {
+			statusData[serviceName] = &ServiceHealth{
+				Status:      Unhealthy,
+				LastChecked: time.Now(),
+				Message:     "health check skipped due to a previous authentication error",
+			}
+			continue
+		}
 		rows, err := db.QueryContext(ctx, healthQuery)
 		if err != nil {
+			c.recordAuthError(ctx, serviceName, err, "source", "health_check")
 			statusData[serviceName] = &ServiceHealth{
 				Status:      Unhealthy,
 				LastChecked: time.Now(),
@@ -274,6 +308,7 @@ func checkDatabaseHealth(ctx context.Context, connections map[string]*sql.DB) ma
 		var result int
 		for rows.Next() {
 			if err := rows.Scan(&result); err != nil {
+				c.recordAuthError(ctx, serviceName, err, "source", "health_check")
 				statusData[serviceName] = &ServiceHealth{
 					Status:      Unhealthy,
 					LastChecked: time.Now(),
@@ -292,7 +327,7 @@ func checkDatabaseHealth(ctx context.Context, connections map[string]*sql.DB) ma
 
 // SendHealthMetricsToCloudMonitoring sends health metrics to Cloud Monitoring.
 func (c *MetricCollector) SendHealthMetricsToCloudMonitoring(ctx context.Context) []*mrpb.TimeSeries {
-	statusData := checkDatabaseHealth(ctx, c.connections)
+	statusData := c.checkDatabaseHealth(ctx)
 	ts := createHealthMetrics(ctx, statusData, c.Config)
 
 	sent, batchCount, err := cloudmonitoring.SendTimeSeries(ctx, ts, c.TimeSeriesCreator, c.BackOffs, c.Config.GetCloudProperties().GetProjectId())
@@ -305,16 +340,114 @@ func (c *MetricCollector) SendHealthMetricsToCloudMonitoring(ctx context.Context
 	return ts
 }
 
-func (c *MetricCollector) shouldSkipQuery(ctx context.Context, serviceName, qn string) bool {
-	key := fmt.Sprintf("%s:%s", serviceName, qn)
-	if c.failCount[key] >= maxQueryFailures {
-		if !c.skipMsgLogged[key] {
-			c.skipMsgLogged[key] = true
-			log.CtxLogger(ctx).Warnw("Skipping query due to 3 consecutive failures", "service_name", serviceName, "query_name", qn)
-		}
-		return true
+// isAuthError returns true if the error is related to Oracle authentication.
+func isAuthError(err error) bool {
+	if err == nil {
+		return false
 	}
-	return false
+	return authErrorPattern.MatchString(err.Error())
+}
+
+// hasAuthError reports whether an authentication error has been recorded for serviceName.
+// Auth errors are tracked per service because all queries for a service share a single
+// connection pool and set of credentials.
+func (c *MetricCollector) hasAuthError(serviceName string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.authError[serviceName]
+}
+
+// shouldSkipService returns true if an authentication error has been recorded for serviceName,
+// logging a warning the first time the service is skipped.
+func (c *MetricCollector) shouldSkipService(ctx context.Context, serviceName string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.authError[serviceName] {
+		return false
+	}
+	if !c.skipMsgLogged[serviceName] {
+		if c.skipMsgLogged == nil {
+			c.skipMsgLogged = make(map[string]bool)
+		}
+		c.skipMsgLogged[serviceName] = true
+		log.CtxLogger(ctx).Warnw("Skipping all queries for service due to authentication error to prevent user lockout", "service_name", serviceName)
+	}
+	return true
+}
+
+// recordAuthError marks serviceName as having an authentication error if err is one. The first time
+// a service is marked, it logs the error (with the optional keysAndValues) and reports a usage
+// metric, regardless of which step (health check, database info, or query) detected it.
+// Returns true if err is an authentication error, in which case callers should not log or report
+// err again.
+func (c *MetricCollector) recordAuthError(ctx context.Context, serviceName string, err error, keysAndValues ...any) bool {
+	if !isAuthError(err) {
+		return false
+	}
+	c.mu.Lock()
+	if c.authError == nil {
+		c.authError = make(map[string]bool)
+	}
+	firstSeen := !c.authError[serviceName]
+	if firstSeen {
+		c.authError[serviceName] = true
+	}
+	c.mu.Unlock()
+	// Log and report outside the lock: usagemetrics.Error may call the metadata server.
+	if firstSeen {
+		fields := append([]any{"service_name", serviceName, "error", err}, keysAndValues...)
+		log.CtxLogger(ctx).Errorw("Authentication error, disabling future queries for service to prevent user lockout", fields...)
+		usagemetrics.Error(usagemetrics.OracleMetricCollectionFailure)
+	}
+	return true
+}
+
+// recordQueryFailure increments the failure count for the query and records an authentication
+// error for the service if err is one. Returns the updated failure count and whether err is an
+// authentication error (already logged and reported by recordAuthError).
+func (c *MetricCollector) recordQueryFailure(ctx context.Context, serviceName, queryName string, err error) (int, bool) {
+	key := fmt.Sprintf("%s:%s", serviceName, queryName)
+	c.mu.Lock()
+	if c.failCount == nil {
+		c.failCount = make(map[string]int)
+	}
+	c.failCount[key]++
+	count := c.failCount[key]
+	c.mu.Unlock()
+	isAuth := c.recordAuthError(ctx, serviceName, err, "query_name", queryName, "fail_count", count)
+	return count, isAuth
+}
+
+// handleQueryFailure records a query failure and logs it. Auth errors are logged and reported once
+// by recordAuthError. Non-auth failures are logged at error level and reported to usage metrics only
+// for the first maxReportedQueryFailures consecutive failures, to limit noise from persistent errors.
+func (c *MetricCollector) handleQueryFailure(ctx context.Context, msg, serviceName, queryName string, err error) {
+	failCount, isAuth := c.recordQueryFailure(ctx, serviceName, queryName, err)
+	switch {
+	case isAuth:
+		// Already logged and reported by recordAuthError.
+	case failCount < maxReportedQueryFailures:
+		log.CtxLogger(ctx).Errorw(msg, "query_name", queryName, "service_name", serviceName, "fail_count", failCount, "error", err)
+		usagemetrics.Error(usagemetrics.OracleMetricCollectionFailure)
+	case failCount == maxReportedQueryFailures:
+		log.CtxLogger(ctx).Errorw(msg+"; suppressing further error logs for this query until it succeeds", "query_name", queryName, "service_name", serviceName, "fail_count", failCount, "error", err)
+		usagemetrics.Error(usagemetrics.OracleMetricCollectionFailure)
+	default:
+		log.CtxLogger(ctx).Debugw(msg, "query_name", queryName, "service_name", serviceName, "fail_count", failCount, "error", err)
+	}
+}
+
+// resetQueryFailure clears the consecutive failure count for the query, logging a recovery message
+// if failures had been suppressed.
+func (c *MetricCollector) resetQueryFailure(ctx context.Context, serviceName, queryName string) {
+	key := fmt.Sprintf("%s:%s", serviceName, queryName)
+	c.mu.Lock()
+	prev := c.failCount[key]
+	delete(c.failCount, key)
+	c.mu.Unlock()
+	if prev >= maxReportedQueryFailures {
+		log.CtxLogger(ctx).Infow("Query succeeded after consecutive failures", "query_name", queryName, "service_name", serviceName, "previous_fail_count", prev)
+	}
 }
 
 // SendDefaultMetricsToCloudMonitoring submits a task for each database connection to the worker pool.
@@ -332,9 +465,14 @@ func (c *MetricCollector) SendDefaultMetricsToCloudMonitoring(ctx context.Contex
 	wp := workerpool.New(maxExecutionThreads)
 
 	for serviceName, db := range c.connections {
+		if c.shouldSkipService(ctx, serviceName) {
+			continue
+		}
 		dbInfo, err := fetchDatabaseInfo(ctx, db)
 		if err != nil {
-			log.CtxLogger(ctx).Errorw("Failed to fetch database information from v$database view", "error", err, "service_name", serviceName)
+			if !c.recordAuthError(ctx, serviceName, err, "source", "fetch_database_info") {
+				log.CtxLogger(ctx).Errorw("Failed to fetch database information from v$database view", "error", err, "service_name", serviceName)
+			}
 			continue
 		}
 
@@ -343,9 +481,6 @@ func (c *MetricCollector) SendDefaultMetricsToCloudMonitoring(ctx context.Contex
 			query, ok := queryNamesMap[qn]
 			if !ok {
 				log.CtxLogger(ctx).Warnw("Query not found", "query_name", qn)
-				continue
-			}
-			if c.shouldSkipQuery(ctx, serviceName, qn) {
 				continue
 			}
 			if !isQueryAllowedForRole(query, dbInfo.DatabaseRole) {
@@ -375,43 +510,51 @@ func (c *MetricCollector) SendDefaultMetricsToCloudMonitoring(ctx context.Contex
 // and sends them as metrics to Cloud Monitoring.
 func executeQueryAndSendMetrics(ctx context.Context, opts queryOptions) []*mrpb.TimeSeries {
 	queryName := opts.query.GetName()
+	// Bail out if another worker detected an authentication error for this service, to avoid
+	// further failed logins that could lock out the database user.
+	if opts.collector.hasAuthError(opts.serviceName) {
+		return nil
+	}
 	ctxTimeout, cancel := context.WithTimeout(ctx, time.Second*time.Duration(opts.timeout))
 	defer cancel()
 
 	cols := createColumns(opts.query.GetColumns())
 	if cols == nil {
-		log.CtxLogger(ctx).Errorw("No columns specified for query", "query_name", queryName)
-		opts.collector.failCount[fmt.Sprintf("%s:%s", opts.serviceName, queryName)]++
+		opts.collector.handleQueryFailure(ctx, "No columns specified for query", opts.serviceName, queryName, nil)
 		return nil
 	}
 
-	// TODO:  Evaluate adding a backoff mechanism for retrying database queries.
 	rows, err := opts.db.QueryContext(ctxTimeout, opts.query.GetSql())
 	if err != nil {
-		log.CtxLogger(ctx).Errorw("Failed to execute query", "query_name", queryName, "error", err)
-		opts.collector.failCount[fmt.Sprintf("%s:%s", opts.serviceName, queryName)]++
+		opts.collector.handleQueryFailure(ctx, "Failed to execute query", opts.serviceName, queryName, err)
 		return nil
 	}
+	defer rows.Close()
 
 	var ts []*mrpb.TimeSeries
 	for rows.Next() {
 		if err := rows.Scan(cols...); err != nil {
-			log.CtxLogger(ctx).Errorw("Failed to scan row", "query_name", queryName, "error", err)
-			opts.collector.failCount[fmt.Sprintf("%s:%s", opts.serviceName, queryName)]++
+			opts.collector.handleQueryFailure(ctx, "Failed to scan row", opts.serviceName, queryName, err)
 			return nil
 		}
 		ts = append(ts, createMetricsForRow(ctx, opts, cols, opts.defaultLabels)...)
 	}
-	sent, batchCount, err := cloudmonitoring.SendTimeSeries(ctxTimeout, ts, opts.collector.TimeSeriesCreator, opts.collector.BackOffs, opts.collector.Config.GetCloudProperties().GetProjectId())
+	if err := rows.Err(); err != nil {
+		opts.collector.handleQueryFailure(ctx, "Failed while iterating rows", opts.serviceName, queryName, err)
+		return nil
+	}
+	opts.collector.resetQueryFailure(ctx, opts.serviceName, queryName)
 
+	// Use a separate timeout for sending metrics so that QueryTimeout only bounds SQL execution and
+	// scanning, and Cloud Monitoring retries (BackOffs) have room to complete.
+	sendCtx, sendCancel := context.WithTimeout(ctx, sendTimeSeriesTimeout)
+	defer sendCancel()
+	sent, batchCount, err := cloudmonitoring.SendTimeSeries(sendCtx, ts, opts.collector.TimeSeriesCreator, opts.collector.BackOffs, opts.collector.Config.GetCloudProperties().GetProjectId())
 	if err != nil {
-		opts.collector.failCount[fmt.Sprintf("%s:%s", opts.serviceName, queryName)]++
-		failCount := opts.collector.failCount[fmt.Sprintf("%s:%s", opts.serviceName, queryName)]
-		log.CtxLogger(ctx).Errorw("Failed to query database and send metrics to Cloud Monitoring", "query_name", queryName, "service_name", opts.serviceName, "fail_count", failCount, "error", err)
+		log.CtxLogger(ctx).Errorw("Failed to send metrics to Cloud Monitoring", "query_name", queryName, "service_name", opts.serviceName, "error", err)
 		usagemetrics.Error(usagemetrics.OracleMetricCollectionFailure)
 		return nil
 	}
-	delete(opts.collector.failCount, fmt.Sprintf("%s:%s", opts.serviceName, queryName))
 	log.CtxLogger(ctx).Debugw("Successfully queried database and sent metrics to Cloud Monitoring", "query_name", queryName, "service_name", opts.serviceName, "sent", sent, "batches", batchCount)
 	return ts
 }
