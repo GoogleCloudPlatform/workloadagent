@@ -37,6 +37,7 @@ import (
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/status"
 	"github.com/GoogleCloudPlatform/workloadagent/internal/onetime/version"
+
 	"github.com/GoogleCloudPlatform/workloadagent/internal/openshiftmetrics/clients/openshift"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/gce/metadataserver"
 	"github.com/GoogleCloudPlatform/workloadagentplatform/sharedlibraries/log"
