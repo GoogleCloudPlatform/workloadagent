@@ -280,7 +280,7 @@ bundle: manifests kustomize operator-sdk ## Generate bundle manifests and metada
 	rm -f bundle/manifests/*workloadagent* bundle/manifests/*metrics-service*
 	$(OPERATOR_SDK) bundle validate ./bundle
 	grep -q "COPY LICENSE /licenses/" bundle.Dockerfile || echo "COPY LICENSE /licenses/" >> bundle.Dockerfile
-	grep -q "com.redhat.openshift.versions" bundle/metadata/annotations.yaml || echo '  com.redhat.openshift.versions: "v4.15-v4.22"' >> bundle/metadata/annotations.yaml
+	grep -q "com.redhat.openshift.versions" bundle/metadata/annotations.yaml || echo '  com.redhat.openshift.versions: "v4.22"' >> bundle/metadata/annotations.yaml
 
 .PHONY: bundle-build
 bundle-build: ## Build the bundle image.
