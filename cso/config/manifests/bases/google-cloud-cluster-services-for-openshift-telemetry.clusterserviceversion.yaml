@@ -87,6 +87,10 @@ spec:
 
     Follow [these][guidelink] steps to install and configure the Telemetry agent.
 
+    ## Release Notes 0.0.8
+
+    * Updated container base images and dependencies to address security vulnerabilities.
+
     ## Support
 
     For support, please file a support case through [Google Cloud Customer Care][supportlink].
