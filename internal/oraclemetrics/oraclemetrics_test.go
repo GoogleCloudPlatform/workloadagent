@@ -17,10 +17,13 @@ limitations under the License.
 package oraclemetrics
 
 import (
+	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -727,6 +730,7 @@ func TestSendDefaultMetricsToCloudMonitoring(t *testing.T) {
 		OracleConfiguration *configpb.OracleConfiguration
 		connections         map[string]*sql.DB
 		failCount           map[string]int
+		authError           map[string]bool
 		want                []*mrpb.TimeSeries
 	}{
 		{
@@ -846,7 +850,7 @@ func TestSendDefaultMetricsToCloudMonitoring(t *testing.T) {
 			want: []*mrpb.TimeSeries{},
 		},
 		{
-			name: "3 consecutive failures",
+			name: "Retries after 3 consecutive non-auth failures",
 			connections: map[string]*sql.DB{
 				"test_service_name": db,
 			},
@@ -855,11 +859,79 @@ func TestSendDefaultMetricsToCloudMonitoring(t *testing.T) {
 				OracleMetrics: &configpb.OracleMetrics{
 					Queries: []*configpb.Query{
 						&configpb.Query{
-							Name:     "testQuery",
-							Disabled: proto.Bool(false),
+							Name: "testQuery",
+							Columns: []*configpb.Column{
+								&configpb.Column{
+									ValueType:    configpb.ValueType_VALUE_INT64,
+									Name:         "testCol",
+									MetricType:   configpb.MetricType_METRIC_GAUGE,
+									NameOverride: "test_col",
+								},
+							},
+							Sql:          "SELECT 1",
+							DatabaseRole: configpb.Query_PRIMARY,
+							Disabled:     proto.Bool(false),
 						},
 					},
-					Enabled: proto.Bool(true),
+					Enabled:             proto.Bool(true),
+					MaxExecutionThreads: 1,
+					QueryTimeout:        &dpb.Duration{Seconds: 10},
+				},
+			},
+			want: []*mrpb.TimeSeries{
+				{
+					Metric: &mpb.Metric{
+						Type:   "workload.googleapis.com/oracle/test_col",
+						Labels: map[string]string{"dbid": "1", "db_unique_name": "test_db_unique_name", "pdb_name": "test_pdb_name"},
+					},
+					Resource: &mrespb.MonitoredResource{
+						Type: "gce_instance",
+						Labels: map[string]string{
+							"project_id":  "test_project_id",
+							"instance_id": "test_instance_id",
+							"zone":        "test_zone",
+						},
+					},
+					Points: []*mrpb.Point{
+						{
+							Interval: &cpb.TimeInterval{
+								StartTime: &tspb.Timestamp{Seconds: 1724194800},
+								EndTime:   &tspb.Timestamp{Seconds: 1724194800},
+							},
+							Value: &cpb.TypedValue{Value: &cpb.TypedValue_Int64Value{Int64Value: 1}},
+						},
+					},
+					MetricKind: mpb.MetricDescriptor_GAUGE,
+				},
+			},
+		},
+		{
+			name: "Skips query on authentication error",
+			connections: map[string]*sql.DB{
+				"test_service_name": db,
+			},
+			authError: map[string]bool{"test_service_name": true},
+			OracleConfiguration: &configpb.OracleConfiguration{
+				OracleMetrics: &configpb.OracleMetrics{
+					Queries: []*configpb.Query{
+						&configpb.Query{
+							Name: "testQuery",
+							Columns: []*configpb.Column{
+								&configpb.Column{
+									ValueType:    configpb.ValueType_VALUE_INT64,
+									Name:         "testCol",
+									MetricType:   configpb.MetricType_METRIC_GAUGE,
+									NameOverride: "test_col",
+								},
+							},
+							Sql:          "SELECT 1",
+							DatabaseRole: configpb.Query_PRIMARY,
+							Disabled:     proto.Bool(false),
+						},
+					},
+					Enabled:             proto.Bool(true),
+					MaxExecutionThreads: 1,
+					QueryTimeout:        &dpb.Duration{Seconds: 10},
 				},
 			},
 			want: []*mrpb.TimeSeries{},
@@ -882,6 +954,7 @@ func TestSendDefaultMetricsToCloudMonitoring(t *testing.T) {
 				},
 				TimeSeriesCreator: &cmfake.TimeSeriesCreator{},
 				failCount:         tc.failCount,
+				authError:         tc.authError,
 				skipMsgLogged:     map[string]bool{},
 				connections:       tc.connections,
 			}
@@ -895,62 +968,294 @@ func TestSendDefaultMetricsToCloudMonitoring(t *testing.T) {
 	}
 }
 
-func TestShouldSkipQuery(t *testing.T) {
+func TestIsAuthError(t *testing.T) {
 	tests := []struct {
-		name          string
-		serviceName   string
-		queryName     string
-		failCount     int
-		skipMsgLogged map[string]bool
-		want          bool
+		name string
+		err  error
+		want bool
 	}{
 		{
-			name:          "Skip query",
-			serviceName:   "test",
-			queryName:     "query1",
-			failCount:     maxQueryFailures,
-			skipMsgLogged: map[string]bool{},
-			want:          true,
+			name: "NilError",
+			err:  nil,
+			want: false,
 		},
 		{
-			name:          "Do not skip query",
-			serviceName:   "test",
-			queryName:     "query1",
-			failCount:     maxQueryFailures - 1,
-			skipMsgLogged: map[string]bool{},
-			want:          false,
+			name: "NonAuthError",
+			err:  errors.New("ORA-00942: table or view does not exist"),
+			want: false,
+		},
+		{
+			name: "InvalidUsernameOrPasswordPadded",
+			err:  errors.New("ORA-01017: invalid username/password; logon denied"),
+			want: true,
+		},
+		{
+			name: "InvalidUsernameOrPasswordUnpadded",
+			err:  errors.New("ORA-1017"),
+			want: true,
+		},
+		{
+			name: "NullPassword",
+			err:  errors.New("ORA-01005: null password given; logon denied"),
+			want: true,
+		},
+		{
+			name: "LacksCreateSessionPrivilege",
+			err:  errors.New("ORA-01045: user lacks CREATE SESSION privilege; logon denied"),
+			want: true,
+		},
+		{
+			name: "AccountLocked",
+			err:  errors.New("ORA-28000: the account is locked"),
+			want: true,
+		},
+		{
+			name: "PasswordExpired",
+			err:  errors.New("ORA-28001: the password has expired"),
+			want: true,
+		},
+		{
+			name: "AuthProtocolInternalError",
+			err:  errors.New("ORA-28041: authentication protocol internal error"),
+			want: true,
+		},
+		{
+			name: "LowercaseCode",
+			err:  errors.New("ora-1017: invalid username/password; logon denied"),
+			want: true,
+		},
+		{
+			name: "WrappedError",
+			err:  fmt.Errorf("executing query: %w", errors.New("ORA-01017: invalid username/password; logon denied")),
+			want: true,
+		},
+		{
+			name: "StandbyMediaRecoveryInProgress",
+			err:  errors.New("ORA-10456: cannot open standby database; media recovery session may be in progress"),
+			want: false,
+		},
+		{
+			name: "StandbyRequiresRecovery",
+			err:  errors.New("ORA-10458: standby database requires recovery"),
+			want: false,
+		},
+		{
+			name: "FiveDigitCodeWithAuthPrefix",
+			err:  errors.New("ORA-10170"),
+			want: false,
+		},
+		{
+			name: "LongerCodeWithAuthPrefix",
+			err:  errors.New("ORA-280001"),
+			want: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isAuthError(tc.err); got != tc.want {
+				t.Errorf("isAuthError(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestShouldSkipService(t *testing.T) {
+	tests := []struct {
+		name        string
+		serviceName string
+		authError   map[string]bool
+		authRetryAt map[string]time.Time
+		want        bool
+	}{
+		{
+			name:        "Skip service on auth error",
+			serviceName: "test",
+			authError:   map[string]bool{"test": true},
+			want:        true,
+		},
+		{
+			name:        "Do not skip service without auth error",
+			serviceName: "test",
+			authError:   map[string]bool{},
+			want:        false,
+		},
+		{
+			name:        "Do not skip service when another service has auth error",
+			serviceName: "test",
+			authError:   map[string]bool{"other": true},
+			want:        false,
+		},
+		{
+			name:        "Skip service before retry is due",
+			serviceName: "test",
+			authError:   map[string]bool{"test": true},
+			authRetryAt: map[string]time.Time{"test": time.Now().Add(time.Minute)},
+			want:        true,
+		},
+		{
+			name:        "Do not skip service when retry is due",
+			serviceName: "test",
+			authError:   map[string]bool{"test": true},
+			authRetryAt: map[string]time.Time{"test": time.Now().Add(-time.Minute)},
+			want:        false,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
+			skipMsgLogged := map[string]bool{}
 			c := &MetricCollector{
-				failCount:     map[string]int{"test:query1": tc.failCount},
-				skipMsgLogged: tc.skipMsgLogged,
+				authError:     tc.authError,
+				authRetryAt:   tc.authRetryAt,
+				skipMsgLogged: skipMsgLogged,
 			}
 
-			got := c.shouldSkipQuery(ctx, tc.serviceName, tc.queryName)
+			got := c.shouldSkipService(ctx, tc.serviceName)
 
 			if got != tc.want {
-				t.Errorf("skipQuery(%q, %q) = %v, want %v", tc.serviceName, tc.queryName, got, tc.want)
+				t.Errorf("shouldSkipService(%q) = %v, want %v", tc.serviceName, got, tc.want)
 			}
-
-			if got && !tc.skipMsgLogged["test:query1"] {
-				t.Errorf("skipQuery(%q, %q) did not log skip message", tc.serviceName, tc.queryName)
+			if got != skipMsgLogged[tc.serviceName] {
+				t.Errorf("shouldSkipService(%q) skipMsgLogged = %v, want %v", tc.serviceName, skipMsgLogged[tc.serviceName], got)
 			}
 		})
 	}
 }
 
-func TestExecuteQueryAndSendMetrics(t *testing.T) {
+func TestShouldSkipServiceAllowsSingleRetry(t *testing.T) {
+	ctx := t.Context()
+	c := &MetricCollector{
+		authError:   map[string]bool{"test": true},
+		authRetryAt: map[string]time.Time{"test": time.Now().Add(-time.Minute)},
+	}
+
+	if c.shouldSkipService(ctx, "test") {
+		t.Errorf("shouldSkipService() = true when retry is due, want false")
+	}
+	if !c.shouldSkipService(ctx, "test") {
+		t.Errorf("shouldSkipService() = false right after a retry was allowed, want true")
+	}
+	if got := c.authRetryAt["test"]; !got.After(time.Now()) {
+		t.Errorf("authRetryAt = %v, want a time in the future", got)
+	}
+}
+
+func TestRecordAuthError(t *testing.T) {
 	tests := []struct {
-		name  string
-		want  []*mrpb.TimeSeries
-		query *configpb.Query
+		name             string
+		initialAuthError bool
+		initialRetryAt   bool
+		err              error
+		wantRetryAt      bool
 	}{
 		{
-			name: "Success",
+			name:        "Account locked schedules a retry",
+			err:         errors.New("ORA-28000: the account is locked"),
+			wantRetryAt: true,
+		},
+		{
+			name:        "Missing CREATE SESSION schedules a retry",
+			err:         errors.New("ORA-01045: user lacks create session privilege; logon denied"),
+			wantRetryAt: true,
+		},
+		{
+			name:        "Invalid password disables until restart",
+			err:         errors.New("ORA-01017: invalid username/password; logon denied"),
+			wantRetryAt: false,
+		},
+		{
+			name:             "Retryable error after retryable error schedules a retry",
+			initialAuthError: true,
+			initialRetryAt:   true,
+			err:              errors.New("ORA-28000: the account is locked"),
+			wantRetryAt:      true,
+		},
+		{
+			name:             "Permanent error after retryable error disables until restart",
+			initialAuthError: true,
+			initialRetryAt:   true,
+			err:              errors.New("ORA-01017: invalid username/password; logon denied"),
+			wantRetryAt:      false,
+		},
+		{
+			name:             "Retryable error after permanent error stays disabled until restart",
+			initialAuthError: true,
+			err:              errors.New("ORA-28000: the account is locked"),
+			wantRetryAt:      false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &MetricCollector{
+				authError:   map[string]bool{"test": tc.initialAuthError},
+				authRetryAt: map[string]time.Time{},
+			}
+			if tc.initialRetryAt {
+				c.authRetryAt["test"] = time.Now().Add(-time.Minute)
+			}
+
+			if !c.recordAuthError(t.Context(), "test", tc.err) {
+				t.Fatalf("recordAuthError(%v) = false, want true", tc.err)
+			}
+			if !c.authError["test"] {
+				t.Errorf("authError[%q] = false, want true", "test")
+			}
+			retryAt, gotRetryAt := c.authRetryAt["test"]
+			if gotRetryAt != tc.wantRetryAt {
+				t.Errorf("authRetryAt[%q] present = %v, want %v", "test", gotRetryAt, tc.wantRetryAt)
+			}
+			if gotRetryAt && !retryAt.After(time.Now()) {
+				t.Errorf("authRetryAt[%q] = %v, want a time in the future", "test", retryAt)
+			}
+		})
+	}
+}
+
+func TestHealthCheckRetryClearsAuthError(t *testing.T) {
+	ctx := t.Context()
+	db, err := setupSQLiteDB(t)
+	if err != nil {
+		t.Fatalf("Failed to setup testing SQLite DB: %v", err)
+	}
+	defer db.Close()
+	c := &MetricCollector{
+		connections:   map[string]*sql.DB{"test": db},
+		authError:     map[string]bool{"test": true},
+		authRetryAt:   map[string]time.Time{"test": time.Now().Add(-time.Minute)},
+		skipMsgLogged: map[string]bool{"test": true},
+	}
+
+	got := c.checkDatabaseHealth(ctx)
+
+	if got["test"].Status != Healthy {
+		t.Errorf("checkDatabaseHealth()[%q].Status = %v, want %v", "test", got["test"].Status, Healthy)
+	}
+	if c.hasAuthError("test") || c.shouldSkipService(ctx, "test") {
+		t.Errorf("service still disabled after a successful retry, want re-enabled")
+	}
+	if _, ok := c.authRetryAt["test"]; ok {
+		t.Errorf("authRetryAt[%q] present after a successful retry, want absent", "test")
+	}
+}
+
+func TestExecuteQueryAndSendMetrics(t *testing.T) {
+	tests := []struct {
+		name              string
+		initialFailCount  int
+		timeSeriesCreator *cmfake.TimeSeriesCreator
+		query             *configpb.Query
+		want              []*mrpb.TimeSeries
+		initialAuthError  bool
+		wantFailCount     int
+		wantAuthError     bool
+	}{
+		{
+			name:              "Success resets failCount",
+			initialFailCount:  5,
+			timeSeriesCreator: &cmfake.TimeSeriesCreator{},
 			query: &configpb.Query{
 				Name: "testQuery",
 				Columns: []*configpb.Column{
@@ -991,9 +1296,13 @@ func TestExecuteQueryAndSendMetrics(t *testing.T) {
 					MetricKind: mpb.MetricDescriptor_GAUGE,
 				},
 			},
+			wantFailCount: 0,
+			wantAuthError: false,
 		},
 		{
-			name: "Invalid query",
+			name:              "Invalid query increments failCount without setting authError",
+			initialFailCount:  3,
+			timeSeriesCreator: &cmfake.TimeSeriesCreator{},
 			query: &configpb.Query{
 				Name: "testQuery",
 				Columns: []*configpb.Column{
@@ -1008,6 +1317,77 @@ func TestExecuteQueryAndSendMetrics(t *testing.T) {
 				DatabaseRole: configpb.Query_PRIMARY,
 				Disabled:     proto.Bool(false),
 			},
+			wantFailCount: 4,
+			wantAuthError: false,
+		},
+		{
+			name:              "Cloud Monitoring SendTimeSeries failure does not increment query failCount",
+			initialFailCount:  2,
+			timeSeriesCreator: &cmfake.TimeSeriesCreator{Err: errors.New("code = Canceled desc = CANCELLED")},
+			query: &configpb.Query{
+				Name: "testQuery",
+				Columns: []*configpb.Column{
+					&configpb.Column{
+						ValueType:    configpb.ValueType_VALUE_INT64,
+						Name:         "testCol",
+						MetricType:   configpb.MetricType_METRIC_GAUGE,
+						NameOverride: "test_col",
+					},
+				},
+				Sql:          "SELECT 1",
+				DatabaseRole: configpb.Query_PRIMARY,
+				Disabled:     proto.Bool(false),
+			},
+			want:          nil,
+			wantFailCount: 0,
+			wantAuthError: false,
+		},
+		{
+			name:              "Mid-iteration row error increments failCount and sends no metrics",
+			initialFailCount:  2,
+			timeSeriesCreator: &cmfake.TimeSeriesCreator{},
+			query: &configpb.Query{
+				Name: "testQuery",
+				Columns: []*configpb.Column{
+					&configpb.Column{
+						ValueType:    configpb.ValueType_VALUE_INT64,
+						Name:         "testCol",
+						MetricType:   configpb.MetricType_METRIC_GAUGE,
+						NameOverride: "test_col",
+					},
+				},
+				// The first row succeeds; abs() of the minimum int64 fails with "integer overflow" while
+				// stepping to the second row, which is only surfaced via rows.Err().
+				Sql:          "SELECT abs(column1) FROM (VALUES (1), (-9223372036854775807 - 1))",
+				DatabaseRole: configpb.Query_PRIMARY,
+				Disabled:     proto.Bool(false),
+			},
+			want:          nil,
+			wantFailCount: 3,
+			wantAuthError: false,
+		},
+		{
+			name:              "Existing service auth error skips query",
+			initialFailCount:  1,
+			initialAuthError:  true,
+			timeSeriesCreator: &cmfake.TimeSeriesCreator{},
+			query: &configpb.Query{
+				Name: "testQuery",
+				Columns: []*configpb.Column{
+					&configpb.Column{
+						ValueType:    configpb.ValueType_VALUE_INT64,
+						Name:         "testCol",
+						MetricType:   configpb.MetricType_METRIC_GAUGE,
+						NameOverride: "test_col",
+					},
+				},
+				Sql:          "SELECT 1",
+				DatabaseRole: configpb.Query_PRIMARY,
+				Disabled:     proto.Bool(false),
+			},
+			want:          nil,
+			wantFailCount: 1,
+			wantAuthError: true,
 		},
 	}
 	for _, tc := range tests {
@@ -1018,9 +1398,17 @@ func TestExecuteQueryAndSendMetrics(t *testing.T) {
 			}
 			defer db.Close()
 
+			key := "test_service_name:testQuery"
+			failCount := map[string]int{}
+			if tc.initialFailCount > 0 {
+				failCount[key] = tc.initialFailCount
+			}
+
 			collector := &MetricCollector{
-				failCount:     map[string]int{},
+				failCount:     failCount,
+				authError:     map[string]bool{"test_service_name": tc.initialAuthError},
 				skipMsgLogged: map[string]bool{},
+				BackOffs:      cloudmonitoring.NewBackOffIntervals(time.Millisecond, time.Millisecond),
 				Config: &configpb.Configuration{
 					CloudProperties: &configpb.CloudProperties{
 						ProjectId:        "test_project_id",
@@ -1032,7 +1420,7 @@ func TestExecuteQueryAndSendMetrics(t *testing.T) {
 						Region:           "test_region",
 					},
 				},
-				TimeSeriesCreator: &cmfake.TimeSeriesCreator{},
+				TimeSeriesCreator: tc.timeSeriesCreator,
 			}
 
 			opts := queryOptions{
@@ -1049,6 +1437,182 @@ func TestExecuteQueryAndSendMetrics(t *testing.T) {
 
 			if diff := cmp.Diff(tc.want, got, protocmp.Transform(), protocmp.IgnoreFields(&mrpb.Point{}, "interval")); diff != "" {
 				t.Errorf("executeQueryAndSendMetrics() returned an unexpected diff (-want +got): %v", diff)
+			}
+			if collector.failCount[key] != tc.wantFailCount {
+				t.Errorf("collector.failCount[%q] = %d, want %d", key, collector.failCount[key], tc.wantFailCount)
+			}
+			if collector.authError["test_service_name"] != tc.wantAuthError {
+				t.Errorf("collector.authError[%q] = %v, want %v", "test_service_name", collector.authError["test_service_name"], tc.wantAuthError)
+			}
+		})
+	}
+}
+
+func TestRecordQueryFailureAuthError(t *testing.T) {
+	ctx := t.Context()
+	collector := &MetricCollector{}
+
+	count, isAuth := collector.recordQueryFailure(ctx, "orcl", "testQuery", errors.New("ORA-01017: invalid username/password; logon denied"))
+	if count != 1 || !isAuth {
+		t.Errorf("recordQueryFailure() = (%d, %v), want (1, true)", count, isAuth)
+	}
+	if !collector.shouldSkipService(ctx, "orcl") {
+		t.Errorf("shouldSkipService() = false after auth error, want true")
+	}
+}
+
+func TestRecordQueryFailureNonAuthError(t *testing.T) {
+	ctx := t.Context()
+	collector := &MetricCollector{}
+
+	count, isAuth := collector.recordQueryFailure(ctx, "orcl", "testQuery", errors.New("ORA-00942: table or view does not exist"))
+	if count != 1 || isAuth {
+		t.Errorf("recordQueryFailure() = (%d, %v), want (1, false)", count, isAuth)
+	}
+	if collector.hasAuthError("orcl") {
+		t.Errorf("hasAuthError() = true after non-auth error, want false")
+	}
+}
+
+func TestHandleQueryFailureNonAuthKeepsRetrying(t *testing.T) {
+	ctx := t.Context()
+	collector := &MetricCollector{}
+	key := "orcl:testQuery"
+	err := errors.New("ORA-00942: table or view does not exist")
+
+	// Failures past maxReportedQueryFailures are still counted (only their logging is suppressed)
+	// and never disable the service.
+	for i := 1; i <= maxReportedQueryFailures+2; i++ {
+		collector.handleQueryFailure(ctx, "Failed to execute query", "orcl", "testQuery", err)
+		if collector.failCount[key] != i {
+			t.Errorf("after %d failures, failCount[%q] = %d, want %d", i, key, collector.failCount[key], i)
+		}
+	}
+	if collector.hasAuthError("orcl") {
+		t.Errorf("hasAuthError() = true after non-auth failures, want false")
+	}
+
+	collector.resetQueryFailure(ctx, "orcl", "testQuery")
+	if got, ok := collector.failCount[key]; ok {
+		t.Errorf("after resetQueryFailure(), failCount[%q] = %d, want absent", key, got)
+	}
+}
+
+// newAuthTestCollector returns a collector with one query for a single service backed by db.
+func newAuthTestCollector(db *sql.DB) *MetricCollector {
+	return &MetricCollector{
+		Config: &configpb.Configuration{
+			CloudProperties: &configpb.CloudProperties{
+				ProjectId:  "test_project_id",
+				InstanceId: "test_instance_id",
+				Zone:       "test_zone",
+			},
+			OracleConfiguration: &configpb.OracleConfiguration{
+				OracleMetrics: &configpb.OracleMetrics{
+					Queries: []*configpb.Query{
+						&configpb.Query{
+							Name: "testQuery",
+							Columns: []*configpb.Column{
+								&configpb.Column{
+									ValueType:    configpb.ValueType_VALUE_INT64,
+									Name:         "testCol",
+									MetricType:   configpb.MetricType_METRIC_GAUGE,
+									NameOverride: "test_col",
+								},
+							},
+							Sql:          "SELECT 1",
+							DatabaseRole: configpb.Query_PRIMARY,
+							Disabled:     proto.Bool(false),
+						},
+					},
+					MaxExecutionThreads: 1,
+					QueryTimeout:        &dpb.Duration{Seconds: 10},
+				},
+			},
+		},
+		TimeSeriesCreator: &cmfake.TimeSeriesCreator{},
+		connections:       map[string]*sql.DB{"test_service_name": db},
+	}
+}
+
+func TestAuthErrorSkipsAllQueriesForService(t *testing.T) {
+	ctx := t.Context()
+	// A healthy DB: without the auth error, the health check would report healthy and the
+	// default metrics would be collected, so empty/unhealthy results prove the service was skipped.
+	db, err := setupSQLiteDB(t)
+	if err != nil {
+		t.Fatalf("Failed to setup testing SQLite DB: %v", err)
+	}
+	defer db.Close()
+	collector := newAuthTestCollector(db)
+
+	// Simulate an auth error from a query on this service.
+	collector.recordQueryFailure(ctx, "test_service_name", "otherQuery", errors.New("ORA-01017: invalid username/password; logon denied"))
+
+	health := collector.SendHealthMetricsToCloudMonitoring(ctx)
+	if len(health) != 1 || len(health[0].GetPoints()) != 1 || health[0].GetPoints()[0].GetValue().GetBoolValue() {
+		t.Errorf("SendHealthMetricsToCloudMonitoring() = %v, want a single unhealthy time series", health)
+	}
+
+	if got := collector.SendDefaultMetricsToCloudMonitoring(ctx); len(got) != 0 {
+		t.Errorf("SendDefaultMetricsToCloudMonitoring() = %v, want empty", got)
+	}
+}
+
+// authFailConnector fails every login with err and counts the attempts.
+type authFailConnector struct {
+	err    error
+	logins atomic.Int32
+}
+
+func (c *authFailConnector) Connect(context.Context) (driver.Conn, error) {
+	c.logins.Add(1)
+	return nil, c.err
+}
+
+func (c *authFailConnector) Driver() driver.Driver { return authFailDriver{c.err} }
+
+type authFailDriver struct{ err error }
+
+func (d authFailDriver) Open(string) (driver.Conn, error) { return nil, d.err }
+
+func TestLoginAuthErrorStopsFurtherLogins(t *testing.T) {
+	// database/sql only retries driver.ErrBadConn, so each detection costs exactly one login.
+	tests := []struct {
+		name string
+		// detect runs the first collection step, which should hit and record the auth error.
+		detect func(ctx context.Context, c *MetricCollector)
+	}{
+		{
+			name:   "Detected by health check",
+			detect: func(ctx context.Context, c *MetricCollector) { c.SendHealthMetricsToCloudMonitoring(ctx) },
+		},
+		{
+			name:   "Detected by fetchDatabaseInfo",
+			detect: func(ctx context.Context, c *MetricCollector) { c.SendDefaultMetricsToCloudMonitoring(ctx) },
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			connector := &authFailConnector{err: errors.New("ORA-01017: invalid username/password; logon denied")}
+			db := sql.OpenDB(connector)
+			defer db.Close()
+			collector := newAuthTestCollector(db)
+
+			tc.detect(ctx, collector)
+			if !collector.hasAuthError("test_service_name") {
+				t.Fatalf("hasAuthError() = false after login auth error, want true")
+			}
+			if got := connector.logins.Load(); got != 1 {
+				t.Errorf("login attempts before auth error was recorded = %d, want 1", got)
+			}
+
+			collector.SendHealthMetricsToCloudMonitoring(ctx)
+			collector.SendDefaultMetricsToCloudMonitoring(ctx)
+			if got := connector.logins.Load(); got != 1 {
+				t.Errorf("login attempts after auth error = %d, want 1 (no further logins)", got)
 			}
 		})
 	}
@@ -1145,9 +1709,20 @@ func TestDatabaseHealth(t *testing.T) {
 		t.Fatalf("cannot create a sqlite testing database")
 	}
 
+	// Each connection to ":memory:" is a separate database, so pin the pool to one connection.
+	emptyDB, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatalf("cannot create a sqlite testing database")
+	}
+	emptyDB.SetMaxOpenConns(1)
+	if _, err := emptyDB.Exec(`CREATE TABLE DUAL (DUMMY TEXT PRIMARY KEY)`); err != nil {
+		t.Fatalf("cannot create empty DUAL table: %v", err)
+	}
+
 	tests := []struct {
 		name        string
 		connections map[string]*sql.DB
+		authError   map[string]bool
 		want        map[string]*ServiceHealth
 	}{
 		{
@@ -1169,7 +1744,32 @@ func TestDatabaseHealth(t *testing.T) {
 			want: map[string]*ServiceHealth{
 				"service_name2": &ServiceHealth{
 					Status:  Unhealthy,
-					Message: "query execution failed: no such table: dual",
+					Message: "health query failed: no such table: dual",
+				},
+			},
+		},
+		{
+			name: "No rows",
+			connections: map[string]*sql.DB{
+				"service_name3": emptyDB,
+			},
+			want: map[string]*ServiceHealth{
+				"service_name3": &ServiceHealth{
+					Status:  Unhealthy,
+					Message: "health query failed: sql: no rows in result set",
+				},
+			},
+		},
+		{
+			name: "Skipped on previous auth error",
+			connections: map[string]*sql.DB{
+				"service_name1": healthyDB,
+			},
+			authError: map[string]bool{"service_name1": true},
+			want: map[string]*ServiceHealth{
+				"service_name1": &ServiceHealth{
+					Status:  Unhealthy,
+					Message: "health check skipped due to a previous authentication error",
 				},
 			},
 		},
@@ -1177,7 +1777,8 @@ func TestDatabaseHealth(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := checkDatabaseHealth(t.Context(), tc.connections)
+			c := &MetricCollector{connections: tc.connections, authError: tc.authError}
+			got := c.checkDatabaseHealth(t.Context())
 
 			opts := []cmp.Option{cmpopts.IgnoreFields(ServiceHealth{}, "LastChecked")}
 			if diff := cmp.Diff(tc.want, got, opts...); diff != "" {

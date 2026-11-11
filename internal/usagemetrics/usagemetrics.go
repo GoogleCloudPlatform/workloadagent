@@ -74,6 +74,7 @@ const (
 	GuestActionsFailure                   = 36
 	OpenShiftGenericMetricsFailure        = 37
 	OpenShiftWLMRequestFailure            = 38
+	OracleAuthenticationFailure           = 39
 )
 
 // Agent wide action mappings.
