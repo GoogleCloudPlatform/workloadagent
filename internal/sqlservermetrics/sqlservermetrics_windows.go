@@ -33,10 +33,62 @@ import (
 )
 
 const (
-	commandFind  = `sudo find %s -type f -iname "%s" -print`
+	// The %s verbs in commandFind and commandDf must only be filled with values
+	// returned by shellQuote, since the commands are executed by a remote shell.
+	commandFind  = `sudo find %s -type f -iname %s -print`
 	commandDf    = "sudo df --output=target %s | tail -n 1"
 	commandMount = "mount | grep sd"
 )
+
+// shellQuote returns s as a single POSIX shell word by wrapping it in single
+// quotes. Characters that cannot be safely carried through
+// remote.RunCommandWithPipes (which splits commands on "|") or that would
+// break the command into multiple lines are rejected.
+func shellQuote(s string) (string, error) {
+	if strings.ContainsAny(s, "|\n\r\x00") {
+		return "", fmt.Errorf("value %q contains unsupported characters", s)
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'", nil
+}
+
+// buildFindCommand builds the remote command used to locate the database file
+// described by physicalPath, which comes from sys.master_files and must be
+// treated as untrusted input.
+func buildFindCommand(physicalPath string) (string, error) {
+	dir, fileName := filepath.Split(physicalPath)
+	// Requiring an absolute directory prevents the path from being parsed as a
+	// find option or expression (e.g. "-delete").
+	if !strings.HasPrefix(dir, "/") {
+		return "", fmt.Errorf("directory %q of physical_name is not an absolute path", dir)
+	}
+	if fileName == "" {
+		return "", fmt.Errorf("physical_name %q has no file name", physicalPath)
+	}
+	quotedDir, err := shellQuote(dir)
+	if err != nil {
+		return "", err
+	}
+	quotedFileName, err := shellQuote(fileName)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(commandFind, quotedDir, quotedFileName), nil
+}
+
+// buildDfCommand builds the remote command used to find the mount point of the
+// first file returned by the find command.
+func buildDfCommand(findOutput string) (string, error) {
+	firstLine, _, _ := strings.Cut(findOutput, "\n")
+	firstLine = strings.TrimSuffix(firstLine, "\r")
+	if firstLine == "" {
+		return "", fmt.Errorf("find returned no results")
+	}
+	quotedPath, err := shellQuote(firstLine)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(commandDf, quotedPath), nil
+}
 
 // osCollection is the windows implementation of OSCollection.
 func (s *SQLServerMetrics) osCollection(ctx context.Context, dwActivated bool) error {
@@ -249,17 +301,23 @@ func addPhysicalDriveRemoteLinux(details []sqlserverutils.MetricDetails, cred *s
 				log.Logger.Warn("physical_name field for DB_LOG_DISK_SEPERATION does not exist")
 				continue
 			}
-			dir, filePath := filepath.Split(physicalPath)
-			findCommand := fmt.Sprintf(commandFind, dir, filePath)
+			findCommand, err := buildFindCommand(physicalPath)
+			if err != nil {
+				log.Logger.Warnw("Skipping physical_name for DB_LOG_DISK_SEPARATION", "physical_name", physicalPath, "error", err)
+				continue
+			}
 
-			filePath, filePathErr := remote.RunCommandWithPipes(findCommand, r)
+			findOutput, filePathErr := remote.RunCommandWithPipes(findCommand, r)
 			if filePathErr != nil {
 				log.Logger.Warnf("Failed to run cmd %v. error: %v", findCommand, filePathErr)
 				continue
 			}
-			filePath = strings.TrimSuffix(filePath, "\n")
 
-			command := fmt.Sprintf(commandDf, filePath)
+			command, err := buildDfCommand(findOutput)
+			if err != nil {
+				log.Logger.Warnw("Skipping find result for DB_LOG_DISK_SEPARATION", "physical_name", physicalPath, "error", err)
+				continue
+			}
 			physicalPathMount, physicalPathErr := remote.RunCommandWithPipes(command, r)
 			if physicalPathErr != nil {
 				log.Logger.Warnf("Failed to run cmd %v. error: %v", command, physicalPathErr)
@@ -274,7 +332,7 @@ func addPhysicalDriveRemoteLinux(details []sqlserverutils.MetricDetails, cred *s
 			}
 
 			allMounts := strings.TrimSuffix(resultMount, "\n")
-			physicalDriveHelper := regexp.MustCompile(` `+physicalPathMount+` `).Split(allMounts, -1)
+			physicalDriveHelper := regexp.MustCompile(` `+regexp.QuoteMeta(physicalPathMount)+` `).Split(allMounts, -1)
 
 			physicalDrives := []string{}
 			for i := 0; i < len(physicalDriveHelper)-1; i++ {
