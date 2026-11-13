@@ -211,7 +211,7 @@ func (s *SQLServerMetrics) sqlCollection(ctx context.Context, dwActivated bool) 
 				log.Logger.Errorw("Failed to get secret value", "error", err)
 				continue
 			}
-			conn := fmt.Sprintf("server=%s;user id=%s;password=%s;port=%d;", sqlCfg.Host, sqlCfg.Username, pswd, sqlCfg.PortNumber)
+			conn := fmt.Sprintf("server=%s;user id=%s;password=%s;port=%d;encrypt=true;trustservercertificate=true;", sqlCfg.Host, sqlCfg.Username, pswd, sqlCfg.PortNumber)
 			details, err := func(ctx context.Context, conn string, timeout time.Duration, windows bool) ([]sqlserverutils.MetricDetails, error) {
 				c, err := sqlcollector.NewV1("sqlserver", conn, windows)
 				if err != nil {

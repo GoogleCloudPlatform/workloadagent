@@ -47,7 +47,7 @@ func (s *SQLServerMetrics) dbCenterMetrics(ctx context.Context) databasecenter.D
 				log.Logger.Errorw("Failed to get secret value", "error", err)
 				continue
 			}
-			conn := fmt.Sprintf("server=%s;user id=%s;password=%s;port=%d;", sqlCfg.Host, sqlCfg.Username, pswd, sqlCfg.PortNumber)
+			conn := fmt.Sprintf("server=%s;user id=%s;password=%s;port=%d;encrypt=true;trustservercertificate=true;", sqlCfg.Host, sqlCfg.Username, pswd, sqlCfg.PortNumber)
 			c, err := sqlcollector.NewV1("sqlserver", conn, false)
 			if err != nil {
 				log.Logger.Errorw("Failed to run sql collection", "error", err)

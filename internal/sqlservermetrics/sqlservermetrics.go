@@ -61,7 +61,7 @@ func (s *SQLServerMetrics) PingDB(ctx context.Context, gceService GCEInterface, 
 			if err != nil {
 				return fmt.Errorf("failed to get secret for host %s: %v", sqlCfg.Host, err)
 			}
-			conn := fmt.Sprintf("server=%s;user id=%s;password=%s;port=%d;", sqlCfg.Host, sqlCfg.Username, pswd, sqlCfg.PortNumber)
+			conn := fmt.Sprintf("server=%s;user id=%s;password=%s;port=%d;encrypt=true;trustservercertificate=true;", sqlCfg.Host, sqlCfg.Username, pswd, sqlCfg.PortNumber)
 			windows := false
 			if runtime.GOOS == "windows" {
 				windows = !guestCfg.LinuxRemote

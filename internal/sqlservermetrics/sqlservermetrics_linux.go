@@ -121,7 +121,7 @@ func (s *SQLServerMetrics) sqlCollection(ctx context.Context, dwActivated bool) 
 				details := c.CollectSQLMetrics(ctx, timeout)
 				log.Logger.Debug("Collecting SQL Server rules completes.")
 				return details, nil
-			}(ctx, fmt.Sprintf("server=%s;user id=%s;password=%s;port=%d;", sqlCfg.Host, sqlCfg.Username, pswd, sqlCfg.PortNumber), s.Config.GetCollectionTimeout().AsDuration(), false)
+			}(ctx, fmt.Sprintf("server=%s;user id=%s;password=%s;port=%d;encrypt=true;trustservercertificate=true;", sqlCfg.Host, sqlCfg.Username, pswd, sqlCfg.PortNumber), s.Config.GetCollectionTimeout().AsDuration(), false)
 
 			if err != nil {
 				log.Logger.Errorw("Failed to run sql collection", "error", err)
